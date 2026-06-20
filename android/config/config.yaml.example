@@ -1,0 +1,97 @@
+# ── Руслан — конфиг для Android (Termux) ──
+# Скопируй в: ~/.config/hermes/config.yaml
+
+# ══════════════════════════════════════════════════
+#  🇷🇺 Язык
+# ══════════════════════════════════════════════════
+display:
+  language: ru
+  skin: ruslan
+  compact: true                        # экономия экрана
+
+# ══════════════════════════════════════════════════
+#  🤖 Российские LLM-провайдеры (выбери один)
+# ══════════════════════════════════════════════════
+#  Раскомментируй нужный блок.
+
+# ── 1. DeepSeek (прямой API) — быстро, дёшево ──
+# model:
+#   default: deepseek-v4-flash
+#   provider: deepseek
+#   api_mode: chat_completions
+
+# ── 2. Яндекс (YandexGPT) — ПРЯМОЙ API ──
+# model:
+#   default: yandexgpt-pro
+#   provider: yandexgpt
+#   api_mode: chat_completions
+
+# ── 3. Сбер (GigaChat) — ПРЯМОЙ API ──
+# model:
+#   default: GigaChat-Pro
+#   provider: gigachat
+#   api_mode: chat_completions
+
+# ── 4. OpenRouter (200+ моделей, включая бесплатные :free) ──
+# Регистрация: openrouter.ai/keys (2 мин, карта не нужна)
+# Бесплатные: qwen/qwen3-coder:free (код), deepseek/deepseek-r1:free (рассуждения)
+# model:
+#   default: qwen/qwen3-coder:free
+#   provider: openrouter
+
+# ── 6. Ollama (ЛОКАЛЬНО, только для ПК) ──
+# Без ключа, без интернета. Установи: brew install ollama
+# model:
+#   default: qwen2.5:1.5b
+#   provider: ollama
+#   base_url: http://localhost:11434/v1
+
+# ── 5. OpenCode/Zen (бесплатно!) ──
+model:
+  default: deepseek-v4-flash
+  provider: opencode-go
+  base_url: https://opencode.ai/zen/go/v1
+  api_mode: chat_completions
+
+# ══════════════════════════════════════════════════
+#  Терминал
+# ══════════════════════════════════════════════════
+terminal:
+  backend: local
+  cwd: /data/data/com.termux/files/home
+  timeout: 180
+
+# ══════════════════════════════════════════════════
+#  Telegram
+# ══════════════════════════════════════════════════
+telegram:
+  enabled: true
+  require_mention: false
+
+# ══════════════════════════════════════════════════
+#  Голосовые сообщения (STT)
+# ══════════════════════════════════════════════════
+stt:
+  provider: groq
+  groq:
+    api_key: "${GROQ_API_KEY}"
+    model: whisper-large-v3
+
+# ══════════════════════════════════════════════════
+#  Память (лучше выкл на телефоне)
+# ══════════════════════════════════════════════════
+memory:
+  memory_enabled: false
+
+toolsets:
+  - hermes-cli
+
+# ══════════════════════════════════════════════════
+#  Ключи API (в .bashrc)
+# ══════════════════════════════════════════════════
+# export DEEPSEEK_API_KEY=***          # DeepSeek
+# export YANDEX_API_KEY=***            # YandexGPT
+# export GIGACHAT_ACCESS_TOKEN=***     # GigaChat
+# export OPENROUTER_API_KEY=***        # OpenRouter
+# export OPENCODE_GO_API_KEY=***       # OpenCode/Zen
+# export TELEGRAM_BOT_TOKEN=***           # токен бота

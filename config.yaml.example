@@ -1,0 +1,108 @@
+# ── Руслан — пример конфигурации ──
+# Скопируй в: ~/.hermes/config.yaml или ~/.config/hermes/config.yaml
+
+# ══════════════════════════════════════════════════
+#  🇷🇺 Язык — русский из коробки!
+# ══════════════════════════════════════════════════
+display:
+  language: ru
+  skin: ruslan
+
+# ══════════════════════════════════════════════════
+#  🤖 Российские LLM-провайдеры (выбери один)
+# ══════════════════════════════════════════════════
+#
+#  Все провайдеры ниже — прямые API, не через посредников.
+#  Раскомментируй нужный блок и закомментируй остальные.
+
+# ── 1. DeepSeek (прямой API) ──
+# Быстро, дёшево, отличный русский. Ключ: DEEPSEEK_API_KEY
+# model:
+#   default: deepseek-v4-flash
+#   provider: deepseek
+#   api_mode: chat_completions
+
+# ── 2. Яндекс (YandexGPT) — ПРЯМОЙ API ──
+# Лучший русский, сервера в РФ. Ключ: YANDEX_API_KEY
+# model:
+#   default: yandexgpt-pro
+#   provider: yandexgpt
+#   api_mode: chat_completions
+
+# ── 3. Сбер (GigaChat) — ПРЯМОЙ API ──
+# Российские сервера, хороший русский. Ключ: GIGACHAT_ACCESS_TOKEN
+# model:
+#   default: GigaChat-Pro
+#   provider: gigachat
+#   api_mode: chat_completions
+
+# ── 4. OpenRouter (200+ моделей, включая русские) ──
+# Один ключ — доступ к DeepSeek, YandexGPT, GigaChat, Qwen. Ключ: OPENROUTER_API_KEY
+# Регистрация: https://openrouter.ai/keys (2 минуты, карта не нужна)
+#
+# Бесплатные модели (с суффиксом :free):
+#   Для кода:         qwen/qwen3-coder:free         ← лучшая бесплатная для кода
+#   Для рассуждений:  deepseek/deepseek-r1:free
+#   Универсальная:    meta-llama/llama-3.3-70b:free
+#   Для русского:     qwen/qwen3-coder:free или deepseek/deepseek-r1:free
+#                     (китайские модели лучше понимают русский, чем западные)
+#
+# model:
+#   default: qwen/qwen3-coder:free
+#   provider: openrouter
+
+# ── 6. Ollama (ЛОКАЛЬНО, БЕЗ КЛЮЧА!) ──
+# Нейросеть на твоём компьютере. Без регистрации, без интернета.
+# Установи: brew install ollama && ollama pull qwen2.5:1.5b
+# model:
+#   default: qwen2.5:1.5b
+#   provider: ollama
+#   base_url: http://localhost:11434/v1
+#   api_mode: chat_completions
+
+# ── 5. OpenCode/Zen (бесплатный DeepSeek) ──
+# Работает без регистрации! Ключ: OPENCODE_GO_API_KEY
+model:
+  default: deepseek-v4-flash
+  provider: opencode-go
+  base_url: https://opencode.ai/zen/go/v1
+  api_mode: chat_completions
+
+# ══════════════════════════════════════════════════
+#  Telegram
+# ══════════════════════════════════════════════════
+telegram:
+  enabled: true
+  require_mention: false
+
+# ══════════════════════════════════════════════════
+#  Голосовые сообщения (STT)
+# ══════════════════════════════════════════════════
+stt:
+  provider: groq
+  groq:
+    api_key: "${GROQ_API_KEY}"
+    model: whisper-large-v3
+
+# ══════════════════════════════════════════════════
+#  Остальное
+# ══════════════════════════════════════════════════
+terminal:
+  backend: local
+  timeout: 180
+
+memory:
+  memory_enabled: true
+
+toolsets:
+  - hermes-cli
+
+# ══════════════════════════════════════════════════
+#  Ключи API (в .env)
+# ══════════════════════════════════════════════════
+# DEEPSEEK_API_KEY=***              # DeepSeek
+# YANDEX_API_KEY=***                # YandexGPT  
+# GIGACHAT_ACCESS_TOKEN=***         # GigaChat
+# OPENROUTER_API_KEY=***            # OpenRouter
+# OPENCODE_GO_API_KEY=***           # OpenCode/Zen
+# TELEGRAM_BOT_TOKEN=***               # токен бота

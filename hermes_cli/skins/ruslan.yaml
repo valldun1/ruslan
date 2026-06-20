@@ -1,0 +1,61 @@
+# Skin: Руслан — для русскоязычного форка Hermes Agent
+name: ruslan
+description: "Руслан — AI-агент для русскоязычных"
+
+colors:
+  banner_border: "#00ff88"
+  banner_title: "#00ff88"
+  banner_accent: "#00cc6a"
+  banner_dim: "#006644"
+  banner_text: "#e5e5e5"
+  ui_accent: "#00ff88"
+  ui_label: "#00cc6a"
+  ui_ok: "#00ff88"
+  ui_error: "#ff4444"
+  ui_warn: "#ffaa00"
+  prompt: "#00ff88"
+  input_rule: "#00ff88"
+  response_border: "#00ff88"
+  status_bar_bg: "#0a0a0a"
+  status_bar_text: "#888888"
+  status_bar_strong: "#00ff88"
+  status_bar_dim: "#555555"
+  status_bar_good: "#00ff88"
+  status_bar_warn: "#ffaa00"
+  status_bar_bad: "#ff6600"
+  status_bar_critical: "#ff4444"
+  session_label: "#00ff88"
+  session_border: "#555555"
+  voice_status_bg: "#0a0a0a"
+  selection_bg: "#003322"
+  completion_menu_bg: "#0a0a0a"
+  completion_menu_current_bg: "#003322"
+  completion_menu_meta_bg: "#0a0a0a"
+  completion_menu_meta_current_bg: "#003322"
+
+spinner:
+  waiting_faces:
+    - "(⚔)"
+    - "(✦)"
+    - "(⚡)"
+  thinking_faces:
+    - "(⌁)"
+    - "(⚛)"
+    - "(◉)"
+  thinking_verbs:
+    - "думаю"
+    - "анализирую"
+    - "вычисляю"
+  wings:
+    - ["⟪✧", "✧⟫"]
+    - ["⟪✦", "✦⟫"]
+
+branding:
+  agent_name: "Руслан"
+  welcome: "Руслан готов к работе ⚔"
+  goodbye: "До связи! ⚔"
+  response_label: " ⚔ Руслан "
+  prompt_symbol: "❯"
+  help_header: "(⚔) Команды"
+
+tool_prefix: "┊"

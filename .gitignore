@@ -1,0 +1,95 @@
+# Internal stuff
+.plans/
+.drafts/
+.skills_prompt_snapshot.json
+AGENTS.md
+RUSLAN.md
+phase-router-*.md
+
+# Apps and website
+apps/
+website/
+landing.html
+
+# Docker / deployment
+Dockerfile
+docker-compose*.yml
+docker/
+packaging/
+railway-*
+
+# Tests (too many)
+tests/
+.pytest_cache/
+
+# Docs (upstream)
+docs/
+*.md
+!README.md
+
+# Configs (local)
+config.yaml
+cli-config.yaml
+auth.lock
+
+# Assets / other
+assets/
+infographic/
+locales/
+nix/
+optional-*/
+phases/
+plans/
+providers/
+skills/
+cron/
+datagen-config-examples/
+environments/
+scripts/
+tinker-atropos/
+ui-tui/
+web/
+tui_gateway/
+windows/
+
+# Plugins (selective - only ours)
+plugins/browser/
+plugins/context_engine/
+plugins/dashboard_auth/
+plugins/disk-cleanup/
+plugins/example-dashboard/
+plugins/google_meet/
+plugins/hermes-achievements/
+plugins/image_gen/
+plugins/kanban/
+plugins/memory/
+plugins/observability/
+plugins/platforms/
+plugins/security-guidance/
+plugins/spotify/
+plugins/teams_pipeline/
+plugins/video_gen/
+plugins/web/
+plugins/model-providers/*/
+!plugins/model-providers/yandexgpt/
+!plugins/model-providers/gigachat/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# OS files
+.DS_Store
+._*
+
+# Secrets
+.github_token
+.env
+.env.*
+!/.env.example
+
+# Local configs
+config.yaml

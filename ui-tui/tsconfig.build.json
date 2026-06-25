@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@ruslan/ink": ["src/types/ruslan-ink.d.ts"]
+    }
+  }
+}

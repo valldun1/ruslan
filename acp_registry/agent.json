@@ -1,0 +1,16 @@
+{
+  "id": "ruslan-agent",
+  "name": "Ruslan Agent",
+  "version": "0.17.0",
+  "description": "Self-improving open-source AI agent by Valldun with ACP editor integration, persistent memory, skills, and rich tool support.",
+  "repository": "https://github.com/valldun1/ruslan",
+  "website": "https://ruslan.team/docs/user-guide/features/acp",
+  "authors": ["Valldun"],
+  "license": "MIT",
+  "distribution": {
+    "uvx": {
+      "package": "ruslan-agent[acp]==0.17.0",
+      "args": ["ruslan-acp"]
+    }
+  }
+}

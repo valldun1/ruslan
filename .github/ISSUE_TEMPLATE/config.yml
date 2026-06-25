@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 💬 Valldun Discord
+    url: https://ruslan.team/discord
+    about: For quick questions, showcasing projects, sharing skills, and community chat.
+  - name: 📖 Documentation
+    url: https://github.com/valldun1/ruslan/blob/main/README.md
+    about: Check the README and docs before opening an issue.
+  - name: 🤝 Contributing Guide
+    url: https://github.com/valldun1/ruslan/blob/main/CONTRIBUTING.md
+    about: Read this before submitting a PR.

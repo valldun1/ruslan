@@ -1,0 +1,32 @@
+# ── Hermes On Android — .gitignore ──
+
+# Secrets and config with real values
+.env
+.env.*
+*.key
+*-key-*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Shell history
+.bash_history
+.zsh_history
+
+# Logs
+*.log

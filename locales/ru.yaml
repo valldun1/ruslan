@@ -234,6 +234,11 @@ gateway:
     resumed_one:           "↻ Сеанс **{title}** возобновлён ({count} сообщение). Беседа восстановлена."
     resumed_many:          "↻ Сеанс **{title}** возобновлён ({count} сообщений). Беседа восстановлена."
     resumed_no_count:      "↻ Сеанс **{title}** возобновлён. Беседа восстановлена."
+    parse_error:           "⚠️ Не удалось разобрать аргументы `/resume`: {error}.\nЗаключайте названия с пробелами в кавычки, например: `/resume \"План проекта A\"`."
+    matrix_blocked_no_origin: "⚠️ /resume в Matrix заблокирован: у этого именованного сеанса не зафиксирована исходная комната, поэтому Руслан по умолчанию не возобновит его в текущей комнате. Используйте `/resume --cross-room {name}`, если вы намеренно хотите пересечь границы комнат."
+    matrix_blocked_other_room: "⚠️ /resume в Matrix заблокирован: этот сеанс принадлежит другой комнате Matrix ({room}). Используйте `/resume --cross-room {name}`, если вы намеренно хотите возобновить его здесь."
+    matrix_cross_room_success: "⚠️ Возобновление через границу комнат: сеанс **{title}** возобновлён в комнате Matrix **{room}**.\nБудущие сообщения в этой комнате будут использовать эту беседу до `/reset` или следующего `/resume`.{msg_part}"
+    matrix_no_named_sessions: "Именованных сеансов для этой комнаты Matrix не найдено.\nИспользуйте `/title Мой сеанс`, чтобы назвать текущий сеанс комнаты, `/resume --all`, чтобы вывести список всех сеансов Matrix, или `/resume --cross-room <имя сеанса>`, чтобы явно пересечь границы комнат."
 
   retry:
     no_previous:           "Нет предыдущего сообщения для повтора."
@@ -261,6 +266,16 @@ gateway:
     state_no:              "Нет"
     queued:                "**Очередь продолжений:** {count}"
     platforms:             "**Подключённые платформы:** {platforms}"
+    model:                 "**Модель:** `{model}`"
+    model_provider:        "**Модель:** `{model}` ({provider})"
+    context:               "**Контекст:** {used} / {total} ({pct}%)"
+    context_used:          "**Контекст:** ~{used} токенов"
+    matrix_scope_header:   "**Область Matrix:**"
+    matrix_scope_key:      "  session_key: {session_key}"
+    matrix_scope_mode:     "  session_scope: {scope}"
+    matrix_scope_room:     "  room: {room}"
+    matrix_scope_room_id:  "  room_id: {room_id}"
+    matrix_scope_thread:   "  thread_id: {thread_id}"
 
   stop:
     stopped_pending:       "⚡ Остановлено. Агент ещё не начинал — вы можете продолжить этот сеанс."
@@ -297,6 +312,7 @@ gateway:
     platform_not_messaging:  "✗ /update доступен только на платформах обмена сообщениями. Выполните `hermes update` в терминале."
     not_git_repo:            "✗ Не git-репозиторий — обновление невозможно."
     hermes_cmd_not_found:    "✗ Не удалось найти команду `hermes`. Hermes запущен, но команда обновления не нашла исполняемый файл в PATH или через текущий интерпретатор Python. Попробуйте выполнить `hermes update` вручную в терминале."
+    ruslan_cmd_not_found:    "✗ Не удалось найти команду `ruslan`. Руслан запущен, но команда обновления не нашла исполняемый файл в PATH или через текущий интерпретатор Python. Попробуйте выполнить `ruslan update` вручную в терминале."
     start_failed:            "✗ Не удалось запустить обновление: {error}"
     starting:                "⚕ Запуск обновления Hermes… Я буду транслировать прогресс сюда."
 
@@ -319,6 +335,9 @@ gateway:
     label_estimated_context:  "Ориентировочный контекст: ~{count} токенов"
     detailed_after_first:     "_(Подробное использование доступно после первого ответа агента)_"
     no_data:                  "Данные об использовании для этого сеанса отсутствуют."
+
+  credits:
+    not_logged_in:            "Вы не вошли в Nous Portal. Войдите, чтобы увидеть баланс кредитов и пополнить его."
 
   verbose:
     not_enabled:           "Команда `/verbose` не включена для платформ обмена сообщениями.\n\nВключите в `config.yaml`:\n```yaml\ndisplay:\n  tool_progress_command: true\n```"

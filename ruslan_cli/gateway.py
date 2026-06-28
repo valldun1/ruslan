@@ -4168,7 +4168,7 @@ def run_gateway(verbose: int = 0, quiet: bool = False, replace: bool = False, fo
     from gateway.run import start_gateway
 
     print("┌─────────────────────────────────────────────────────────┐")
-    print("│           🛡️ Ruslan Gateway Starting...                 │")
+    print("│              🛡️ Ruslan Gateway Starting...              │")
     print("├─────────────────────────────────────────────────────────┤")
     print("│  Messaging platforms + cron scheduler                    │")
     print("│  Press Ctrl+C to stop                                   │")
@@ -5436,7 +5436,7 @@ def gateway_setup():
     )
     print(
         color(
-            "│             🛡️ Gateway Setup                            │", Colors.MAGENTA
+            "│                    🛡️ Gateway Setup                     │", Colors.MAGENTA
         )
     )
     print(

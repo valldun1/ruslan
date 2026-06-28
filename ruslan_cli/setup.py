@@ -2629,7 +2629,7 @@ def _run_portal_one_shot(config: dict) -> None:
             Colors.MAGENTA,
         )
     )
-    print(color("│     🛡️ Настройка Руслана — Портал (быстрая)              │", Colors.MAGENTA))
+    print(color("│         🛡️ Настройка Руслана — Портал (быстрая)         │", Colors.MAGENTA))
     print(
         color(
             "└─────────────────────────────────────────────────────────┘",
@@ -2795,7 +2795,7 @@ def run_setup_wizard(args):
     )
     print(
         color(
-            "│             🛡️ Мастер настройки Руслана                  │", Colors.MAGENTA
+            "│               🛡️ Мастер настройки Руслана               │", Colors.MAGENTA
         )
     )
     print(

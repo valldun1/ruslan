@@ -512,7 +512,7 @@ def run_gui_uninstall(args):
 
     print()
     print(color("┌─────────────────────────────────────────────────────────┐", Colors.MAGENTA, Colors.BOLD))
-    print(color("│         🛡️ Ruslan Chat GUI Uninstaller                  │", Colors.MAGENTA, Colors.BOLD))
+    print(color("│             🛡️ Ruslan Chat GUI Uninstaller              │", Colors.MAGENTA, Colors.BOLD))
     print(color("└─────────────────────────────────────────────────────────┘", Colors.MAGENTA, Colors.BOLD))
     print()
 
@@ -601,7 +601,7 @@ def run_uninstall(args):
 
     print()
     print(color("┌─────────────────────────────────────────────────────────┐", Colors.MAGENTA, Colors.BOLD))
-    print(color("│            🛡️ Ruslan Agent Uninstaller                  │", Colors.MAGENTA, Colors.BOLD))
+    print(color("│               🛡️ Ruslan Agent Uninstaller               │", Colors.MAGENTA, Colors.BOLD))
     print(color("└─────────────────────────────────────────────────────────┘", Colors.MAGENTA, Colors.BOLD))
     print()
     

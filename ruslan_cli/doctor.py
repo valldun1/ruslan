@@ -527,7 +527,7 @@ def run_doctor(args):
 
     print()
     print(color("┌─────────────────────────────────────────────────────────┐", Colors.CYAN))
-    print(color("│                 🩺 Доктор Руслана                       │", Colors.CYAN))
+    print(color("│                    🩺 Доктор Руслана                     │", Colors.CYAN))
     print(color("└─────────────────────────────────────────────────────────┘", Colors.CYAN))
 
     _section("Советы безопасности")

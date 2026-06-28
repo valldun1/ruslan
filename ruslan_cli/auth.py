@@ -3292,7 +3292,7 @@ def _read_codex_tokens(*, _lock: bool = True) -> Dict[str, Any]:
     state = _load_provider_state(auth_store, "openai-codex")
     if not state:
         raise AuthError(
-            "No Codex credentials stored. Run `ruslan auth` to authenticate.",
+            "Нет сохранённых данных Codex. Выполните `ruslan auth` для входа.",
             provider="openai-codex",
             code="codex_auth_missing",
             relogin_required=True,
@@ -3751,7 +3751,7 @@ def resolve_codex_runtime_credentials(
         if read_error is not None:
             raise read_error
         raise AuthError(
-            "No Codex credentials stored. Run `ruslan auth` to authenticate.",
+            "Нет сохранённых данных Codex. Выполните `ruslan auth` для входа.",
             provider="openai-codex",
             code="codex_auth_missing",
             relogin_required=True,
@@ -3971,7 +3971,7 @@ def _read_xai_oauth_tokens(*, _lock: bool = True) -> Dict[str, Any]:
             state = global_state
     if not state:
         raise AuthError(
-            "No xAI OAuth credentials stored. Select xAI Grok OAuth (SuperGrok / Premium+) in `ruslan model`.",
+            "Нет сохранённых данных xAI OAuth. Выберите xAI Grok OAuth в `ruslan model`.",
             provider="xai-oauth",
             code="xai_auth_missing",
             relogin_required=True,

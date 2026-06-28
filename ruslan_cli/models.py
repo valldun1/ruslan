@@ -212,6 +212,12 @@ _PROVIDER_MODELS: dict[str, list[str]] = {
         # NVIDIA
         "nvidia/nemotron-3-super-120b-a12b",
     ],
+    "yandexgpt": [
+        "yandexgpt/yandexgpt-4-pro",
+        "yandexgpt/yandexgpt-4-lite",
+        "yandexgpt/yandexgpt-3-pro",
+        "yandexgpt/yandexgpt-3-lite",
+    ],
     # Native OpenAI Chat Completions (api.openai.com). Used by /model counts and
     # provider_model_ids fallback when /v1/models is unavailable.
     "openai": [
@@ -1001,7 +1007,9 @@ class ProviderEntry(NamedTuple):
     tui_desc: str   # detailed description for `ruslan model` TUI
 
 CANONICAL_PROVIDERS: list[ProviderEntry] = [
-    ProviderEntry("nous",           "Nous Portal",              "Nous Portal (Everything your agent needs, 300+ models with bundled tool use)"),
+    # ProviderEntry("nous",           "Nous Portal",              "Nous Portal (Everything your agent needs, 300+ models with bundled tool use)"),
+    # ↑ Nous Portal — заменён на Яндекс/русские LLM. Оставлен для обратной совместимости кода.
+    ProviderEntry("yandexgpt",     "Яндекс GPT",               "Яндекс GPT (YandexGPT — российская LLM, API через Yandex Cloud)"),
     ProviderEntry("openrouter",     "OpenRouter",               "OpenRouter (Pay-per-use API aggregator)"),
     ProviderEntry("novita",         "NovitaAI",                 "NovitaAI (Cloud: Model API, Agent Sandbox, GPU Cloud)"),
     ProviderEntry("lmstudio",       "LM Studio",                "LM Studio (Local desktop app with built-in model server)"),

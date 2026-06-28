@@ -44,6 +44,13 @@ class HermesOverlay:
 
 
 RUSLAN_OVERLAYS: Dict[str, HermesOverlay] = {
+    "yandexgpt": HermesOverlay(
+        transport="openai_chat",
+        auth_type="api_key",
+        base_url_override="https://llm.api.cloud.yandex.net/foundationModels/v1",
+        extra_env_vars=("YANDEX_API_KEY", "YANDEX_CLOUD_API_KEY"),
+        base_url_env_var="YANDEX_BASE_URL",
+    ),
     "openrouter": HermesOverlay(
         transport="openai_chat",
         is_aggregator=True,
@@ -337,6 +344,12 @@ ALIASES: Dict[str, str] = {
     # gmi
     "gmi-cloud": "gmi",
     "gmicloud": "gmi",
+
+    # yandex
+    "yandex": "yandexgpt",
+    "yandex-gpt": "yandexgpt",
+    "yandexgpt": "yandexgpt",
+    "yagpt": "yandexgpt",
 
     # Local server aliases → virtual "local" concept (resolved via user config)
     "lmstudio": "lmstudio",

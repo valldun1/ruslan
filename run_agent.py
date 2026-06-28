@@ -129,7 +129,7 @@ if _loaded_env_paths:
     for _env_path in _loaded_env_paths:
         logger.info("Загружены переменные окружения из %s", _env_path)
 else:
-    logger.info("Файл .env не найден. Используются системные переменные окружения.")
+    logger.info("Файл .env не найден — используются системные переменные.")
 
 
 # Import our tool system
@@ -239,7 +239,7 @@ def _routermint_headers() -> dict:
     from ruslan_cli import __version__ as _RUSLAN_VERSION
 
     return {
-        "User-Agent": f"HermesAgent/{_RUSLAN_VERSION}",
+        "User-Agent": f"RuslanAgent/{_RUSLAN_VERSION}",
     }
 
 

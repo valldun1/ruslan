@@ -185,7 +185,7 @@ def is_interactive_stdin() -> bool:
 def print_noninteractive_setup_guidance(reason: str | None = None) -> None:
     """Print guidance for headless/non-interactive setup flows."""
     print()
-    print(color("⚕ Ruslan Setup — Non-interactive mode", Colors.CYAN, Colors.BOLD))
+    print(color("⚔ Ruslan Setup — Неинтерактивный режим", Colors.CYAN, Colors.BOLD))
     print()
     if reason:
         print_info(reason)
@@ -713,8 +713,8 @@ def setup_model_provider(config: dict, *, quick: bool = False):
     """
     from ruslan_cli.config import load_config, save_config
 
-    print_header("Inference Provider")
-    print_info("Выбе")
+    print_header("Провайдер модели")
+    print_info("Выберите провайдера и модель для агента.")
     print_info(f"   Guide: {_DOCS_BASE}/integrations/providers")
     print()
 
@@ -939,7 +939,7 @@ def _setup_tts_provider(config: dict):
     providers.extend(["edge", "elevenlabs", "openai", "xai", "minimax", "mistral", "gemini", "neutts", "kittentts"])
     choices.append(f"Keep current ({current_label})")
     keep_current_idx = len(choices) - 1
-    idx = prompt_choice("Select TTS provider:", choices, keep_current_idx)
+    idx = prompt_choice("Выберите TTS-провайдера:", choices, keep_current_idx)
 
     if idx == keep_current_idx:
         return
@@ -1176,7 +1176,7 @@ def setup_terminal_backend(config: dict):
     idx_to_backend[keep_current_idx] = current_backend
 
     terminal_idx = prompt_choice(
-        "Select terminal backend:", terminal_choices, keep_current_idx
+        "Выберите бэкенд терминала:", terminal_choices, keep_current_idx
     )
 
     selected_backend = idx_to_backend.get(terminal_idx)
@@ -1255,7 +1255,7 @@ def setup_terminal_backend(config: dict):
             else:
                 default_modal_idx = 1 if get_env_value("MODAL_TOKEN_ID") else 0
             modal_mode_idx = prompt_choice(
-                "Select how Modal execution should be billed:",
+                "Выберите способ оплаты Modal:",
                 modal_choices,
                 default_modal_idx,
             )
@@ -2594,12 +2594,12 @@ def _offer_openclaw_migration(ruslan_home: Path) -> bool:
 # =============================================================================
 
 SETUP_SECTIONS = [
-    ("model", "Model & Provider", setup_model_provider),
-    ("tts", "Text-to-Speech", setup_tts),
-    ("terminal", "Terminal Backend", setup_terminal_backend),
-    ("gateway", "Messaging Platforms (Gateway)", setup_gateway),
-    ("tools", "Tools", setup_tools),
-    ("agent", "Agent Settings", setup_agent_settings),
+    ("model", "Модель и провайдер", setup_model_provider),
+    ("tts", "Озвучка (TTS)", setup_tts),
+    ("terminal", "Бэкенд терминала", setup_terminal_backend),
+    ("gateway", "Мессенджеры (Gateway)", setup_gateway),
+    ("tools", "Инструменты", setup_tools),
+    ("agent", "Настройки агента", setup_agent_settings),
 ]
 
 
@@ -2629,7 +2629,7 @@ def _run_portal_one_shot(config: dict) -> None:
             Colors.MAGENTA,
         )
     )
-    print(color("│     ⚕ Ruslan Setup — Ruslan Portal (one-shot)             │", Colors.MAGENTA))
+    print(color("│     🛡️ Настройка Руслана — Портал (быстрая)              │", Colors.MAGENTA))
     print(
         color(
             "└─────────────────────────────────────────────────────────┘",
@@ -2759,7 +2759,7 @@ def run_setup_wizard(args):
                         Colors.MAGENTA,
                     )
                 )
-                print(color(f"│     ⚕ Ruslan Setup — {label:<34s} │", Colors.MAGENTA))
+                print(color(f"│     ⚔ Настройка Руслана — {label:<34s} │", Colors.MAGENTA))
                 print(
                     color(
                         "└─────────────────────────────────────────────────────────┘",
@@ -2795,7 +2795,7 @@ def run_setup_wizard(args):
     )
     print(
         color(
-            "│             ⚕ Ruslan Agent Setup Wizard                │", Colors.MAGENTA
+            "│             🛡️ Мастер настройки Руслана                  │", Colors.MAGENTA
         )
     )
     print(
@@ -2806,12 +2806,12 @@ def run_setup_wizard(args):
     )
     print(
         color(
-            "│  Let's configure your Ruslan Agent installation.       │", Colors.MAGENTA
+            "│  Давайте настроим вашего агента Руслан.                 │", Colors.MAGENTA
         )
     )
     print(
         color(
-            f"│  {_t('cli.setup.press_enter_continue', locale='ru') or 'Press Ctrl+C at any time to exit.'}                     │", Colors.MAGENTA
+            f"│  Нажмите Enter чтобы продолжить (Ctrl+C для выхода).    │", Colors.MAGENTA
         )
     )
     print(
@@ -3078,7 +3078,7 @@ def _run_blank_slate_setup(config: dict, ruslan_home, is_existing: bool):
     from ruslan_cli.config import load_config
 
     print()
-    print_header("Blank Slate Setup")
+    print_header("Чистая установка")
     print_info("Всё изначально отключено. Сначала мы принудительно включаем только необходимое.")
     print_info("для запуска агента, затем вы решаете, остановиться ли там или перейти")
     print_info("через включение дополнительных функций — выбрав то, что вам нужно")
@@ -3235,7 +3235,7 @@ def _run_quick_setup(config: dict, ruslan_home):
     )
 
     print()
-    print_header("Quick Setup — Missing Items Only")
+    print_header("Быстрая установка — только недостающее")
 
     # Check what's missing
     missing_required = [

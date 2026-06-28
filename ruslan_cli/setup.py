@@ -26,6 +26,15 @@ from tools.tool_backend_helpers import managed_nous_tools_enabled
 from utils import base_url_hostname
 from ruslan_constants import get_optional_skills_dir
 
+# Локализация: RU по умолчанию, EN как fallback
+try:
+    from ruslan_cli.locales import t as _t, get_locale as _get_locale
+except Exception:  # pragma: no cover
+    def _t(key, locale="ru", **kwargs):  # type: ignore[no-redef]
+        return key
+    def _get_locale(config=None):  # type: ignore[no-redef]
+        return "ru"
+
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
@@ -2802,7 +2811,7 @@ def run_setup_wizard(args):
     )
     print(
         color(
-            "│  Press Ctrl+C at any time to exit.                     │", Colors.MAGENTA
+            f"│  {_t('cli.setup.press_enter_continue', locale='ru') or 'Press Ctrl+C at any time to exit.'}                     │", Colors.MAGENTA
         )
     )
     print(

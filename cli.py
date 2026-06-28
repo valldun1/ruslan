@@ -5967,13 +5967,29 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
     def show_help(self):
         """Display help information with categorized commands."""
         from ruslan_cli.commands import COMMANDS_BY_CATEGORY
+        from ruslan_cli.locales import t as _t, get_locale as _get_locale
+
+        # Локаль: ru по умолчанию, можно переопределить через self.config["locale"]
+        _active_locale = _get_locale(self.config if hasattr(self, "config") else None)
+        # Стандартный формат ключа для категорий: cli.help.category.<Name>
+        def _cat(name: str) -> str:
+            key = f"cli.help.category.{name}"
+            result = _t(key, locale=_active_locale)
+            # Если перевод не найден (вернулся ключ) — оставить оригинал
+            return result if result != key else name
+        def _cmd_desc(name: str, fallback: str = "") -> str:
+            """Резолв описания команды: cli.cmd.<name>.description или fallback."""
+            key = f"cli.cmd.{name.lstrip('/')}.description"
+            result = _t(key, locale=_active_locale)
+            # Если перевод не найден — взять EN из fallback
+            return result if result != key else fallback
 
         try:
             from ruslan_cli.skin_engine import get_active_help_header
-            header = get_active_help_header("(^_^)? Available Commands")
+            header = get_active_help_header(_t("cli.help.title", locale=_active_locale))
         except Exception:
-            header = "(^_^)? Available Commands"
-        header = (header or "").strip() or "(^_^)? Available Commands"
+            header = _t("cli.help.title", locale=_active_locale)
+        header = (header or "").strip() or _t("cli.help.title", locale=_active_locale)
         inner_width = 55
         if len(header) > inner_width:
             header = header[:inner_width]
@@ -5982,15 +5998,26 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         _cprint(f"{_BOLD}+{'-' * inner_width}+{_RST}")
 
         for category, commands in COMMANDS_BY_CATEGORY.items():
-            _cprint(f"\n  {_BOLD}── {category} ──{_RST}")
+            _cprint(f"\n  {_BOLD}── {_cat(category)} ──{_RST}")
             for cmd, desc in commands.items():
                 if not self._command_available(cmd):
                     continue
-                ChatConsole().print(f"    [bold {_accent_hex()}]{cmd:<15}[/] [dim]-[/] {_escape(desc)}")
+                # Резолвим описание из i18n. Если это алиас — сначала пробуем
+                # достать primary из текста "(alias for /primary)" и перевести его.
+                _localized = _cmd_desc(cmd, fallback=desc)
+                if _localized == desc and "(alias for" in desc:
+                    # Алиас: извлекаем primary и берём его перевод
+                    import re as _re
+                    _m = _re.search(r"alias for /([\w-]+)", desc)
+                    if _m:
+                        _primary_desc = _cmd_desc(f"/{_m.group(1)}", fallback="")
+                        if _primary_desc and _primary_desc != f"cli.cmd.{_m.group(1)}.description":
+                            _localized = f"{_primary_desc} (алиас /{_m.group(1)})"
+                ChatConsole().print(f"    [bold {_accent_hex()}]{cmd:<15}[/] [dim]-[/] {_escape(_localized)}")
 
         skill_commands = _ensure_skill_commands()
         if skill_commands:
-            _cprint(f"\n  ⚡ {_BOLD}Skill Commands{_RST} ({len(skill_commands)} installed):")
+            _cprint(f"\n  ⚡ {_BOLD}{_t('cli.help.skill_commands', locale=_active_locale)}{_RST} ({len(skill_commands)} {_t('cli.help.skills_count', locale=_active_locale, n='') or ''}".rstrip() + "):")
             for cmd, info in sorted(skill_commands.items()):
                 ChatConsole().print(
                     f"    [bold {_accent_hex()}]{cmd:<22}[/] [dim]-[/] {_escape(info['description'])}"
@@ -5998,7 +6025,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
 
         _bundles_now = get_skill_bundles()
         if _bundles_now:
-            _cprint(f"\n  ▣ {_BOLD}Skill Bundles{_RST} ({len(_bundles_now)} installed):")
+            _cprint(f"\n  ▣ {_BOLD}{_t('cli.help.skill_bundles', locale=_active_locale)}{_RST} ({len(_bundles_now)} {_t('cli.help.bundles_count', locale=_active_locale, n='') or ''}".rstrip() + "):")
             for cmd, info in sorted(_bundles_now.items()):
                 skill_count = len(info.get("skills", []))
                 desc = info.get("description") or f"Load {skill_count} skills"
@@ -6009,39 +6036,42 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
 
         quick_commands = self.config.get("quick_commands", {})
         if quick_commands:
-            _cprint(f"\n  ⚡ {_BOLD}Quick Commands{_RST} ({len(quick_commands)} configured):")
+            _cprint(f"\n  ⚡ {_BOLD}{_t('cli.help.quick_commands', locale=_active_locale)}{_RST} ({len(quick_commands)} {_t('cli.help.skills_count', locale=_active_locale, n='') or ''}".rstrip() + "):")
             for name, qcmd in sorted(quick_commands.items()):
                 desc = qcmd.get("description", qcmd.get("type", ""))
                 ChatConsole().print(
                     f"    [bold {_accent_hex()}]{('/' + name):<22}[/] [dim]-[/] {_escape(desc)}"
                 )
 
-        _cprint(f"\n  {_DIM}Tip: Just type your message to chat with Ruslan!{_RST}")
-        _cprint(f"  {_DIM}Multi-line: Alt+Enter for a new line{_RST}")
-        _cprint(f"  {_DIM}Draft editor: Ctrl+G (Alt+G in VSCode/Cursor){_RST}")
+        _cprint(f"\n  {_DIM}{_t('cli.help.tip_chat', locale=_active_locale)}{_RST}")
+        _cprint(f"  {_DIM}{_t('cli.help.tip_multiline', locale=_active_locale)}{_RST}")
+        _cprint(f"  {_DIM}{_t('cli.help.tip_draft', locale=_active_locale)}{_RST}")
         if _is_termux_environment():
-            _cprint(f"  {_DIM}Attach image: /image {_termux_example_image_path()} or start your prompt with a local image path{_RST}\n")
+            _cprint(f"  {_DIM}{_t('cli.help.tip_attach_image', locale=_active_locale)}{_RST}\n")
         else:
-            _cprint(f"  {_DIM}Paste image: Alt+V (or /paste){_RST}\n")
+            _cprint(f"  {_DIM}{_t('cli.help.tip_paste_image', locale=_active_locale)}{_RST}\n")
     
     def show_tools(self):
         """Display available tools with kawaii ASCII art."""
+        from ruslan_cli.locales import t as _t, get_locale as _get_locale
+        _active_locale = _get_locale(self.config if hasattr(self, "config") else None)
+
         tools = get_tool_definitions(enabled_toolsets=self.enabled_toolsets, quiet_mode=True)
-        
+
         if not tools:
-            print("(;_;) Нет доступных инструментов")
+            print(_t("cli.tools.no_tools", locale=_active_locale))
             return
-        
+
         # Header
         print()
-        title = "(^_^)/ Available Tools"
+        title = _t("cli.tools.title", locale=_active_locale)
         width = 78
         pad = width - len(title)
         print("+" + "-" * width + "+")
         print("|" + " " * (pad // 2) + title + " " * (pad - pad // 2) + "|")
         print("+" + "-" * width + "+")
         print()
-        
+
         # Group tools by toolset
         toolsets = {}
         for tool in sorted(tools, key=lambda t: t["function"]["name"]):
@@ -6055,42 +6085,45 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             if ". " in desc:
                 desc = desc[:desc.index(". ") + 1]
             toolsets[toolset].append((name, desc))
-        
+
         # Display by toolset
         for toolset in sorted(toolsets.keys()):
             print(f"  [{toolset}]")
             for name, desc in toolsets[toolset]:
                 print(f"    * {name:<20} - {desc}")
             print()
-        
-        print(f"  Total: {len(tools)} tools  ヽ(^o^)ノ")
+
+        print(f"  {_t('cli.tools.total', locale=_active_locale, n=len(tools))}")
         print()
 
 
     def show_toolsets(self):
         """Display available toolsets with kawaii ASCII art."""
+        from ruslan_cli.locales import t as _t, get_locale as _get_locale
+        _active_locale = _get_locale(self.config if hasattr(self, "config") else None)
+
         all_toolsets = get_all_toolsets()
-        
+
         # Header
         print()
-        title = "(^_^)b Available Toolsets"
+        title = _t("cli.toolsets.title", locale=_active_locale)
         width = 58
         pad = width - len(title)
         print("+" + "-" * width + "+")
         print("|" + " " * (pad // 2) + title + " " * (pad - pad // 2) + "|")
         print("+" + "-" * width + "+")
         print()
-        
+
         for name in sorted(all_toolsets.keys()):
             info = get_toolset_info(name)
             if info:
                 tool_count = info["tool_count"]
                 desc = info["description"]
-                
+
                 # Mark if currently enabled
                 marker = "(*)" if self.enabled_toolsets and name in self.enabled_toolsets else "   "
                 print(f"  {marker} {name:<18} [{tool_count:>2} tools] - {desc}")
-        
+
         print()
         print("(*) = в настоящее время включено")
         print()
@@ -12160,11 +12193,18 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
 
         try:
             from ruslan_cli.skin_engine import get_active_skin
+            from ruslan_cli.locales import t as _t, get_locale as _get_locale
             _welcome_skin = get_active_skin()
-            _welcome_text = _welcome_skin.get_branding("welcome", "Welcome to Ruslan Agent! Type your message or /help for commands.")
+            # RU по умолчанию: берём локаль из конфига/LANG, иначе ru
+            _active_locale = _get_locale(self.config if hasattr(self, "config") else None)
+            _welcome_text = _welcome_skin.get_branding(
+                "welcome",
+                _t("cli.welcome.text", locale=_active_locale),
+            )
             _welcome_color = _welcome_skin.get_color("banner_text", "#FFF8DC")
         except Exception:
-            _welcome_text = "Welcome to Ruslan Agent! Type your message or /help for commands."
+            from ruslan_cli.locales import t as _t
+            _welcome_text = _t("cli.welcome.text", locale="ru")
             _welcome_color = "#FFF8DC"
         self._console_print(f"[{_welcome_color}]{_welcome_text}[/]")
 

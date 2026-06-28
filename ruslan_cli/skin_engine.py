@@ -119,6 +119,15 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from ruslan_constants import get_ruslan_home
 
+# Локализация: маппинг branding-ключей → ключи i18n.
+# Если для текущей локали есть перевод, get_branding() вернёт его вместо встроенного.
+_BRANDING_I18N_MAP: Dict[str, str] = {
+    "welcome": "cli.welcome.text",
+    "goodbye": "cli.goodbye.text",  # может быть не покрыт — fallback OK
+    "help_header": "cli.help.title",
+    "response_label": "cli.branding.response_label",
+}
+
 logger = logging.getLogger(__name__)
 
 
@@ -153,7 +162,25 @@ class SkinConfig:
         return result
 
     def get_branding(self, key: str, fallback: str = "") -> str:
-        """Get a branding value with fallback."""
+        """Get a branding value with fallback.
+
+        Локализация: если активна локаль != en, пытаемся резолвить через
+        ruslan_cli.locales.t() по специальным ключам для branding.
+        """
+        # Локализация: для ключей welcome/help_header — попробовать i18n сначала
+        try:
+            from ruslan_cli.locales import t as _t
+            i18n_key = _BRANDING_I18N_MAP.get(key)
+            if i18n_key:
+                # Берём локаль из текущей конфигурации (если есть)
+                from ruslan_cli.locales import get_locale as _get_locale
+                locale = _get_locale()
+                result = _t(i18n_key, locale=locale)
+                # Если перевод найден (результат != ключ) — использовать его
+                if result and result != i18n_key:
+                    return result
+        except Exception:
+            pass
         return self.branding.get(key, fallback)
 
 

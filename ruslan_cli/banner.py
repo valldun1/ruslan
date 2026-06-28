@@ -620,7 +620,7 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
             _cfg = {}
         locale = _banner_get_locale(_cfg)
     elif locale is None:
-        locale = "en"
+        locale = "ru"  # Изменено с "en" на "ru" — дефолтная локаль Руслана
 
     tools = tools or []
     enabled_toolsets = enabled_toolsets or []

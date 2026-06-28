@@ -1,47 +1,46 @@
-# 00 — Контекст
+# Фаза 0: Контекст — Русификация Ruslan Agent
 
-**Проект:** `ruslan-agent` v0.17.0
-**GitHub:** `https://github.com/valldun1/ruslan` (private, branch `master`, коммит `76aa032`)
-**Локально:** `~/Desktop/ruslan-agent-main/` (форк/исходники для установки)
-**Установка:** `~/Руслан/` (alias `ruslan`), venv `~/Руслан/.venv/`, конфиг `~/.ruslan/`
+## Проект
+- **Путь:** `~/Desktop/ruslan-agent-main/`
+- **Тип:** upstream-клон Ruslan Agent v0.17.0 (форк nousresearch/hermes-agent, брендинг → Ruslan)
+- **Git:** upstream 024c0456, local 7afcdf71 (+4 commits ahead) — уже с локальными правками
 
-## Локализация
+## Что уже есть на русском
+- `ruslan_cli/banner_i18n.py` — 13 строк RU/EN (заголовки баннера: "Доступные инструменты", "и ещё N наборов...", "команды: /help", "выполните {cmd} для обновления")
+- Баннер **частично** показывается на русском — заголовки секций + обновления
+- Приветствие в `cli.py:12164-12167` — "Welcome to Ruslan Agent! Type your message or /help for commands." (EN, через skin branding)
+- `show_help()` (cli.py:5967) — все категории/описания EN, единственная RU-строка "Нет доступных инструментов" в show_tools
 
-- Файл: `locales/ru.yaml` (YAML, **не PO**)
-- EN-источник: `locales/en.yaml` (293 ключа)
-- Текущее состояние RU: 350 ключей (на 57 больше за счёт под-секций)
-- **Пропущено:** 17 ключей (gate.* / credits / resume.* / status.* / update.*)
-- **Same-as-EN:** 16 ключей — форматтеры, метки, не требуют перевода
+## Чего НЕТ на русском (объём работы)
+- `show_help()` — категории "Setup", "Memory", "Skills", "Session", все описания команд
+- `show_tools()` / `show_toolsets()` — заголовки, метки `[toolset]`, подсказки
+- `ruslan_cli/setup.py` — 3383 строки, приглашения setup-визарда
+- `ruslan_cli/subcommands/setup.py` — subcommand setup
+- Приветствие "Welcome to Ruslan Agent!..."
+- Команды в `ruslan_cli/commands.py` (COMMANDS_BY_CATEGORY) — описания
+- `ruslan_cli/skin_engine.py` — `welcome`, `help_header` дефолты
+- ~30+ skin-файлов с EN-строками
+- Сообщения об ошибках в `setup.py` и CLI
 
-## Цель пользователя
+## Архитектура i18n
+- **Текущая модель:** inline-словари в `banner_i18n.py` + skin-system
+- **Планируемая:** расширить `banner_i18n.py` → полноценный `ruslan_cli/locales/{en,ru}.py` с категориями:
+  - `cli.banner.*` (уже есть, 13 ключей)
+  - `cli.help.*` (категории и описания команд)
+  - `cli.welcome.*` (приветствие)
+  - `cli.setup.*` (все строки визарда)
+  - `cli.tools.*` (show_tools заголовки)
+  - `cli.errors.*` (общие ошибки)
+- Локаль берётся из `config.get("locale", "en")` или `LANG` env
 
-Тестировать v0.17.0 локально (CLI + Telegram gateway), увидеть корректный русский язык
-во всех местах, где сейчас падает в английский. Стиль — как в существующем `ru.yaml`:
-короткие фразы, технический русский, с эмодзи/разметкой как в оригинале.
+## Ограничения
+- STRICT: без изменений upstream GitHub без явного "давай"
+- Slash-команды (`/help`, `/model`, `/compress`) остаются на EN — это идентификаторы
+- Имена тулзов (`terminal`, `read_file`) — EN
+- Бренды (Hermes → Ruslan) — перевод контекстный, код Ruslan остаётся
+- Команды CLI (ruslan / ruslan-cli) — EN
 
-## Установка для тестирования (17-я, через симлинк)
-
-```bash
-# Запуск CLI
-cd ~/Руслан && source .venv/bin/activate && ruslan
-
-# Запуск Telegram gateway
-cd ~/Руслан && source .venv/bin/activate && ruslan gateway run --accept-hooks --replace
-
-# Версия
-~/Руслан/.venv/bin/ruslan --version  # → Ruslan Agent v0.17.0 (2026.6.19)
-```
-
-После перевода `ru.yaml` нужно:
-1. Пуш в GitHub
-2. На стороне пользователя: `cd ~/Руслан && git pull && source .venv/bin/activate && ruslan` — переустановка не нужна, локализация подхватывается на лету
-3. Проверить в Telegram-боте: `/status`, `/resume`, `/update`, `/credits` — все 17 ключей должны появиться на русском
-
-## Связанные файлы
-
-- `locales/en.yaml` — source of truth
-- `locales/ru.yaml` — целевой файл
-- `locales/{de,es,fr,uk,...}.yaml` — стиль соседних локалей
-- `phases/02-plan.md` — план перевода
-- `phases/03-done.md` — что переведено
-- `phases/04-review.md` — ревью
+## Безопасность
+- Не трогать токены / секреты
+- Не ломать обратной совместимости (если locale="en" — всё как раньше)
+- ru.yaml-стиль: паритет плейсхолдеров (см. memory rules)

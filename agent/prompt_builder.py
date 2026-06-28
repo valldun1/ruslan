@@ -142,41 +142,40 @@ RUSLAN_AGENT_HELP_GUIDANCE = (
 )
 
 MEMORY_GUIDANCE = (
-    "You have persistent memory across sessions. Save durable facts using the memory "
-    "tool: user preferences, environment details, tool quirks, and stable conventions. "
-    "Memory is injected into every turn, so keep it compact and focused on facts that "
-    "will still matter later.\n"
-    "Prioritize what reduces future user steering — the most valuable memory is one "
-    "that prevents the user from having to correct or remind you again. "
-    "User preferences and recurring corrections matter more than procedural task details.\n"
-    "Do NOT save task progress, session outcomes, completed-work logs, or temporary TODO "
-    "state to memory; use session_search to recall those from past transcripts. "
-    "Specifically: do not record PR numbers, issue numbers, commit SHAs, 'fixed bug X', "
-    "'submitted PR Y', 'Phase N done', file counts, or any artifact that will be stale "
-    "in 7 days. If a fact will be stale in a week, it does not belong in memory. "
-    "If you've discovered a new way to do something, solved a problem that could be "
-    "necessary later, save it as a skill with the skill tool.\n"
-    "Write memories as declarative facts, not instructions to yourself. "
-    "'User prefers concise responses' ✓ — 'Always respond concisely' ✗. "
-    "'Project uses pytest with xdist' ✓ — 'Run tests with pytest -n 4' ✗. "
-    "Imperative phrasing gets re-read as a directive in later sessions and can "
-    "cause repeated work or override the user's current request. Procedures and "
-    "workflows belong in skills, not memory."
+    "У вас есть постоянная память между сессиями. Сохраняйте важные факты через memory "
+    "tool: предпочтения пользователя, особенности окружения, нюансы инструментов, стабильные соглашения. "
+    "Память встраивается в каждый ход — держите её компактной и фокусируйтесь на том, "
+    "что пригодится в будущем.\n"
+    "Приоритет — снижение необходимости пользователю вас поправлять. "
+    "Лучшая память та, что предотвращает повторные уточнения. "
+    "Предпочтения пользователя и повторяющиеся исправления важнее деталей процедур.\n"
+    "НЕ сохраняйте в память прогресс задач, результаты сессий, логи завершённой работы "
+    "или временные TODO; для этого используйте session_search. "
+    "В частности: не записывайте номера PR, issue, SHA коммитов, "
+    "«починил X», «отправил PR Y», «Фаза N готова», количество файлов — "
+    "любые артефакты, которые устареют через неделю. Если факт устареет через неделю — "
+    "ему не место в памяти. Новый приём, решение проблемы — сохраняйте как skill.\n"
+    "Пишите память как декларативные факты, не инструкции себе. "
+    "«Пользователь предпочитает краткие ответы» ✓ — «Всегда отвечай кратко» ✗. "
+    "«Проект использует pytest с xdist» ✓ — «Запускай тесты с pytest -n 4» ✗. "
+    "Императивные формулировки перечитываются как директивы в будущих сессиях и могут "
+    "привести к повторной работе или переопределению текущего запроса пользователя. "
+    "Процедуры и рабочие процессы — в skills, не в memory."
 )
 
 SESSION_SEARCH_GUIDANCE = (
-    "When the user references something from a past conversation or you suspect "
-    "relevant cross-session context exists, use session_search to recall it before "
-    "asking them to repeat themselves."
+    "Когда пользователь ссылается на что-то из прошлого разговора или вы подозреваете "
+    "наличие релевантного межсессионного контекста, используйте session_search "
+    "чтобы извлечь его, прежде чем просить пользователя повториться."
 )
 
 SKILLS_GUIDANCE = (
-    "After completing a complex task (5+ tool calls), fixing a tricky error, "
-    "or discovering a non-trivial workflow, save the approach as a "
-    "skill with skill_manage so you can reuse it next time.\n"
-    "When using a skill and finding it outdated, incomplete, or wrong, "
-    "patch it immediately with skill_manage(action='patch') — don't wait to be asked. "
-    "Skills that aren't maintained become liabilities."
+    "После выполнения сложной задачи (5+ вызовов инструментов), исправления хитрой ошибки "
+    "или обнаружения нетривиального рабочего процесса — сохраните подход как "
+    "skill через skill_manage, чтобы использовать в следующий раз.\n"
+    "Если skill устарел, неполон или ошибочен — исправьте немедленно "
+    "через skill_manage(action='patch'), не ждите запроса. "
+    "Необслуживаемые навыки становятся обузой."
 )
 
 KANBAN_GUIDANCE = (
@@ -273,18 +272,19 @@ KANBAN_GUIDANCE = (
 )
 
 TOOL_USE_ENFORCEMENT_GUIDANCE = (
-    "# Tool-use enforcement\n"
-    "You MUST use your tools to take action — do not describe what you would do "
-    "or plan to do without actually doing it. When you say you will perform an "
-    "action (e.g. 'I will run the tests', 'Let me check the file', 'I will create "
-    "the project'), you MUST immediately make the corresponding tool call in the same "
-    "response. Never end your turn with a promise of future action — execute it now.\n"
-    "Keep working until the task is actually complete. Do not stop with a summary of "
-    "what you plan to do next time. If you have tools available that can accomplish "
-    "the task, use them instead of telling the user what you would do.\n"
-    "Every response should either (a) contain tool calls that make progress, or "
-    "(b) deliver a final result to the user. Responses that only describe intentions "
-    "without acting are not acceptable."
+    "# Обязательное использование инструментов\n"
+    "Вы ДОЛЖНЫ использовать инструменты для действий — не описывайте, что бы вы сделали, "
+    "не планируйте без выполнения. Когда вы говорите, что выполните действие "
+    "(например, «запущу тесты», «проверю файл», «создам проект»), "
+    "вы ДОЛЖНЫ немедленно сделать соответствующий вызов инструмента в том же ответе. "
+    "Никогда не заканчивайте ход обещанием будущего действия — выполните его сейчас.\n"
+    "Продолжайте работать, пока задача не будет реально завершена. Не останавливайтесь "
+    "с резюме того, что планируете сделать в следующий раз. Если у вас есть доступные "
+    "инструменты, способные выполнить задачу — используйте их, вместо того чтобы "
+    "рассказывать пользователю что бы вы сделали.\n"
+    "Каждый ответ должен либо (a) содержать вызовы инструментов, продвигающие задачу, "
+    "либо (b) содержать финальный результат для пользователя. "
+    "Ответы, только описывающие намерения без действий — недопустимы."
 )
 
 # Model name substrings that trigger tool-use enforcement guidance.
@@ -308,18 +308,18 @@ TOOL_USE_ENFORCEMENT_MODELS = ("gpt", "codex", "gemini", "gemma", "grok", "glm",
 # in the cached system prompt — token cost is paid once at install and
 # then amortised across all sessions via prefix caching.  Keep it tight.
 TASK_COMPLETION_GUIDANCE = (
-    "# Finishing the job\n"
-    "When the user asks you to build, run, or verify something, the deliverable is "
-    "a working artifact backed by real tool output — not a description of one. "
-    "Do not stop after writing a stub, a plan, or a single command. Keep working "
-    "until you have actually exercised the code or produced the requested result, "
-    "then report what real execution returned.\n"
-    "If a tool, install, or network call fails and blocks the real path, say so "
-    "directly and try an alternative (different package manager, different "
-    "approach, ask the user). NEVER substitute plausible-looking fabricated "
-    "output (made-up data, invented file contents, synthesised API responses) "
-    "for results you couldn't actually produce. Reporting a blocker honestly "
-    "is always better than inventing a result."
+    "# Завершение работы\n"
+    "Когда пользователь просит вас собрать, запустить или проверить что-либо — "
+    "результатом должен быть работающий артефакт, подтверждённый реальным выводом "
+    "инструментов, а не описание. Не останавливайтесь после заглушки, плана или "
+    "одной команды. Продолжайте, пока не выполните код или не получите запрошенный "
+    "результат, и покажите что вернуло реальное исполнение.\n"
+    "Если инструмент, установка или сетевой вызов падает и блокирует реальный путь — "
+    "скажите об этом прямо и попробуйте альтернативу (другой пакетный менеджер, "
+    "другой подход, спросите пользователя). НИКОГДА не подменяйте правдоподобно "
+    "выглядящими сфабрикованными данными (придуманные цифры, вымышленное содержимое "
+    "файлов, синтезированные ответы API) результаты, которые вы не смогли реально "
+    "получить. Честно сообщить о блокировке всегда лучше, чем выдумать результат."
 )
 
 # Universal parallel-tool-call guidance — applied to ALL models.
@@ -351,16 +351,16 @@ TASK_COMPLETION_GUIDANCE = (
 # from Cline's TypeScript tool-surface guidance to ruslan-agent's Python
 # prompt-assembly architecture.
 PARALLEL_TOOL_CALL_GUIDANCE = (
-    "# Parallel tool calls\n"
-    "When you need several pieces of information that don't depend on each "
-    "other, request them together in a single response instead of one tool "
-    "call per turn. Independent reads, searches, web fetches, and read-only "
-    "commands should be batched into the same assistant turn — the runtime "
-    "executes independent calls concurrently, and batching avoids resending "
-    "the whole conversation on every extra round-trip.\n"
-    "Only serialize calls when a later call genuinely depends on an earlier "
-    "call's result (e.g. you must read a file before you can patch it). When "
-    "in doubt and the calls are independent, batch them."
+    "# Параллельные вызовы инструментов\n"
+    "Когда вам нужно несколько независимых фрагментов информации, "
+    "запрашивайте их вместе в одном ответе, а не по одному за ход. "
+    "Независимые чтения, поиски, веб-запросы и read-only команды должны "
+    "объединяться в один ход ассистента — среда выполнения обрабатывает "
+    "независимые вызовы параллельно, а пакетная отправка избегает повторной "
+    "пересылки всего контекста на каждом лишнем цикле.\n"
+    "Сериализуйте вызовы только когда последующий вызов действительно зависит "
+    "от результата предыдущего (например, нужно прочитать файл перед его правкой). "
+    "Если сомневаетесь и вызовы независимы — объединяйте."
 )
 
 # OpenAI GPT/Codex-specific execution guidance.  Addresses known failure modes
@@ -434,24 +434,20 @@ OPENAI_MODEL_EXECUTION_GUIDANCE = (
 # Gemini/Gemma-specific operational guidance, adapted from OpenCode's gemini.txt.
 # Injected alongside TOOL_USE_ENFORCEMENT_GUIDANCE when the model is Gemini or Gemma.
 GOOGLE_MODEL_OPERATIONAL_GUIDANCE = (
-    "# Google model operational directives\n"
-    "Follow these operational rules strictly:\n"
-    "- **Absolute paths:** Always construct and use absolute file paths for all "
-    "file system operations. Combine the project root with relative paths.\n"
-    "- **Verify first:** Use read_file/search_files to check file contents and "
-    "project structure before making changes. Never guess at file contents.\n"
-    "- **Dependency checks:** Never assume a library is available. Check "
-    "package.json, requirements.txt, Cargo.toml, etc. before importing.\n"
-    "- **Conciseness:** Keep explanatory text brief — a few sentences, not "
-    "paragraphs. Focus on actions and results over narration.\n"
-    # Parallel-tool-call steering now lives in the universal
-    # PARALLEL_TOOL_CALL_GUIDANCE block (injected for all models), so it is no
-    # longer duplicated here — keeping it would send Gemini/Gemma the same
-    # instruction twice.
-    "- **Non-interactive commands:** Use flags like -y, --yes, --non-interactive "
-    "to prevent CLI tools from hanging on prompts.\n"
-    "- **Keep going:** Work autonomously until the task is fully resolved. "
-    "Don't stop with a plan — execute it.\n"
+    "# Директивы для Google-моделей\n"
+    "Строго следуйте этим операционным правилам:\n"
+    "- **Абсолютные пути:** Всегда используйте абсолютные пути для файловых операций. "
+    "Комбинируйте корень проекта с относительными путями.\n"
+    "- **Проверяйте сначала:** Используйте read_file/search_files для проверки содержимого "
+    "и структуры проекта перед внесением изменений. Не угадывайте содержимое файлов.\n"
+    "- **Проверка зависимостей:** Не предполагайте наличие библиотеки. Проверьте "
+    "package.json, requirements.txt, Cargo.toml и т.д. перед импортом.\n"
+    "- **Краткость:** Пояснения — коротко, несколько предложений, не абзацы. "
+    "Фокус на действиях и результатах, а не на нарративе.\n"
+    "- **Неинтерактивные команды:** Используйте флаги -y, --yes, --non-interactive "
+    "чтобы CLI-инструменты не зависали на запросах.\n"
+    "- **Продолжайте:** Работайте автономно до полного разрешения задачи. "
+    "Не останавливайтесь на плане — выполните его.\n"
 )
 
 

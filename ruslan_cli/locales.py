@@ -65,8 +65,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "cli.welcome.text": "Welcome to Ruslan Agent! Type your message or /help for commands.",
         "cli.welcome.tip_help": "Type /help for available commands",
         "cli.welcome.starting": "Starting Ruslan Agent...",
-        "cli.goodbye.text": "Goodbye! ⚕",
-        "cli.branding.response_label": " ⚕ Ruslan ",
+        "cli.goodbye.text": "Goodbye! ⚔",
+        "cli.branding.response_label": " ⚔ Ruslan ",
 
         # --- /help заголовки ---
         "cli.help.title": "Available Commands",
@@ -303,8 +303,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "cli.welcome.text": "Добро пожаловать в Руслан! Введите сообщение или /help для списка команд.",
         "cli.welcome.tip_help": "Введите /help для списка команд",
         "cli.welcome.starting": "Запуск Руслан...",
-        "cli.goodbye.text": "До свидания! ⚕",
-        "cli.branding.response_label": " ⚕ Руслан ",
+        "cli.goodbye.text": "До свидания! ⚔",
+        "cli.branding.response_label": " ⚔ Руслан ",
 
         # --- /help заголовки ---
         "cli.help.title": "Доступные команды",

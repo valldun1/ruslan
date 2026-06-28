@@ -366,7 +366,7 @@ def _print_setup_summary(config: dict, ruslan_home):
     """Print the setup completion summary."""
     # Tool availability summary
     print()
-    print_header("Tool Availability Summary")
+    print_header("Доступность инструментов")
 
     tool_status = []
     subscription_features = get_nous_subscription_features(config)
@@ -595,7 +595,7 @@ def _print_setup_summary(config: dict, ruslan_home):
     )
     print(
         color(
-            "│              ✓ Setup Complete!                          │", Colors.GREEN
+            "│              ✓ Настройка завершена!                     │", Colors.GREEN
         )
     )
     print(
@@ -607,28 +607,28 @@ def _print_setup_summary(config: dict, ruslan_home):
 
     # Show file locations prominently
     from ruslan_constants import display_ruslan_home as _dhh
-    print(color(f"📁 All your files are in {_dhh()}/:", Colors.CYAN, Colors.BOLD))
+    print(color(f"📁 Все ваши файлы в {_dhh()}/:", Colors.CYAN, Colors.BOLD))
     print()
-    print(f"   {color('Settings:', Colors.YELLOW)}  {get_config_path()}")
-    print(f"   {color('API Keys:', Colors.YELLOW)}  {get_env_path()}")
+    print(f"   {color('Настройки:', Colors.YELLOW)}  {get_config_path()}")
+    print(f"   {color('Ключи API:', Colors.YELLOW)}  {get_env_path()}")
     print(
-        f"   {color('Data:', Colors.YELLOW)}      {ruslan_home}/cron/, sessions/, logs/"
+        f"   {color('Данные:', Colors.YELLOW)}      {ruslan_home}/cron/, sessions/, logs/"
     )
     print()
 
     print(color("─" * 60, Colors.DIM))
     print()
-    print(color("📝 To edit your configuration:", Colors.CYAN, Colors.BOLD))
+    print(color("📝 Изменение конфигурации:", Colors.CYAN, Colors.BOLD))
     print()
-    print(f"   {color('ruslan setup', Colors.GREEN)}          Re-run the full wizard")
-    print(f"   {color('ruslan setup model', Colors.GREEN)}    Change model/provider")
-    print(f"   {color('ruslan setup terminal', Colors.GREEN)} Change terminal backend")
-    print(f"   {color('ruslan setup gateway', Colors.GREEN)}  Configure messaging")
-    print(f"   {color('ruslan setup tools', Colors.GREEN)}    Configure tool providers")
+    print(f"   {color('ruslan setup', Colors.GREEN)}          Запустить мастер заново")
+    print(f"   {color('ruslan setup model', Colors.GREEN)}    Сменить модель/провайдера")
+    print(f"   {color('ruslan setup terminal', Colors.GREEN)} Сменить бэкенд терминала")
+    print(f"   {color('ruslan setup gateway', Colors.GREEN)}  Настроить мессенджеры")
+    print(f"   {color('ruslan setup tools', Colors.GREEN)}    Настроить инструменты")
     print()
-    print(f"   {color('ruslan config', Colors.GREEN)}         View current settings")
+    print(f"   {color('ruslan config', Colors.GREEN)}         Показать настройки")
     print(
-        f"   {color('ruslan config edit', Colors.GREEN)}    Open config in your editor"
+        f"   {color('ruslan config edit', Colors.GREEN)}    Открыть конфиг в редакторе"
     )
     print(f"   {color('ruslan config set <key> <value>', Colors.GREEN)}")
     print("Укажите конкретное значение")
@@ -640,11 +640,11 @@ def _print_setup_summary(config: dict, ruslan_home):
 
     print(color("─" * 60, Colors.DIM))
     print()
-    print(color("🚀 Ready to go!", Colors.CYAN, Colors.BOLD))
+    print(color("🚀 Готово к работе!", Colors.CYAN, Colors.BOLD))
     print()
-    print(f"   {color('ruslan', Colors.GREEN)}              Start chatting")
-    print(f"   {color('ruslan gateway', Colors.GREEN)}      Start messaging gateway")
-    print(f"   {color('ruslan doctor', Colors.GREEN)}       Check for issues")
+    print(f"   {color('ruslan', Colors.GREEN)}              Начать чат")
+    print(f"   {color('ruslan gateway', Colors.GREEN)}      Запустить мессенджер-шлюз")
+    print(f"   {color('ruslan doctor', Colors.GREEN)}       Проверить систему")
     print()
 
 

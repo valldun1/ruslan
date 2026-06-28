@@ -2769,7 +2769,7 @@ def run_setup_wizard(args):
                 func(config)
                 save_config(config)
                 print()
-                print_success(f"{label} configuration complete!")
+                print_success(f"Настройка {label.lower()} завершена!")
                 return
 
         print_error(f"Unknown setup section: {section}")

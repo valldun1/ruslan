@@ -276,7 +276,7 @@ def _check_s6_supervision(issues: list[str]) -> None:
     if detect_service_manager() != "s6":
         return
 
-    _section("s6 Supervision")
+    _section("Мониторинг s6")
 
     mgr = S6ServiceManager()
 
@@ -349,7 +349,7 @@ def _check_gateway_service_linger(issues: list[str]) -> None:
     if not unit_path.exists():
         return
 
-    _section("Gateway Service")
+    _section("Служба шлюза")
     linger_enabled, linger_detail = get_systemd_linger_status()
     if linger_enabled is True:
         check_ok("Systemd linger enabled", "(gateway service survives logout)")
@@ -527,10 +527,10 @@ def run_doctor(args):
 
     print()
     print(color("┌─────────────────────────────────────────────────────────┐", Colors.CYAN))
-    print(color("│                 🩺 Ruslan Doctor                        │", Colors.CYAN))
+    print(color("│                 🩺 Доктор Руслана                       │", Colors.CYAN))
     print(color("└─────────────────────────────────────────────────────────┘", Colors.CYAN))
 
-    _section("Security Advisories")
+    _section("Советы безопасности")
     try:
         from ruslan_cli.security_advisories import (
             detect_compromised,
@@ -576,7 +576,7 @@ def run_doctor(args):
         # Never let a bug in the advisory check block the rest of doctor.
         check_warn(f"Security advisory check failed: {e}")
 
-    _section("MCP Server Security")
+    _section("Безопасность MCP-серверов")
     try:
         from ruslan_cli.config import load_config
         from ruslan_cli.mcp_security import validate_mcp_server_entry
@@ -600,7 +600,7 @@ def run_doctor(args):
     except Exception as e:
         check_warn(f"MCP security check failed: {e}")
     
-    _section("Python Environment")
+    _section("Окружение Python")
     py_version = sys.version_info
     if py_version >= (3, 11):
         check_ok(f"Python {py_version.major}.{py_version.minor}.{py_version.micro}")
@@ -628,10 +628,10 @@ def run_doctor(args):
     # (a git conflict resolution can silently revert one but not the other).
     _check_version_consistency(issues)
 
-    _section("SSL / CA Certificates")
+    _section("SSL / Сертификаты")
     check_certificates()
 
-    _section("Required Packages")
+    _section("Необходимые пакеты")
     required_packages = [
         ("openai", "OpenAI SDK"),
         ("rich", "Rich (terminal UI)"),
@@ -651,16 +651,16 @@ def run_doctor(args):
             __import__(module)
             check_ok(name)
         except ImportError:
-            _fail_and_issue(name, "(missing)", f"Install {name}: {_python_install_cmd()} {module}", issues)
+            _fail_and_issue(name, "(отсутствует)", f"Install {name}: {_python_install_cmd()} {module}", issues)
     
     for module, name in optional_packages:
         try:
             __import__(module)
-            check_ok(name, "(optional)")
+            check_ok(name, "(опционально)")
         except ImportError:
-            check_warn(name, "(optional, not installed)")
+            check_warn(name, "(опционально, не установлен)")
     
-    _section("Configuration Files")
+    _section("Файлы конфигурации")
     # Managed scope (administrator-pinned config/env), when present.
     managed_scope_check()
     # Check ~/.ruslan/.env (primary location for user config)
@@ -899,7 +899,7 @@ def run_doctor(args):
                     check_ok(f"Created {_DHH}/config.yaml from defaults")
                 fixed_count += 1
             else:
-                check_warn("config.yaml not found", "(using defaults)")
+                check_warn("config.yaml not found", "(по умолчанию)")
 
     # Check config version and stale keys
     config_path = RUSLAN_HOME / 'config.yaml'
@@ -1027,7 +1027,7 @@ def run_doctor(args):
             from ruslan_cli.config import validate_config_structure
             config_issues = validate_config_structure()
             if config_issues:
-                _section("Config Structure")
+                _section("Структура конфига")
                 for ci in config_issues:
                     if ci.severity == "error":
                         check_fail(ci.message)
@@ -1040,7 +1040,7 @@ def run_doctor(args):
         except Exception:
             pass
 
-    _section("xAI Model Retirement (May 15, 2026)")
+    _section("Вывод моделей xAI (15 мая 2026)")
 
     try:
         from ruslan_cli.config import load_config
@@ -1065,7 +1065,7 @@ def run_doctor(args):
     except Exception as _xai_check_err:
         check_warn("xAI retirement check skipped", f"({_xai_check_err})")
 
-    _section("Auth Providers")
+    _section("Провайдеры аутентификации")
 
     try:
         from ruslan_cli.auth import (
@@ -1078,13 +1078,13 @@ def run_doctor(args):
         if nous_status.get("logged_in"):
             check_ok("Nous Portal auth", "(logged in)")
         else:
-            check_warn("Nous Portal auth", "(not logged in)")
+            check_warn("Nous Portal auth", "(не выполнен вход)")
 
         codex_status = get_codex_auth_status()
         if codex_status.get("logged_in"):
             check_ok("OpenAI Codex auth", "(logged in)")
         else:
-            check_warn("OpenAI Codex auth", "(not logged in)")
+            check_warn("OpenAI Codex auth", "(не выполнен вход)")
             if codex_status.get("error"):
                 check_info(codex_status["error"])
             # Native OAuth uses Ruslan' own device-code flow — the Codex CLI is
@@ -1103,7 +1103,7 @@ def run_doctor(args):
             region = minimax_status.get("region", "global")
             check_ok("MiniMax OAuth", f"(logged in, region={region})")
         else:
-            check_warn("MiniMax OAuth", "(not logged in)")
+            check_warn("MiniMax OAuth", "(не выполнен вход)")
     except Exception as e:
         check_warn("Auth provider status", f"(could not check: {e})")
 
@@ -1115,13 +1115,13 @@ def run_doctor(args):
         if xai_oauth_status.get("logged_in"):
             check_ok("xAI OAuth", "(logged in)")
         else:
-            check_warn("xAI OAuth", "(not logged in)")
+            check_warn("xAI OAuth", "(не выполнен вход)")
             if xai_oauth_status.get("error"):
                 check_info(xai_oauth_status["error"])
     except Exception:
         pass
 
-    _section("Directory Structure")
+    _section("Структура папок")
     ruslan_home = RUSLAN_HOME
     if ruslan_home.exists():
         check_ok(f"{_DHH} directory exists")
@@ -1130,7 +1130,7 @@ def run_doctor(args):
         check_ok(f"Created {_DHH} directory")
         fixed_count += 1
     else:
-        check_warn(f"{_DHH} not found", "(will be created on first use)")
+        check_warn(f"{_DHH} not found", "(будет создано при первом запуске)")
     
     # Check expected subdirectories
     expected_subdirs = ["cron", "sessions", "logs", "skills", "memories"]
@@ -1143,7 +1143,7 @@ def run_doctor(args):
             check_ok(f"Created {_DHH}/{subdir_name}/")
             fixed_count += 1
         else:
-            check_warn(f"{_DHH}/{subdir_name}/ not found", "(will be created on first use)")
+            check_warn(f"{_DHH}/{subdir_name}/ not found", "(будет создано при первом запуске)")
     
     # Check for SOUL.md persona file
     soul_path = ruslan_home / "SOUL.md"
@@ -1156,7 +1156,7 @@ def run_doctor(args):
         else:
             check_info(f"{_DHH}/SOUL.md exists but is empty — edit it to customize personality")
     else:
-        check_warn(f"{_DHH}/SOUL.md not found", "(create it to give Ruslan a custom personality)")
+        check_warn(f"{_DHH}/SOUL.md not found", "(создайте для настройки личности Руслана)")
         if should_fix:
             soul_path.parent.mkdir(parents=True, exist_ok=True)
             soul_path.write_text(
@@ -1185,7 +1185,7 @@ def run_doctor(args):
         else:
             check_info("USER.md not created yet (will be created when the agent first writes a memory)")
     else:
-        check_warn(f"{_DHH}/memories/ not found", "(will be created on first use)")
+        check_warn(f"{_DHH}/memories/ not found", "(будет создано при первом запуске)")
         if should_fix:
             memories_dir.mkdir(parents=True, exist_ok=True)
             check_ok(f"Created {_DHH}/memories/")
@@ -1281,7 +1281,7 @@ def run_doctor(args):
     _check_s6_supervision(issues)
 
     if sys.platform != "win32":
-        _section("Command Installation")
+        _section("Установка команд")
         # Determine the venv entry point location
         _venv_bin = None
         for _venv_name in ("venv", ".venv"):
@@ -1355,18 +1355,18 @@ def run_doctor(args):
                 else:
                     issues.append(f"Missing {_cmd_link_display}/ruslan symlink — run 'ruslan doctor --fix'")
 
-    _section("External Tools")
+    _section("Внешние инструменты")
     # Git
     if _safe_which("git"):
         check_ok("git")
     else:
-        check_warn("git not found", "(optional)")
+        check_warn("git not found", "(опционально)")
     
     # ripgrep (optional, for faster file search)
     if _safe_which("rg"):
         check_ok("ripgrep (rg)", "(faster file search)")
     else:
-        check_warn("ripgrep (rg) not found", "(file search uses grep fallback)")
+        check_warn("ripgrep (rg) not found", "(поиск по файлам через grep)")
         check_info(f"Install for faster search: {_system_package_install_cmd('ripgrep')}")
     
     # Docker (optional)
@@ -1410,13 +1410,13 @@ def run_doctor(args):
                 issues,
             )
     elif _safe_which("docker"):
-        check_ok("docker", "(optional)")
+        check_ok("docker", "(опционально)")
     elif _is_termux():
         check_info("Docker backend is not available inside Termux (expected on Android)")
     elif running_in_container:
         pass  # already explained above
     else:
-        check_warn("docker not found", "(optional)")
+        check_warn("docker not found", "(опционально)")
     
     # SSH (if using ssh backend)
     if terminal_env == "ssh":
@@ -1496,7 +1496,7 @@ def run_doctor(args):
             for step in _termux_browser_setup_steps(node_installed=True):
                 check_info(step)
         else:
-            check_warn("agent-browser not installed", "(run: npm install)")
+            check_warn("agent-browser not installed", "(установите: npm install)")
 
         # Chromium presence — the browser tools silently fail to register when
         # agent-browser is found but no Playwright-managed Chromium is on disk
@@ -1660,7 +1660,7 @@ def run_doctor(args):
         for note in _termux_install_all_fallback_notes():
             check_info(note)
 
-    _section("API Connectivity")
+    _section("Подключение к API")
     # Refactor: every connectivity probe below is HTTP-bound and fully
     # independent. Running them in series spent ~5s wall on a typical
     # workstation (2s of that was boto3's IMDS lookup for AWS credentials,
@@ -1686,7 +1686,7 @@ def run_doctor(args):
             return _ConnectivityResult(
                 "OpenRouter API",
                 [(color("⚠", Colors.YELLOW), "OpenRouter API",
-                  color("(not configured)", Colors.DIM))],
+                  color("(не настроен)", Colors.DIM))],
                 [],
             )
         try:
@@ -2090,7 +2090,7 @@ def run_doctor(args):
         for _issue in _issues_to_add:
             issues.append(_issue)
 
-    _section("Tool Availability")
+    _section("Доступность инструментов")
     try:
         # Add project root to path for imports
         sys.path.insert(0, str(PROJECT_ROOT))
@@ -2118,7 +2118,7 @@ def run_doctor(args):
     except Exception as e:
         check_warn("Could not check tool availability", f"({e})")
     
-    _section("Skills Hub")
+    _section("Хаб навыков")
     hub_dir = RUSLAN_HOME / "skills" / ".hub"
     if hub_dir.exists():
         check_ok("Skills Hub directory exists")
@@ -2159,7 +2159,7 @@ def run_doctor(args):
     else:
         check_warn("No GITHUB_TOKEN", f"(60 req/hr rate limit — set in {_DHH}/.env for better rates)")
 
-    _section("Memory Provider")
+    _section("Провайдер памяти")
     _active_memory_provider = ""
     try:
         import yaml as _yaml
@@ -2267,7 +2267,7 @@ def run_doctor(args):
 
         named_profiles = [p for p in list_profiles() if not p.is_default]
         if named_profiles:
-            _section("Profiles")
+            _section("Профили")
             check_ok(f"{len(named_profiles)} profile(s) found")
             wrapper_dir = _get_wrapper_dir()
             for p in named_profiles:
@@ -2320,15 +2320,15 @@ def run_doctor(args):
             print()
     elif remaining_issues:
         print(color("─" * 60, Colors.YELLOW))
-        print(color(f"  Found {len(remaining_issues)} issue(s) to address:", Colors.YELLOW, Colors.BOLD))
+        print(color(f"  Найдено проблем: {len(remaining_issues)}", Colors.YELLOW, Colors.BOLD))
         print()
         for i, issue in enumerate(remaining_issues, 1):
             print(f"  {i}. {issue}")
         print()
         if not should_fix:
-            print(color("  Tip: run 'ruslan doctor --fix' to auto-fix what's possible.", Colors.DIM))
+            print(color("  Совет: запусти 'ruslan doctor --fix' для автоисправления.", Colors.DIM))
     else:
         print(color("─" * 60, Colors.GREEN))
-        print(color("  All checks passed! 🎉", Colors.GREEN, Colors.BOLD))
+        print(color("  Все проверки пройдены! 🎉", Colors.GREEN, Colors.BOLD))
     
     print()

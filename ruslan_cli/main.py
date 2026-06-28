@@ -1812,7 +1812,7 @@ def _make_tui_argv(tui_dir: Path, tui_dev: bool) -> tuple[list[str], Path]:
         if result.returncode != 0:
             combined = f"{result.stdout or ''}\n{result.stderr or ''}".strip()
             preview = "\n".join(combined.splitlines()[-30:])
-            print("npm install failed.")
+            print("Ошибка установки npm.")
             if preview:
                 print(preview)
             sys.exit(1)
@@ -1837,7 +1837,7 @@ def _make_tui_argv(tui_dir: Path, tui_dev: bool) -> tuple[list[str], Path]:
         if result.returncode != 0:
             combined = f"{result.stdout or ''}{result.stderr or ''}".strip()
             preview = "\n".join(combined.splitlines()[-30:])
-            print("TUI dev prebuild failed.")
+            print("Ошибка предсборки TUI.")
             if preview:
                 print(preview)
             sys.exit(1)
@@ -1867,7 +1867,7 @@ def _make_tui_argv(tui_dir: Path, tui_dev: bool) -> tuple[list[str], Path]:
         if result.returncode != 0:
             combined = f"{result.stdout or ''}{result.stderr or ''}".strip()
             preview = "\n".join(combined.splitlines()[-30:])
-            print("TUI build failed.")
+            print("Ошибка сборки TUI.")
             if preview:
                 print(preview)
             sys.exit(1)
@@ -3789,7 +3789,7 @@ def _remove_custom_provider(config):
         print("Не настроено ни одного пользовательского провайдера.")
         return
 
-    print("Remove a custom provider:\n")
+    print("Удалить своего провайдера:\n")
 
     choices = []
     for entry in providers:
@@ -3999,7 +3999,7 @@ def _prompt_api_key(pconfig, existing_key: str, provider_id: str = "") -> tuple:
             return "", True
         new_key = _prompt_new_key(allow_lmstudio_default=True)
         if not new_key:
-            print("Cancelled.")
+            print("Отменено.")
             return "", True
         save_env_value(key_env, new_key)
         print("Ключ API сохранен.")
@@ -9152,7 +9152,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                     )
                     if rollback_result.returncode == 0:
                         print("✓ Откат завершен — ваша установка не изменена.")
-                        print("Try ``ruslan update`` again later once a fix lands.")
+                        print("Попробуйте ``ruslan update`` позже, когда выйдет исправление.")
                     else:
                         print("✗ Откат не удался. Восстановите вручную с помощью:")
                         print(f"    cd {PROJECT_ROOT} && git reset --hard {pre_pull_sha}")
@@ -12803,7 +12803,7 @@ def main():
                 if not _confirm_prompt(
                     f"Delete session '{resolved_session_id}' and all its messages? [y/N] "
                 ):
-                    print("Cancelled.")
+                    print("Отменено.")
                     return
             sessions_dir = get_ruslan_home() / "sessions"
             if db.delete_session(resolved_session_id, sessions_dir=sessions_dir):
@@ -12818,7 +12818,7 @@ def main():
                 if not _confirm_prompt(
                     f"Delete all ended sessions older than {days} days{source_msg}? [y/N] "
                 ):
-                    print("Cancelled.")
+                    print("Отменено.")
                     return
             sessions_dir = get_ruslan_home() / "sessions"
             count = db.prune_sessions(
@@ -12854,7 +12854,7 @@ def main():
 
             selected_id = _session_browse_picker(sessions)
             if not selected_id:
-                print("Cancelled.")
+                print("Отменено.")
                 return
 
             # Launch ruslan --resume <id> by replacing the current process

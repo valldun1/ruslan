@@ -1246,7 +1246,7 @@ def _print_other_profiles_gateway_status() -> None:
             return
 
         print()
-        print("Other profiles:")
+        print("Другие профили:")
         for proc in other_processes:
             print(f"  ✓ {proc.profile:<16s} — PID {proc.pid}")
     except Exception:
@@ -1263,17 +1263,17 @@ def _gateway_list() -> None:
     try:
         from ruslan_cli.profiles import list_profiles, get_active_profile_name
     except Exception:
-        print("Unable to list profiles.")
+        print("Не удалось показать профили.")
         return
 
     profiles = list_profiles()
     if not profiles:
-        print("No profiles found.")
+        print("Профили не найдены.")
         return
 
     current = get_active_profile_name()
 
-    print("Gateways:")
+    print("Шлюзы:")
     for prof in profiles:
         marker = "✓" if prof.gateway_running else "✗"
         label = prof.name
@@ -1890,7 +1890,7 @@ def print_legacy_unit_warning() -> None:
     legacy = _find_legacy_ruslan_units()
     if not legacy:
         return
-    print_warning("Legacy Ruslan gateway unit(s) detected from an older install:")
+    print_warning("Обнаружены устаревшие юниты шлюза от старой установки:")
     for name, path, is_system in legacy:
         scope = "system" if is_system else "user"
         print_info(f"    {path}  ({scope} scope)")
@@ -1922,14 +1922,14 @@ def remove_legacy_ruslan_units(
     """
     legacy = _find_legacy_ruslan_units()
     if not legacy:
-        print("No legacy Ruslan gateway units found.")
+        print("Устаревших юнитов шлюза не найдено.")
         return 0, []
 
     user_units = [(n, p) for n, p, is_sys in legacy if not is_sys]
     system_units = [(n, p) for n, p, is_sys in legacy if is_sys]
 
     print()
-    print("Legacy Ruslan gateway unit(s) found:")
+    print("Найдены устаревшие юниты шлюза:")
     for name, path, is_system in legacy:
         scope = "system" if is_system else "user"
         print(f"  {path}  ({scope} scope)")
@@ -1940,7 +1940,7 @@ def remove_legacy_ruslan_units(
         return 0, [p for _, p, _ in legacy]
 
     if interactive and not prompt_yes_no("Remove these legacy units?", True):
-        print("Skipped. Run again with: ruslan gateway migrate-legacy")
+        print("Пропущено. Запустите снова: ruslan gateway migrate-legacy")
         return 0, [p for _, p, _ in legacy]
 
     removed = 0
@@ -1968,7 +1968,7 @@ def remove_legacy_ruslan_units(
     if system_units:
         if os.geteuid() != 0:  # windows-footgun: ok — Linux systemd removal path, guarded by `if system == "Linux"` / systemd-only branch
             print()
-            print_warning("System-scope legacy units require root to remove.")
+            print_warning("Системные устаревшие юниты требуют root для удаления.")
             print_info("  Re-run with: sudo ruslan gateway migrate-legacy")
             for _, path in system_units:
                 remaining.append(path)
@@ -2049,7 +2049,7 @@ def _system_service_identity(run_as_user: str | None = None) -> tuple[str, str, 
             "Refusing to install the gateway system service as root; pass --run-as-user root to override (e.g. in LXC containers)"
         )
     if username == "root":
-        print_warning("Installing gateway service to run as root.")
+        print_warning("Установка службы шлюза от root.")
         print_info(
             "  This is fine for LXC/container environments but not recommended on bare-metal hosts."
         )
@@ -2753,7 +2753,7 @@ def _ensure_linger_enabled() -> None:
         _print_linger_enable_warning(username, linger_detail or "loginctl not found")
         return
 
-    print("Enabling linger so the gateway survives SSH logout...")
+    print("Включаем linger, чтобы шлюз пережил выход из SSH...")
     try:
         result = subprocess.run(
             ["loginctl", "enable-linger", username],
@@ -2873,7 +2873,7 @@ def systemd_install(
             print(f"✓ {_service_scope_label(system).capitalize()} service definition updated")
             return
         print(f"Service already installed at: {unit_path}")
-        print("Use --force to reinstall")
+        print("Используйте --force для переустановки")
         return
 
     unit_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2891,7 +2891,7 @@ def systemd_install(
     enable_label = "installed and enabled" if enable_on_startup else "installed"
     print(f"✓ {_service_scope_label(system).capitalize()} service {enable_label}!")
     print()
-    print("Next steps:")
+    print("Дальнейшие шаги:")
     print(
         f"  {'sudo ' if system else ''}ruslan gateway start{scope_flag}              # Start the service"
     )
@@ -3149,7 +3149,7 @@ def systemd_status(deep: bool = False, system: bool = False, full: bool = False)
     runtime_lines = _runtime_health_lines()
     if runtime_lines:
         print()
-        print("Recent gateway health:")
+        print("Состояние шлюза:")
         for line in runtime_lines:
             print(f"  {line}")
 
@@ -3192,7 +3192,7 @@ def systemd_status(deep: bool = False, system: bool = False, full: bool = False)
 
     if deep:
         print()
-        print("Recent logs:")
+        print("Последние логи:")
         log_cmd = _journalctl_cmd(system) + [
             "-u",
             get_service_name(),
@@ -3380,7 +3380,7 @@ def _launchd_fallback_to_detached(reason: str, *, exit_on_failure: bool = True) 
         print(f"  Logs: {_dhh()}/logs/gateway.log")
         print("  Stop it with: ruslan gateway stop")
         return True
-    print_error("Failed to start the gateway as a background process.")
+    print_error("Не удалось запустить шлюз как фоновый процесс.")
     print(
         f"  Try manually: nohup ruslan gateway run --replace "
         f"> {_dhh()}/logs/gateway.log 2>&1 &"
@@ -3590,7 +3590,7 @@ def launchd_install(force: bool = False):
             print("✓ Service definition updated")
             return
         print(f"Service already installed at: {plist_path}")
-        print("Use --force to reinstall")
+        print("Используйте --force для переустановки")
         return
 
     plist_path.parent.mkdir(parents=True, exist_ok=True)
@@ -3615,7 +3615,7 @@ def launchd_install(force: bool = False):
     print()
     print("✓ Service installed and loaded!")
     print()
-    print("Next steps:")
+    print("Дальнейшие шаги:")
     print("  ruslan gateway status             # Check status")
     from ruslan_constants import display_ruslan_home as _dhh
 
@@ -3871,7 +3871,7 @@ def launchd_status(deep: bool = False):
         log_file = get_ruslan_home() / "logs" / "gateway.log"
         if log_file.exists():
             print()
-            print("Recent logs:")
+            print("Последние логи:")
             subprocess.run(["tail", "-20", str(log_file)], timeout=10)
 
 
@@ -4929,7 +4929,7 @@ def _setup_weixin():
     existing_token = get_env_value("WEIXIN_TOKEN")
     if existing_account and existing_token:
         print()
-        print_success("Weixin is already configured.")
+        print_success("Weixin уже настроен.")
         if not prompt_yes_no("  Reconfigure Weixin?", False):
             return
 
@@ -5072,7 +5072,7 @@ def _setup_weixin():
             print_success(f"  Home channel set to {user_id}")
 
     print()
-    print_success("Weixin configured!")
+    print_success("Weixin настроен!")
     print_info(f"  Account ID: {account_id}")
     if user_id:
         print_info(f"  User ID: {user_id}")
@@ -5219,7 +5219,7 @@ def _setup_signal():
     existing_account = get_env_value("SIGNAL_ACCOUNT")
     if existing_url and existing_account:
         print()
-        print_success("Signal is already configured.")
+        print_success("Signal уже настроен.")
         if not prompt_yes_no("  Reconfigure Signal?", False):
             return
 
@@ -5330,7 +5330,7 @@ def _setup_signal():
         save_env_value("SIGNAL_GROUP_ALLOWED_USERS", groups)
 
     print()
-    print_success("Signal configured!")
+    print_success("Signal настроен!")
     print_info(f"  URL: {url}")
     print_info(f"  Account: {account}")
     print_info("  DM auth: via SIGNAL_ALLOWED_USERS + DM pairing")
@@ -5477,9 +5477,9 @@ def gateway_setup():
         print()
 
     if service_installed and service_running:
-        print_success("Gateway service is installed and running.")
+        print_success("Служба шлюза установлена и работает.")
     elif service_installed:
-        print_warning("Gateway service is installed but not running.")
+        print_warning("Служба шлюза установлена, но не запущена.")
         if supports_systemd_services() and _system_scope_wizard_would_need_root():
             _print_system_scope_remediation("start")
         elif prompt_yes_no("  Start it now?", True):
@@ -5501,13 +5501,13 @@ def gateway_setup():
             except subprocess.CalledProcessError as e:
                 print_error(f"  Failed to start: {e}")
     else:
-        print_info("Gateway service is not installed yet.")
-        print_info("You'll be offered to install it after configuring platforms.")
+        print_info("Служба шлюза ещё не установлена.")
+        print_info("Вам предложат установить её после настройки платформ.")
 
     # ── Platform configuration loop ──
     while True:
         print()
-        print_header("Messaging Platforms")
+        print_header("Платформы сообщений")
 
         platforms = _all_platforms()
 
@@ -6430,7 +6430,7 @@ def _gateway_command_inner(args):
                 runtime_lines = _runtime_health_lines()
                 if runtime_lines:
                     print()
-                    print("Recent gateway health:")
+                    print("Состояние шлюза:")
                     for line in runtime_lines:
                         print(f"  {line}")
                 print()
@@ -6459,7 +6459,7 @@ def _gateway_command_inner(args):
                 runtime_lines = _runtime_health_lines()
                 if runtime_lines:
                     print()
-                    print("Recent gateway health:")
+                    print("Состояние шлюза:")
                     for line in runtime_lines:
                         print(f"  {line}")
                 print()

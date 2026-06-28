@@ -15,6 +15,16 @@ from urllib.parse import urlparse
 from ruslan_constants import get_ruslan_home
 from typing import TYPE_CHECKING, Dict, List, Optional
 
+try:
+    from ruslan_cli.banner_i18n import t as _banner_t, get_locale as _banner_get_locale
+    _HAS_BANNER_I18N = True
+except Exception:  # pragma: no cover - never let the banner crash the CLI
+    _HAS_BANNER_I18N = False
+    def _banner_t(key, locale="en", **kwargs):  # type: ignore[no-redef]
+        return key
+    def _banner_get_locale(config=None):  # type: ignore[no-redef]
+        return "en"
+
 # rich and prompt_toolkit are imported lazily (inside the functions that use
 # them) rather than at module level.  Importing this module is on the TUI
 # gateway's critical startup path purely to reach the lightweight update-check
@@ -580,7 +590,8 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
                          enabled_toolsets: List[str] = None,
                          session_id: str = None,
                          get_toolset_for_tool=None,
-                         context_length: int = None):
+                         context_length: int = None,
+                         locale: str = None):
     """Build and print a welcome banner with caduceus on left and info on right.
 
     Args:
@@ -592,12 +603,24 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
         session_id: Session identifier.
         get_toolset_for_tool: Callable to map tool name -> toolset name.
         context_length: Model's context window size in tokens.
+        locale: Locale code ("en" / "ru"). If None — read from ~/.ruslan/config.yaml.
     """
     from model_tools import check_tool_availability, TOOLSET_REQUIREMENTS
     from rich.panel import Panel
     from rich.table import Table
     if get_toolset_for_tool is None:
         from model_tools import get_toolset_for_tool
+
+    # Resolve banner locale: explicit arg > config.yaml > "en"
+    if locale is None and _HAS_BANNER_I18N:
+        try:
+            from ruslan_cli.config import load_config as _banner_load_config
+            _cfg = _banner_load_config() or {}
+        except Exception:
+            _cfg = {}
+        locale = _banner_get_locale(_cfg)
+    elif locale is None:
+        locale = "en"
 
     tools = tools or []
     enabled_toolsets = enabled_toolsets or []
@@ -663,7 +686,7 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
         left_lines.append(f"[dim {session_color}]Session: {session_id}[/]")
     left_content = "\n".join(left_lines)
 
-    right_lines = [f"[bold {accent}]Available Tools[/]"]
+    right_lines = [f"[bold {accent}]{_banner_t('cli.banner.available_tools', locale=locale)}[/]"]
     toolsets_dict: Dict[str, list] = {}
 
     for tool in tools:
@@ -720,7 +743,11 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
         right_lines.append(f"[dim {dim}]{toolset}:[/] {tools_str}")
 
     if remaining_toolsets > 0:
-        right_lines.append(f"[dim {dim}](and {remaining_toolsets} more toolsets...)[/]")
+        right_lines.append(
+            f"[dim {dim}]"
+            f"{_banner_t('cli.banner.more_toolsets', locale=locale, n=remaining_toolsets)}"
+            f"[/]"
+        )
 
     # MCP Servers section (only if configured)
     try:
@@ -731,7 +758,7 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
 
     if mcp_status:
         right_lines.append("")
-        right_lines.append(f"[bold {accent}]MCP Servers[/]")
+        right_lines.append(f"[bold {accent}]{_banner_t('cli.banner.mcp_servers', locale=locale)}[/]")
         for srv in mcp_status:
             status = srv.get("status")
             if srv["connected"]:
@@ -761,7 +788,7 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
                 )
 
     right_lines.append("")
-    right_lines.append(f"[bold {accent}]Available Skills[/]")
+    right_lines.append(f"[bold {accent}]{_banner_t('cli.banner.available_skills', locale=locale)}[/]")
     # The skills catalog is only reachable when the `skills` toolset is enabled
     # (it exposes skill_view / skill_manage). When it's disabled — e.g. a Blank
     # Slate install — the agent literally cannot load any skill, so advertising
@@ -775,7 +802,7 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
         total_skills = 0
 
     if not _skills_enabled:
-        right_lines.append(f"[dim {dim}]Skills toolset disabled[/]")
+        right_lines.append(f"[dim {dim}]{_banner_t('cli.banner.skills_disabled', locale=locale)}[/]")
     elif skills_by_category:
         for category in sorted(skills_by_category.keys()):
             skill_names = sorted(skills_by_category[category])
@@ -788,14 +815,14 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
                 skills_str = skills_str[:47] + "..."
             right_lines.append(f"[dim {dim}]{category}:[/] [{text}]{skills_str}[/]")
     else:
-        right_lines.append(f"[dim {dim}]No skills installed[/]")
+        right_lines.append(f"[dim {dim}]{_banner_t('cli.banner.no_skills', locale=locale)}[/]")
 
     right_lines.append("")
     mcp_connected = sum(1 for s in mcp_status if s["connected"]) if mcp_status else 0
     summary_parts = [f"{len(tools)} tools", f"{total_skills} skills"]
     if mcp_connected:
         summary_parts.append(f"{mcp_connected} MCP servers")
-    summary_parts.append("/help for commands")
+    summary_parts.append(_banner_t("cli.banner.summary_help", locale=locale))
     # Indicate when the codex_app_server runtime is active so users
     # understand why tool counts may not match what's actually reachable
     # (codex builds its own tool list inside the spawned subprocess).
@@ -826,19 +853,23 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
         if behind is not None and behind != 0:
             from ruslan_cli.config import get_managed_update_command, recommended_update_command
             if behind > 0:
-                commits_word = "commit" if behind == 1 else "commits"
+                if behind == 1:
+                    commits_line = _banner_t("cli.banner.commits_behind_one", locale=locale)
+                else:
+                    commits_line = _banner_t("cli.banner.commits_behind_many", locale=locale, n=behind)
+                run_line = _banner_t("cli.banner.update_run_cmd", locale=locale, cmd=recommended_update_command())
                 right_lines.append(
-                    f"[bold yellow]⚠ {behind} {commits_word} behind[/]"
-                    f"[dim yellow] — run [bold]{recommended_update_command()}[/bold] to update[/]"
+                    f"[bold yellow]{commits_line}[/]"
+                    f"[dim yellow]{run_line}[/]"
                 )
             else:
                 # UPDATE_AVAILABLE_NO_COUNT: nix-built ruslan; we know an update
                 # exists but not by how much, and we don't know how the user
                 # installed it (nix run, profile, system flake, home-manager).
                 managed_cmd = get_managed_update_command()
-                line = "[bold yellow]⚠ update available[/]"
+                line = f"[bold yellow]{_banner_t('cli.banner.update_available', locale=locale)}[/]"
                 if managed_cmd:
-                    line += f"[dim yellow] — run [bold]{managed_cmd}[/bold][/]"
+                    line += f"[dim yellow]{_banner_t('cli.banner.update_run_cmd', locale=locale, cmd=managed_cmd)}[/]"
                 right_lines.append(line)
     except Exception:
         pass  # Never break the banner over an update check

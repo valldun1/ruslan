@@ -238,7 +238,7 @@ def run_whatsapp_cloud_setup() -> int:
     from ruslan_cli.config import get_env_value, save_env_value
 
     print()
-    print("⚕ Настройка WhatsApp Business Cloud API")
+    print("🛡️ Настройка WhatsApp Business Cloud API")
     print("=" * 50)
     print()
     print("Этот мастер настраивает Ruslan для общения с WhatsApp через официальный")

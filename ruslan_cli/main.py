@@ -2129,7 +2129,7 @@ def _launch_tui(
         from ruslan_cli.relaunch import relaunch
 
         print()
-        print("⚕ Запуск обновления...")
+        print("🛡️ Запуск обновления...")
         print()
         relaunch(["update"], preserve_inherited=False)
 
@@ -2426,7 +2426,7 @@ def cmd_whatsapp(args):
     from ruslan_constants import find_node_executable, with_ruslan_node_path
 
     print()
-    print("⚕ Настройка WhatsApp")
+    print("🛡️ Настройка WhatsApp")
     print("=" * 50)
 
     # ── Step 1: Choose mode ──────────────────────────────────────────────
@@ -2637,14 +2637,14 @@ def cmd_whatsapp(args):
             print("    2. Send a message to the bot's WhatsApp number")
             print("    3. The agent will reply automatically")
             print()
-            print("  Tip: Agent responses are prefixed with '⚕ Ruslan Agent'")
+            print("  Tip: Agent responses are prefixed with '🛡️ Ruslan Agent'")
         else:
             print("  Next steps:")
             print("    1. Start the gateway:  ruslan gateway")
             print("    2. Open WhatsApp → Message Yourself")
             print("    3. Type a message — the agent will reply")
             print()
-            print("  Tip: Agent responses are prefixed with '⚕ Ruslan Agent'")
+            print("  Tip: Agent responses are prefixed with '🛡️ Ruslan Agent'")
             print("  so you can tell them apart from your own messages.")
         print()
         print("Или установите как службу: ruslan gateway install")
@@ -2685,7 +2685,7 @@ def cmd_postinstall(args):
 
     stamp_install_method("pip")
 
-    print("⚕ Пост-установочный bootstrap для Ruslan")
+    print("🛡️ Пост-установочный bootstrap для Ruslan")
     print()
 
     for dep in ("node", "browser", "ripgrep", "ffmpeg"):
@@ -8022,7 +8022,7 @@ def _cmd_update_check(branch: str = "main", *, branch_explicit: bool = False):
         elif result == 0:
             print("✓ Уже актуально.")
         else:
-            print("⚕ Доступно обновление на PyPI.")
+            print("🛡️ Доступно обновление на PyPI.")
             print(f"  Run '{recommended_update_command()}' to install.")
         return
 
@@ -8131,7 +8131,7 @@ def _cmd_update_check(branch: str = "main", *, branch_explicit: bool = False):
         if head_sha and target_sha and head_sha == target_sha:
             print("✓ Уже актуально.")
         else:
-            print(f"⚕ Update available (behind {compare_branch}).")
+            print(f"🛡️ Update available (behind {compare_branch}).")
             from ruslan_cli.config import recommended_update_command
 
             print(f"  Run '{recommended_update_command()}' to install.")
@@ -8150,7 +8150,7 @@ def _cmd_update_check(branch: str = "main", *, branch_explicit: bool = False):
         print("✓ Уже актуально.")
     else:
         commits_word = "commit" if behind == 1 else "commits"
-        print(f"⚕ Update available: {behind} {commits_word} behind {compare_branch}.")
+        print(f"🛡️ Update available: {behind} {commits_word} behind {compare_branch}.")
         from ruslan_cli.config import recommended_update_command
 
         print(f"  Run '{recommended_update_command()}' to install.")
@@ -8834,7 +8834,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             logger.debug("Could not read updates.non_interactive_local_changes: %s", exc)
             discard_local_changes = False
 
-    print("⚕ Обновление агента Ruslan...")
+    print("🛡️ Обновление агента Ruslan...")
     print()
 
     # On Windows, abort early if another ruslan.exe is holding the venv shim

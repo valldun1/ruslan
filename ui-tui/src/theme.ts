@@ -238,10 +238,10 @@ function normalizeAnsiForeground(color: string): string {
 
 const BRAND: ThemeBrand = {
   name: 'Ruslan Agent',
-  icon: '⚕',
+  icon: '🛡️',
   prompt: '❯',
   welcome: 'Type your message or /help for commands.',
-  goodbye: 'Goodbye! ⚕',
+  goodbye: 'До свидания! 🛡️',
   tool: '┊',
   helpHeader: '(^_^)? Commands'
 }

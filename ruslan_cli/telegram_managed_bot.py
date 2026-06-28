@@ -25,7 +25,7 @@ TELEGRAM_ONBOARDING_URL_ENV = "TELEGRAM_ONBOARDING_URL"
 
 # The Nous-hosted manager bot username (without @). The backend returns the
 # actual deep link, so this is only used by local helpers/tests.
-DEFAULT_MANAGER_BOT = "HermesSetupBot"
+DEFAULT_MANAGER_BOT = "RuslanSetupBot"
 
 DEFAULT_BOT_NAME = "Ruslan Agent"
 DEFAULT_POLL_TIMEOUT = 180

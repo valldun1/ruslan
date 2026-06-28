@@ -1539,7 +1539,7 @@ DEFAULT_CONFIG = {
     
     "display": {
         "compact": False,
-        "personality": "",
+        "Персона:"
         "resume_display": "full",
         # Recap tuning for /resume and startup resume. The defaults match the
         # historical hardcoded values; expose them as config so power users can
@@ -2156,7 +2156,7 @@ DEFAULT_CONFIG = {
     # WhatsApp platform settings (gateway mode)
     "whatsapp": {
         # Reply prefix prepended to every outgoing WhatsApp message.
-        # Default (None) uses the built-in "⚕ *Ruslan Agent*" header.
+        # Default (None) uses the built-in "🛡️ *Ruslan Agent*" header.
         # Set to "" (empty string) to disable the header entirely.
         # Supports \n for newlines, e.g. "🤖 *My Bot*\n──────\n"
     },
@@ -6515,7 +6515,7 @@ def show_config():
 
     print()
     print(color("┌─────────────────────────────────────────────────────────┐", Colors.CYAN))
-    print(color("│              ⚕ Ruslan Configuration                    │", Colors.CYAN))
+    print(color("│              🛡️ Конфигурация Руслана                    │", Colors.CYAN))
     print(color("└─────────────────────────────────────────────────────────┘", Colors.CYAN))
 
     # Managed scope: surface that some settings are administrator-pinned so the
@@ -6528,32 +6528,32 @@ def show_config():
         _managed_dir = managed_scope.get_managed_dir()
         print()
         print(color(
-            f"  ⚷ Some settings are managed by your administrator ({_managed_dir}) "
-            f"and cannot be changed",
+            f"  ⚷ Некоторые настройки управляются администратором ({_managed_dir}) "
+            f"и не могут быть изменены",
             Colors.YELLOW,
             Colors.BOLD,
         ))
         if _managed_keys:
             print(color(
-                f"    Managed config keys: {', '.join(sorted(_managed_keys))}",
+                f"    Управляемые ключи конфига: {', '.join(sorted(_managed_keys))}",
                 Colors.YELLOW,
             ))
         if _managed_env:
             print(color(
-                f"    Managed env keys: {', '.join(sorted(_managed_env))}",
+                f"    Управляемые ключи .env: {', '.join(sorted(_managed_env))}",
                 Colors.YELLOW,
             ))
 
     # Paths
     print()
-    print(color("◆ Paths", Colors.CYAN, Colors.BOLD))
+    print(color("◆ Пути", Colors.CYAN, Colors.BOLD))
     print(f"  Config:       {get_config_path()}")
     print(f"  Secrets:      {get_env_path()}")
     print(f"  Install:      {get_project_root()}")
     
     # API Keys
     print()
-    print(color("◆ API Keys", Colors.CYAN, Colors.BOLD))
+    print(color("◆ Ключи API", Colors.CYAN, Colors.BOLD))
     
     keys = [
         ("OPENROUTER_API_KEY", "OpenRouter"),
@@ -6576,10 +6576,10 @@ def show_config():
     
     # Model settings
     print()
-    print(color("◆ Model", Colors.CYAN, Colors.BOLD))
-    print(f"  Model:        {redact_config_value(config.get('model', 'not set'))}")
+    print(color("◆ Модель", Colors.CYAN, Colors.BOLD))
+    print(f"  Модель:       {redact_config_value(config.get('model', 'not set'))}")
     _cfg_max_turns = config.get('agent', {}).get('max_turns', DEFAULT_CONFIG['agent']['max_turns'])
-    print(f"  Max turns:    {_cfg_max_turns}")
+    print(f"  Макс. ходов:  {_cfg_max_turns}")
     # Warn on stale RUSLAN_MAX_ITERATIONS ghost in .env that disagrees with
     # config.yaml (issue #17534). Read the .env FILE directly so we catch the
     # ghost even when the gateway bridge already overrode os.environ.
@@ -6587,8 +6587,8 @@ def show_config():
         _env_ghost = load_env().get("RUSLAN_MAX_ITERATIONS")
         if _env_ghost is not None and str(_env_ghost).strip() != str(_cfg_max_turns).strip():
             print(color(
-                f"                ⚠ .env has stale RUSLAN_MAX_ITERATIONS={_env_ghost} "
-                f"(run 'ruslan doctor --fix' to remove)",
+                f"                ⚠ .env содержит устаревший RUSLAN_MAX_ITERATIONS={_env_ghost} "
+                f"(запусти 'ruslan doctor --fix' для удаления)",
                 Colors.YELLOW,
             ))
     except Exception:
@@ -6596,68 +6596,68 @@ def show_config():
     
     # Display
     print()
-    print(color("◆ Display", Colors.CYAN, Colors.BOLD))
+    print(color("◆ Отображение", Colors.CYAN, Colors.BOLD))
     display = config.get('display', {})
-    print(f"  Personality:  {display.get('personality') or 'none'}")
-    print(f"  Reasoning:    {'on' if display.get('show_reasoning', False) else 'off'}")
-    print(f"  Bell:         {'on' if display.get('bell_on_complete', False) else 'off'}")
+    print(f"  Персона:  {display.get('personality') or 'нет'}")
+    print(f"  Размышления: {'вкл' if display.get('show_reasoning', False) else 'выкл'}")
+    print(f"  Звонок:      {'вкл' if display.get('bell_on_complete', False) else 'выкл'}")
     ump = display.get('user_message_preview', {}) if isinstance(display.get('user_message_preview', {}), dict) else {}
     ump_first = ump.get('first_lines', 2)
     ump_last = ump.get('last_lines', 2)
-    print(f"  User preview: first {ump_first} line(s), last {ump_last} line(s)")
+    print(f"  Предпросмотр: первые {ump_first} стр., последние {ump_last} стр.")
 
     # Terminal
     print()
-    print(color("◆ Terminal", Colors.CYAN, Colors.BOLD))
+    print(color("◆ Терминал", Colors.CYAN, Colors.BOLD))
     terminal = config.get('terminal', {})
-    print(f"  Backend:      {terminal.get('backend', 'local')}")
-    print(f"  Working dir:  {terminal.get('cwd', '.')}")
-    print(f"  Timeout:      {terminal.get('timeout', 60)}s")
+    print(f"  Бэкенд:       {terminal.get('backend', 'local')}")
+    print(f"  Рабочая папка:{terminal.get('cwd', '.')}")
+    print(f"  Таймаут:      {terminal.get('timeout', 60)}s")
     
     if terminal.get('backend') == 'docker':
-        print(f"  Docker image: {terminal.get('docker_image', 'nikolaik/python-nodejs:python3.11-nodejs20')}")
+        print(f"  Docker образ: {terminal.get('docker_image', 'nikolaik/python-nodejs:python3.11-nodejs20')}")
     elif terminal.get('backend') == 'singularity':
-        print(f"  Image:        {terminal.get('singularity_image', 'docker://nikolaik/python-nodejs:python3.11-nodejs20')}")
+        print(f"  Образ:        {terminal.get('singularity_image', 'docker://nikolaik/python-nodejs:python3.11-nodejs20')}")
     elif terminal.get('backend') == 'modal':
-        print(f"  Modal image:  {terminal.get('modal_image', 'nikolaik/python-nodejs:python3.11-nodejs20')}")
+        print(f"  Modal образ:  {terminal.get('modal_image', 'nikolaik/python-nodejs:python3.11-nodejs20')}")
         modal_token = get_env_value('MODAL_TOKEN_ID')
-        print(f"  Modal token:  {'configured' if modal_token else '(not set)'}")
+        print(f"  Modal токен:  {'настроен' if modal_token else '(не задано)'}")
     elif terminal.get('backend') == 'daytona':
-        print(f"  Daytona image: {terminal.get('daytona_image', 'nikolaik/python-nodejs:python3.11-nodejs20')}")
+        print(f"  Daytona образ: {terminal.get('daytona_image', 'nikolaik/python-nodejs:python3.11-nodejs20')}")
         daytona_key = get_env_value('DAYTONA_API_KEY')
-        print(f"  API key:      {'configured' if daytona_key else '(not set)'}")
+        print(f"  API ключ:     {'настроен' if daytona_key else '(не задано)'}")
     elif terminal.get('backend') == 'ssh':
         ssh_host = get_env_value('TERMINAL_SSH_HOST')
         ssh_user = get_env_value('TERMINAL_SSH_USER')
-        print(f"  SSH host:     {ssh_host or '(not set)'}")
-        print(f"  SSH user:     {ssh_user or '(not set)'}")
+        print(f"  SSH хост:     {ssh_host or '(не задано)'}")
+        print(f"  SSH польз.:   {ssh_user or '(не задано)'}")
     
     # Timezone
     print()
-    print(color("◆ Timezone", Colors.CYAN, Colors.BOLD))
+    print(color("◆ Часовой пояс", Colors.CYAN, Colors.BOLD))
     tz = config.get('timezone', '')
     if tz:
-        print(f"  Timezone:     {tz}")
+        print(f"  Часовой пояс: {tz}")
     else:
-        print(f"  Timezone:     {color('(server-local)', Colors.DIM)}")
+        print(f"  Часовой пояс: {color('(server-local)', Colors.DIM)}")
 
     # Compression
     print()
-    print(color("◆ Context Compression", Colors.CYAN, Colors.BOLD))
+    print(color("◆ Сжатие контекста", Colors.CYAN, Colors.BOLD))
     compression = config.get('compression', {})
     enabled = compression.get('enabled', True)
-    print(f"  Enabled:      {'yes' if enabled else 'no'}")
+    print(f"  Включено:     {'да' if enabled else 'нет'}")
     if enabled:
-        print(f"  Threshold:    {compression.get('threshold', 0.50) * 100:.0f}%")
-        print(f"  Target ratio: {compression.get('target_ratio', 0.20) * 100:.0f}% of threshold preserved")
-        print(f"  Protect last: {compression.get('protect_last_n', 20)} messages")
-        print(f"  Protect first: {compression.get('protect_first_n', 3)} non-system head messages")
+        print(f"  Порог:        {compression.get('threshold', 0.50) * 100:.0f}%")
+        print(f"  Целевая доля: {compression.get('target_ratio', 0.20) * 100:.0f}% of threshold preserved")
+        print(f"  Защита посл.: {compression.get('protect_last_n', 20)} messages")
+        print(f"  Защита перв.:  {compression.get('protect_first_n', 3)} non-system head messages")
         _aux_comp = config.get('auxiliary', {}).get('compression', {})
         _sm = _aux_comp.get('model', '') or '(auto)'
-        print(f"  Model:        {_sm}")
+        print(f"  Модель:       {_sm}")
         comp_provider = _aux_comp.get('provider', 'auto')
         if comp_provider and comp_provider != 'auto':
-            print(f"  Provider:     {comp_provider}")
+            print(f"  Провайдер:    {comp_provider}")
     
     # Auxiliary models
     auxiliary = config.get('auxiliary', {})
@@ -6671,7 +6671,7 @@ def show_config():
     )
     if has_overrides:
         print()
-        print(color("◆ Auxiliary Models (overrides)", Colors.CYAN, Colors.BOLD))
+        print(color("◆ Вспомогательные модели", Colors.CYAN, Colors.BOLD))
         for label, task_cfg in aux_tasks.items():
             prov = task_cfg.get('provider', 'auto')
             mdl = task_cfg.get('model', '')
@@ -6683,13 +6683,13 @@ def show_config():
     
     # Messaging
     print()
-    print(color("◆ Messaging Platforms", Colors.CYAN, Colors.BOLD))
+    print(color("◆ Платформы сообщений", Colors.CYAN, Colors.BOLD))
     
     telegram_token = get_env_value('TELEGRAM_BOT_TOKEN')
     discord_token = get_env_value('DISCORD_BOT_TOKEN')
     
-    print(f"  Telegram:     {'configured' if telegram_token else color('not configured', Colors.DIM)}")
-    print(f"  Discord:      {'configured' if discord_token else color('not configured', Colors.DIM)}")
+    print(f"  Telegram:     {'настроен' if telegram_token else color('не настроен', Colors.DIM)}")
+    print(f"  Discord:      {'настроен' if discord_token else color('не настроен', Colors.DIM)}")
     
     # Skill config
     try:
@@ -6698,7 +6698,7 @@ def show_config():
         if skill_vars:
             resolved = resolve_skill_config_values(skill_vars)
             print()
-            print(color("◆ Skill Settings", Colors.CYAN, Colors.BOLD))
+            print(color("◆ Настройки навыков", Colors.CYAN, Colors.BOLD))
             for var in skill_vars:
                 key = var["key"]
                 value = resolved.get(key, "")
@@ -6710,9 +6710,9 @@ def show_config():
 
     print()
     print(color("─" * 60, Colors.DIM))
-    print(color("  ruslan config edit     # Edit config file", Colors.DIM))
-    print(color("  ruslan config set <key> <value>", Colors.DIM))
-    print(color("  ruslan setup           # Run setup wizard", Colors.DIM))
+    print(color("  ruslan config edit     # Редактировать конфиг", Colors.DIM))
+    print(color("  ruslan config set <ключ> <значение>", Colors.DIM))
+    print(color("  ruslan setup           # Запустить мастер настройки", Colors.DIM))
     print()
 
 

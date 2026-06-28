@@ -1952,7 +1952,7 @@ class FeishuAdapter(BasePlatformAdapter):
         return {
             "config": {"wide_screen_mode": True},
             "header": {
-                "title": {"content": "⚕ Update Needs Your Input", "tag": "plain_text"},
+                "title": {"content": "🛡️ Update Needs Your Input", "tag": "plain_text"},
                 "template": "orange",
             },
             "elements": [
@@ -3285,7 +3285,7 @@ class FeishuAdapter(BasePlatformAdapter):
             response = await client.get(
                 file_url,
                 headers={
-                    "User-Agent": "Mozilla/5.0 (compatible; HermesAgent/1.0)",
+                    "User-Agent": "Mozilla/5.0 (compatible; RuslanAgent/1.0)",
                     "Accept": "*/*",
                 },
             )

@@ -10,13 +10,13 @@
   <a href="https://ruslan.team/docs/"><img src="https://img.shields.io/badge/Docs-ruslan.team-FFD700?style=for-the-badge" alt="Документация"></a>
   <a href="https://ruslan.team/discord"><img src="https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a>
   <a href="https://github.com/valldun1/ruslan/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="Лицензия: MIT"></a>
-  <a href="https://ruslan.team"><img src="https://img.shields.io/badge/Сделано-Valldun-blueviolet?style=for-the-badge" alt="Сделано Valldun"></a>
+  <a href="https://ruslan.team"><img src="https://img.shields.io/badge/Сделано-Ruslan__Team-blueviolet?style=for-the-badge" alt="Сделано Ruslan Team"></a>
   <a href="README.en.md"><img src="https://img.shields.io/badge/Lang-English-blue?style=for-the-badge" alt="English"></a>
   <a href="README.zh-CN.md"><img src="https://img.shields.io/badge/Lang-中文-red?style=for-the-badge" alt="中文"></a>
   <a href="README.es.md"><img src="https://img.shields.io/badge/Lang-Español-orange?style=for-the-badge" alt="Español"></a>
 </p>
 
-**Самообучающийся ИИ-агент, созданный [Valldun](https://valldun.dev).** Единственный агент со встроенным циклом обучения — он создаёт навыки из опыта, улучшает их в процессе использования, сохраняет знания между сессиями, ищет в собственных прошлых разговорах и строит углублённую модель того, кто вы есть. Работает на VPS за $5, GPU-кластере или serverless-инфраструктуре, которая почти ничего не стоит в простое. Не привязан к вашему ноутбуку — общайтесь с ним из Telegram, пока он работает на облачной VM.
+**Самообучающийся ИИ-агент, созданный от команды [ruslan.team](https://ruslan.team).** Единственный агент со встроенным циклом обучения — он создаёт навыки из опыта, улучшает их в процессе использования, сохраняет знания между сессиями, ищет в собственных прошлых разговорах и строит углублённую модель того, кто вы есть. Работает на VPS за $5, GPU-кластере или serverless-инфраструктуре, которая почти ничего не стоит в простое. Не привязан к вашему ноутбуку — общайтесь с ним из Telegram, пока он работает на облачной VM.
 
 Используйте любые модели — **российские модели** [**YandexGPT**](https://yandex.cloud/ru/services/yandexgpt) и [**GigaChat**](https://developers.sber.ru/gigachat) от Sber, а также [Nous Portal](https://portal.nousresearch.com), [OpenRouter](https://openrouter.ai) (200+ моделей), [NovitaAI](https://novita.ai), [NVIDIA NIM](https://build.nvidia.com) (Nemotron), [Xiaomi MiMo](https://platform.xiaomimimo.com), [z.ai/GLM](https://z.ai), [Kimi/Moonshot](https://platform.moonshot.ai), [MiniMax](https://www.minimax.io), [Hugging Face](https://huggingface.co), OpenAI или свой собственный endpoint. Переключение одной командой `ruslan model` — без правки кода и привязки к вендору.
 
@@ -252,4 +252,4 @@ scripts/run_tests.sh
 
 MIT — смотрите [LICENSE](LICENSE).
 
-Создано [Valldun](https://valldun.dev). Форк [nousresearch/hermes-agent](https://github.com/nousresearch/hermes-agent). Обновления и поддержка: [ruslan.team](https://ruslan.team).
+Создано командой [ruslan.team](https://ruslan.team). Форк [nousresearch/hermes-agent](https://github.com/nousresearch/hermes-agent). Обновления и поддержка: [ruslan.team](https://ruslan.team).

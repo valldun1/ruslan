@@ -2,7 +2,7 @@
   <img src="assets/banner.png" alt="Ruslan Agent" width="100%">
 </p>
 
-# Ruslan Agent ☤
+# Ruslan Agent 🛡
 <p align="center">
   <a href="https://ruslan.team/">Ruslan Agent</a> | <a href="https://ruslan.team/">Ruslan Desktop</a>
 </p>

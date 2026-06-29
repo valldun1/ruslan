@@ -7,32 +7,32 @@
   <a href="https://ruslan.team/">Ruslan Agent</a> | <a href="https://ruslan.team/">Ruslan Desktop</a>
 </p>
 <p align="center">
-  <a href="https://ruslan.team/docs/"><img src="https://img.shields.io/badge/Docs-ruslan.team-FFD700?style=for-the-badge" alt="Documentation"></a>
+  <a href="https://ruslan.team/docs/"><img src="https://img.shields.io/badge/Docs-ruslan.team-FFD700?style=for-the-badge" alt="Документация"></a>
   <a href="https://ruslan.team/discord"><img src="https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a>
-  <a href="https://github.com/valldun1/ruslan/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License: MIT"></a>
-  <a href="https://ruslan.team"><img src="https://img.shields.io/badge/Built%20by-Valldun-blueviolet?style=for-the-badge" alt="Built by Valldun"></a>
+  <a href="https://github.com/valldun1/ruslan/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="Лицензия: MIT"></a>
+  <a href="https://ruslan.team"><img src="https://img.shields.io/badge/Сделано-Valldun-blueviolet?style=for-the-badge" alt="Сделано Valldun"></a>
+  <a href="README.en.md"><img src="https://img.shields.io/badge/Lang-English-blue?style=for-the-badge" alt="English"></a>
   <a href="README.zh-CN.md"><img src="https://img.shields.io/badge/Lang-中文-red?style=for-the-badge" alt="中文"></a>
-  <a href="README.ur-pk.md"><img src="https://img.shields.io/badge/Lang-اردو-green?style=for-the-badge" alt="اردو"></a>
   <a href="README.es.md"><img src="https://img.shields.io/badge/Lang-Español-orange?style=for-the-badge" alt="Español"></a>
 </p>
 
-**The self-improving AI agent built by [Valldun](https://valldun.dev).** It's the only agent with a built-in learning loop — it creates skills from experience, improves them during use, nudges itself to persist knowledge, searches its own past conversations, and builds a deepening model of who you are across sessions. Run it on a $5 VPS, a GPU cluster, or serverless infrastructure that costs nearly nothing when idle. It's not tied to your laptop — talk to it from Telegram while it works on a cloud VM.
+**Самообучающийся ИИ-агент, созданный [Valldun](https://valldun.dev).** Единственный агент со встроенным циклом обучения — он создаёт навыки из опыта, улучшает их в процессе использования, сохраняет знания между сессиями, ищет в собственных прошлых разговорах и строит углублённую модель того, кто вы есть. Работает на VPS за $5, GPU-кластере или serverless-инфраструктуре, которая почти ничего не стоит в простое. Не привязан к вашему ноутбуку — общайтесь с ним из Telegram, пока он работает на облачной VM.
 
-Use any model you want — [Nous Portal](https://portal.nousresearch.com), [OpenRouter](https://openrouter.ai) (200+ models), [NovitaAI](https://novita.ai) (AI-native cloud for Model API, Agent Sandbox, and GPU Cloud), [NVIDIA NIM](https://build.nvidia.com) (Nemotron), [Xiaomi MiMo](https://platform.xiaomimimo.com), [z.ai/GLM](https://z.ai), [Kimi/Moonshot](https://platform.moonshot.ai), [MiniMax](https://www.minimax.io), [Hugging Face](https://huggingface.co), OpenAI, or your own endpoint. Switch with `ruslan model` — no code changes, no lock-in.
+Используйте любые модели — **российские модели** [**YandexGPT**](https://yandex.cloud/ru/services/yandexgpt) и [**GigaChat**](https://developers.sber.ru/gigachat) от Sber, а также [Nous Portal](https://portal.nousresearch.com), [OpenRouter](https://openrouter.ai) (200+ моделей), [NovitaAI](https://novita.ai), [NVIDIA NIM](https://build.nvidia.com) (Nemotron), [Xiaomi MiMo](https://platform.xiaomimimo.com), [z.ai/GLM](https://z.ai), [Kimi/Moonshot](https://platform.moonshot.ai), [MiniMax](https://www.minimax.io), [Hugging Face](https://huggingface.co), OpenAI или свой собственный endpoint. Переключение одной командой `ruslan model` — без правки кода и привязки к вендору.
 
 <table>
-<tr><td><b>A real terminal interface</b></td><td>Full TUI with multiline editing, slash-command autocomplete, conversation history, interrupt-and-redirect, and streaming tool output.</td></tr>
-<tr><td><b>Lives where you do</b></td><td>Telegram, Discord, Slack, WhatsApp, Signal, and CLI — all from a single gateway process. Voice memo transcription, cross-platform conversation continuity.</td></tr>
-<tr><td><b>A closed learning loop</b></td><td>Agent-curated memory with periodic nudges. Autonomous skill creation after complex tasks. Skills self-improve during use. FTS5 session search with LLM summarization for cross-session recall. <a href="https://github.com/plastic-labs/honcho">Honcho</a> dialectic user modeling. Compatible with the <a href="https://agentskills.io">agentskills.io</a> open standard.</td></tr>
-<tr><td><b>Scheduled automations</b></td><td>Built-in cron scheduler with delivery to any platform. Daily reports, nightly backups, weekly audits — all in natural language, running unattended.</td></tr>
-<tr><td><b>Delegates and parallelizes</b></td><td>Spawn isolated subagents for parallel workstreams. Write Python scripts that call tools via RPC, collapsing multi-step pipelines into zero-context-cost turns.</td></tr>
-<tr><td><b>Runs anywhere, not just your laptop</b></td><td>Six terminal backends — local, Docker, SSH, Singularity, Modal, and Daytona. Daytona and Modal offer serverless persistence — your agent's environment hibernates when idle and wakes on demand, costing nearly nothing between sessions. Run it on a $5 VPS or a GPU cluster.</td></tr>
-<tr><td><b>Research-ready</b></td><td>Batch trajectory generation, trajectory compression for training the next generation of tool-calling models.</td></tr>
+<tr><td><b>Настоящий терминальный интерфейс</b></td><td>Полноценный TUI с мультистрочным редактированием, автодополнением слеш-команд, историей диалогов, прерыванием и перенаправлением, потоковым выводом инструментов.</td></tr>
+<tr><td><b>Работает там, где вы</b></td><td>Telegram, Discord, Slack, WhatsApp, Signal, CLI — всё из одного gateway-процесса. Расшифровка голосовых сообщений, непрерывность диалога между платформами.</td></tr>
+<tr><td><b>Замкнутый цикл обучения</b></td><td>Курируемая агентом память с периодическими напоминаниями. Автономное создание навыков после сложных задач. Навыки самоулучшаются в процессе использования. FTS5-поиск по сессиям с LLM-суммаризацией для межсессионного recall. <a href="https://github.com/plastic-labs/honcho">Honcho</a> диалектическое моделирование пользователя. Совместимость со стандартом <a href="https://agentskills.io">agentskills.io</a>.</td></tr>
+<tr><td><b>Автоматизация по расписанию</b></td><td>Встроенный cron-планировщик с доставкой на любую платформу. Ежедневные отчёты, ночные бэкапы, еженедельные аудиты — на естественном языке, работают без присмотра.</td></tr>
+<tr><td><b>Делегирование и параллелизм</b></td><td>Запуск изолированных сабагентов для параллельных задач. Написание Python-скриптов, вызывающих инструменты через RPC — превращение многошаговых пайплайнов в zero-context-cost витки.</td></tr>
+<tr><td><b>Работает где угодно, не только на вашем ноутбуке</b></td><td>Шесть терминальных бэкендов: локальный, Docker, SSH, Singularity, Modal и Daytona. Daytona и Modal предлагают serverless-персистентность — окружение агента засыпает в простое и просыпается по запросу, почти ничего не сто́я между сессиями. Запускайте на VPS за $5 или GPU-кластере.</td></tr>
+<tr><td><b>Готов к исследованиям</b></td><td>Пакетная генерация траекторий, сжатие траекторий для обучения следующего поколения моделей, работающих с инструментами.</td></tr>
 </table>
 
 ---
 
-## Quick Install
+## Быстрая установка
 
 ### Linux, macOS, WSL2, Termux
 
@@ -40,47 +40,47 @@ Use any model you want — [Nous Portal](https://portal.nousresearch.com), [Open
 curl -fsSL https://ruslan.team/install.sh | bash
 ```
 
-### Windows (native, PowerShell)
+### Windows (нативный, PowerShell)
 
-> **Heads up:** Native Windows runs Ruslan without WSL — CLI, gateway, TUI, and tools all work natively. If you'd rather use WSL2, the Linux/macOS one-liner above works there too. Found a bug? Please [file issues](https://github.com/valldun1/ruslan/issues).
+> **Важно:** Нативный Windows запускает Ruslan без WSL — CLI, gateway, TUI и инструменты работают нативно. Если предпочитаете WSL2, однострочник для Linux/macOS работает и там. Нашли баг? Пожалуйста, [сообщите](https://github.com/valldun1/ruslan/issues).
 
-Run this in PowerShell:
+Запустите в PowerShell:
 
 ```powershell
 iex (irm https://ruslan.team/install.ps1)
 ```
 
-The installer handles everything: uv, Python 3.11, Node.js, ripgrep, ffmpeg, **and a portable Git Bash** (MinGit, unpacked to `%LOCALAPPDATA%\ruslan\git` — no admin required, completely isolated from any system Git install). Ruslan uses this bundled Git Bash to run shell commands.
+Установщик обрабатывает всё: uv, Python 3.11, Node.js, ripgrep, ffmpeg **и портативный Git Bash** (MinGit, распаковывается в `%LOCALAPPDATA%\ruslan\git` — не требует прав администратора, полностью изолирован от системного Git). Ruslan использует этот встроенный Git Bash для shell-команд.
 
-If you already have Git installed, the installer detects it and uses that instead. Otherwise a ~45MB MinGit download is all you need — it won't touch or interfere with any system Git.
+Если Git уже установлен, установщик обнаруживает его и использует его. В противном случае достаточно ~45MB MinGit — он не затронет и не помешает системному Git.
 
-> **Android / Termux:** The tested manual path is documented in the [Termux guide](https://ruslan.team/docs/getting-started/termux). On Termux, Ruslan installs a curated `.[termux]` extra because the full `.[all]` extra currently pulls Android-incompatible voice dependencies.
+> **Android / Termux:** Проверенный ручной путь описан в [руководстве по Termux](https://ruslan.team/docs/getting-started/termux). В Termux Ruslan устанавливает дополнительный `.[termux]`, так как полный `.[all]` тянет несовместимые с Android голосовые зависимости.
 >
-> **Windows:** Native Windows is fully supported — the PowerShell one-liner above installs everything. If you'd rather use WSL2, the Linux command works there too. Native Windows install lives under `%LOCALAPPDATA%\ruslan`; WSL2 installs under `~/.ruslan` as on Linux.
+> **Windows:** Нативный Windows полностью поддерживается — однострочник PowerShell выше устанавливает всё. Если предпочитаете WSL2, команда Linux работает и там. Нативная установка Windows — `%LOCALAPPDATA%\ruslan`; WSL2 — `~/.ruslan`.
 
-After installation:
+После установки:
 
 ```bash
-source ~/.bashrc    # reload shell (or: source ~/.zshrc)
-ruslan              # start chatting!
+source ~/.bashrc    # перезагрузите shell (или: source ~/.zshrc)
+ruslan              # начинайте общение!
 ```
 
-### Troubleshooting
+### Устранение проблем
 
-#### Windows Defender or antivirus flags `uv.exe` as malware
+#### Windows Defender или антивирус помечает `uv.exe` как вредоносное ПО
 
-If your antivirus (Bitdefender, Windows Defender, etc.) quarantines `uv.exe` from the Ruslan `bin` folder (`%LOCALAPPDATA%\ruslan\bin\uv.exe`), this is a **false positive**. The file is Astral's `uv` — the Rust Python package manager Ruslan bundles to manage its Python environment. ML-based antivirus engines commonly flag unsigned Rust binaries that download and install packages.
+Если ваш антивирус (Bitdefender, Windows Defender и т.д.) помещает `uv.exe` из папки `bin` Ruslan (`%LOCALAPPDATA%\ruslan\bin\uv.exe`) в карантин, это **ложное срабатывание**. Файл — это Astral `uv` — Rust-менеджер пакетов Python, который Ruslan использует для управления Python-окружением. ML-антивирусы часто помечают неподписанные Rust-бинарники, скачивающие и устанавливающие пакеты.
 
-**To verify your copy is authentic:**
+**Проверка подлинности:**
 
 ```powershell
-# Install GitHub CLI if needed
+# Установите GitHub CLI при необходимости
 winget install --id GitHub.cli
 
-# Login to GitHub
+# Войдите в GitHub
 gh auth login
 
-# Run verification
+# Запустите проверку
 $uv = "$env:LOCALAPPDATA\ruslan\bin\uv.exe"
 $ver = (& $uv --version).Split(' ')[1]
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -91,136 +91,133 @@ Expand-Archive $zip "$env:TEMP\uv_x" -Force
 (Get-FileHash "$env:TEMP\uv_x\uv.exe").Hash -eq (Get-FileHash $uv).Hash
 ```
 
-If attestation says "Verification succeeded" and the last line prints `True`, you're good.
+Если аттестация говорит "Verification succeeded" и последняя строка выводит `True`, всё в порядке.
 
-**To whitelist Ruslan:**
-- **Windows Defender:** Run PowerShell as Admin → `Add-MpPreference -ExclusionPath "$env:LOCALAPPDATA\ruslan\bin"`
-- **Bitdefender:** Add an exception in the Bitdefender console (Protection > Antivirus > Settings > Manage Exceptions)
-- Whitelist the **folder**, not the file hash — Ruslan updates `uv` and the hash changes every version
+**Чтобы добавить Ruslan в белый список:**
+- **Windows Defender:** Запустите PowerShell от админа → `Add-MpPreference -ExclusionPath "$env:LOCALAPPDATA\ruslan\bin"`
+- **Bitdefender:** Добавьте исключение в консоли Bitdefender (Protection > Antivirus > Settings > Manage Exceptions)
+- Добавляйте в белый список **папку**, а не хеш файла — Ruslan обновляет `uv` и хеш меняется с каждой версией
 
-For more context, see the upstream Astral reports: [astral-sh/uv#13553](https://github.com/astral-sh/uv/issues/13553), [astral-sh/uv#15011](https://github.com/astral-sh/uv/issues/15011), [astral-sh/uv#10079](https://github.com/astral-sh/uv/issues/10079).
+Подробнее: [astral-sh/uv#13553](https://github.com/astral-sh/uv/issues/13553), [astral-sh/uv#15011](https://github.com/astral-sh/uv/issues/15011), [astral-sh/uv#10079](https://github.com/astral-sh/uv/issues/10079).
 
 ---
 
-## Getting Started
+## Начало работы
 
 ```bash
-ruslan              # Interactive CLI — start a conversation
-ruslan model        # Choose your LLM provider and model
-ruslan tools        # Configure which tools are enabled
-ruslan config set   # Set individual config values
-ruslan gateway      # Start the messaging gateway (Telegram, Discord, etc.)
-ruslan setup        # Run the full setup wizard (configures everything at once)
-ruslan claw migrate # Migrate from OpenClaw (if coming from OpenClaw)
-ruslan update       # Update to the latest version
-ruslan doctor       # Diagnose any issues
+ruslan              # Интерактивный CLI — начните разговор
+ruslan model        # Выберите LLM-провайдера и модель
+ruslan tools        # Настройте, какие инструменты включены
+ruslan config set   # Установите отдельные значения конфига
+ruslan gateway      # Запустите шлюз обмена сообщениями (Telegram, Discord и т.д.)
+ruslan setup        # Запустите полный мастер настройки
+ruslan claw migrate # Импорт из OpenClaw
+ruslan update       # Обновление до последней версии
+ruslan doctor       # Диагностика проблем
 ```
 
-📖 **[Full documentation →](https://ruslan.team/docs/)**
+📖 **[Полная документация →](https://ruslan.team/docs/)**
 
 ---
 
-## Skip the API-key collection — Nous Portal
+## Пропустите сбор API-ключей — Nous Portal
 
-Ruslan works with whatever provider you want — that's not changing. But if you'd rather not collect five separate API keys for the model, web search, image generation, TTS, and a cloud browser, **[Nous Portal](https://portal.nousresearch.com)** covers all of them under one subscription:
+Ruslan работает с любым провайдером — это не меняется. Но если вы не хотите собирать пять отдельных API-ключей для модели, веб-поиска, генерации изображений, TTS и облачного браузера, **[Nous Portal](https://portal.nousresearch.com)** покрывает всё одной подпиской:
 
-- **300+ models** — pick any of them with `/model <name>`
-- **Tool Gateway** — web search (Firecrawl), image generation (FAL), text-to-speech (OpenAI), cloud browser (Browser Use), all routed through your sub. No extra accounts.
+- **300+ моделей** — выбирайте любую через `/model <name>`
+- **Tool Gateway** — веб-поиск (Firecrawl), генерация изображений (FAL), текст-в-речь (OpenAI), облачный браузер (Browser Use) — всё через одну подписку. Без лишних аккаунтов.
 
-One command from a fresh install:
+Одна команда после чистой установки:
 
 ```bash
 ruslan setup --portal
 ```
 
-That logs you in via OAuth, sets Nous as your provider, and turns on the Tool Gateway. Check what's wired up any time with `ruslan portal info`. Full details on the [Tool Gateway docs page](https://ruslan.team/docs/user-guide/features/tool-gateway).
+Это логинит вас через OAuth, устанавливает Nous как провайдера и включает Tool Gateway. Проверить статус можно командой `ruslan portal info`. Подробнее на [странице Tool Gateway](https://ruslan.team/docs/user-guide/features/tool-gateway).
 
-You can still bring your own keys per-tool whenever you want — the gateway is per-backend, not all-or-nothing.
-
----
-
-## CLI vs Messaging Quick Reference
-
-Ruslan has two entry points: start the terminal UI with `ruslan`, or run the gateway and talk to it from Telegram, Discord, Slack, WhatsApp, Signal, or Email. Once you're in a conversation, many slash commands are shared across both interfaces.
-
-| Action                         | CLI                                           | Messaging platforms                                                              |
-| ------------------------------ | --------------------------------------------- | -------------------------------------------------------------------------------- |
-| Start chatting                 | `ruslan`                                      | Run `ruslan gateway setup` + `ruslan gateway start`, then send the bot a message |
-| Start fresh conversation       | `/new` or `/reset`                            | `/new` or `/reset`                                                               |
-| Change model                   | `/model [provider:model]`                     | `/model [provider:model]`                                                        |
-| Set a personality              | `/personality [name]`                         | `/personality [name]`                                                            |
-| Retry or undo the last turn    | `/retry`, `/undo`                             | `/retry`, `/undo`                                                                |
-| Compress context / check usage | `/compress`, `/usage`, `/insights [--days N]` | `/compress`, `/usage`, `/insights [days]`                                        |
-| Browse skills                  | `/skills` or `/<skill-name>`                  | `/<skill-name>`                                                                  |
-| Interrupt current work         | `Ctrl+C` or send a new message                | `/stop` or send a new message                                                    |
-| Platform-specific status       | `/platforms`                                  | `/status`, `/sethome`                                                            |
-
-For the full command lists, see the [CLI guide](https://ruslan.team/docs/user-guide/cli) and the [Messaging Gateway guide](https://ruslan.team/docs/user-guide/messaging).
+Вы можете по-прежнему использовать свои ключи для каждого инструмента — gateway работает поканально, а не по принципу «всё или ничего».
 
 ---
 
-## Documentation
+## CLI vs Мессенджеры: краткая справка
 
-All documentation lives at **[ruslan.team/docs](https://ruslan.team/docs/)**:
+У Ruslan два входа: запустите терминальный UI через `ruslan` или запустите gateway и общайтесь из Telegram, Discord, Slack, WhatsApp, Signal или Email. В обоих интерфейсах доступны общие слеш-команды.
 
-| Section                                                                                             | What's Covered                                             |
-| --------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| [Quickstart](https://ruslan.team/docs/getting-started/quickstart)                 | Install → setup → first conversation in 2 minutes          |
-| [CLI Usage](https://ruslan.team/docs/user-guide/cli)                              | Commands, keybindings, personalities, sessions             |
-| [Configuration](https://ruslan.team/docs/user-guide/configuration)                | Config file, providers, models, all options                |
-| [Messaging Gateway](https://ruslan.team/docs/user-guide/messaging)                | Telegram, Discord, Slack, WhatsApp, Signal, Home Assistant |
-| [Security](https://ruslan.team/docs/user-guide/security)                          | Command approval, DM pairing, container isolation          |
-| [Tools & Toolsets](https://ruslan.team/docs/user-guide/features/tools)            | 40+ tools, toolset system, terminal backends               |
-| [Skills System](https://ruslan.team/docs/user-guide/features/skills)              | Procedural memory, Skills Hub, creating skills             |
-| [Memory](https://ruslan.team/docs/user-guide/features/memory)                     | Persistent memory, user profiles, best practices           |
-| [MCP Integration](https://ruslan.team/docs/user-guide/features/mcp)               | Connect any MCP server for extended capabilities           |
-| [Cron Scheduling](https://ruslan.team/docs/user-guide/features/cron)              | Scheduled tasks with platform delivery                     |
-| [Context Files](https://ruslan.team/docs/user-guide/features/context-files)       | Project context that shapes every conversation             |
-| [Architecture](https://ruslan.team/docs/developer-guide/architecture)             | Project structure, agent loop, key classes                 |
-| [Contributing](https://ruslan.team/docs/developer-guide/contributing)             | Development setup, PR process, code style                  |
-| [CLI Reference](https://ruslan.team/docs/reference/cli-commands)                  | All commands and flags                                     |
-| [Environment Variables](https://ruslan.team/docs/reference/environment-variables) | Complete env var reference                                 |
+| Действие                        | CLI                                          | Платформы общения                                                                  |
+| ------------------------------- | --------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Начать общение                  | `ruslan`                                      | Запустите `ruslan gateway setup` + `ruslan gateway start`, затем напишите боту     |
+| Начать новый разговор           | `/new` или `/reset`                            | `/new` или `/reset`                                                                |
+| Сменить модель                  | `/model [provider:model]`                     | `/model [provider:model]`                                                          |
+| Установить личность             | `/personality [name]`                         | `/personality [name]`                                                              |
+| Повторить или отменить последний ход | `/retry`, `/undo`                         | `/retry`, `/undo`                                                                  |
+| Сжать контекст / проверить использование | `/compress`, `/usage`, `/insights [--days N]` | `/compress`, `/usage`, `/insights [days]`                                          |
+| Просмотр навыков                | `/skills` или `/<skill-name>`                  | `/<skill-name>`                                                                    |
+| Прервать текущую работу         | `Ctrl+C` или отправьте новое сообщение         | `/stop` или отправьте новое сообщение                                              |
+| Статус платформы                | `/platforms`                                  | `/status`, `/sethome`                                                              |
+
+Полные списки команд: [CLI guide](https://ruslan.team/docs/user-guide/cli) и [Messaging Gateway guide](https://ruslan.team/docs/user-guide/messaging).
 
 ---
 
-## Migrating from OpenClaw
+## Документация
 
-If you're coming from OpenClaw, Ruslan can automatically import your settings, memories, skills, and API keys.
+Вся документация на **[ruslan.team/docs](https://ruslan.team/docs/)**:
 
-**During first-time setup:** The setup wizard (`ruslan setup`) automatically detects `~/.openclaw` and offers to migrate before configuration begins.
+| Раздел                                                                                             | Что покрывает                                                  |
+| -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| [Быстрый старт](https://ruslan.team/docs/getting-started/quickstart)                                | Установка → настройка → первый разговор за 2 минуты             |
+| [CLI](https://ruslan.team/docs/user-guide/cli)                                                      | Команды, горячие клавиши, личности, сессии                      |
+| [Конфигурация](https://ruslan.team/docs/user-guide/configuration)                                   | Файл конфига, провайдеры, модели, все опции                     |
+| [Messaging Gateway](https://ruslan.team/docs/user-guide/messaging)                                  | Telegram, Discord, Slack, WhatsApp, Signal, Home Assistant      |
+| [Безопасность](https://ruslan.team/docs/user-guide/security)                                        | Подтверждение команд, DM-связка, изоляция контейнеров            |
+| [Инструменты](https://ruslan.team/docs/user-guide/features/tools)                                   | 40+ инструментов, система наборов, терминальные бэкенды         |
+| [Навыки](https://ruslan.team/docs/user-guide/features/skills)                                       | Процедурная память, Skills Hub, создание навыков                 |
+| [Память](https://ruslan.team/docs/user-guide/features/memory)                                       | Постоянная память, профили пользователя, лучшие практики         |
+| [MCP](https://ruslan.team/docs/user-guide/features/mcp)                                             | Подключение любых MCP-серверов                                   |
+| [Cron](https://ruslan.team/docs/user-guide/features/cron)                                           | Задачи по расписанию с доставкой на платформы                    |
+| [Context Files](https://ruslan.team/docs/user-guide/features/context-files)                         | Контекст проекта для каждого разговора                           |
+| [Архитектура](https://ruslan.team/docs/developer-guide/architecture)                                | Структура проекта, цикл агента, ключевые классы                  |
+| [Участие](https://ruslan.team/docs/developer-guide/contributing)                                    | Настройка разработки, PR, кодстайл                               |
+| [CLI Reference](https://ruslan.team/docs/reference/cli-commands)                                    | Все команды и флаги                                              |
+| [Переменные окружения](https://ruslan.team/docs/reference/environment-variables)                    | Полный справочник env-переменных                                 |
 
-**Anytime after install:**
+---
+
+## Миграция с OpenClaw
+
+Если вы переходите с OpenClaw, Ruslan может автоматически импортировать ваши настройки, воспоминания, навыки и API-ключи.
+
+**При первой настройке:** мастер установки (`ruslan setup`) автоматически обнаруживает `~/.openclaw` и предлагает миграцию до начала конфигурации.
+
+**В любое время после установки:**
 
 ```bash
-ruslan claw migrate              # Interactive migration (full preset)
-ruslan claw migrate --dry-run    # Preview what would be migrated
-ruslan claw migrate --preset user-data   # Migrate without secrets
-ruslan claw migrate --overwrite  # Overwrite existing conflicts
+ruslan claw migrate              # Интерактивная миграция (полный пресет)
+ruslan claw migrate --dry-run    # Предпросмотр миграции
+ruslan claw migrate --preset user-data   # Миграция без секретов
+ruslan claw migrate --overwrite  # Перезапись существующих конфликтов
 ```
 
-What gets imported:
+Что импортируется:
 
-- **SOUL.md** — persona file
-- **Memories** — MEMORY.md and USER.md entries
-- **Skills** — user-created skills → `~/.ruslan/skills/openclaw-imports/`
-- **Command allowlist** — approval patterns
-- **Messaging settings** — platform configs, allowed users, working directory
-- **API keys** — allowlisted secrets (Telegram, OpenRouter, OpenAI, Anthropic, ElevenLabs)
-- **TTS assets** — workspace audio files
-- **Workspace instructions** — AGENTS.md (with `--workspace-target`)
+- **SOUL.md** — файл личности
+- **Воспоминания** — MEMORY.md и USER.md
+- **Навыки** — пользовательские навыки → `~/.ruslan/skills/openclaw-imports/`
+- **Список разрешённых команд** — паттерны подтверждения
+- **Настройки мессенджеров** — конфиги платформ, разрешённые пользователи, рабочая директория
+- **API-ключи** — разрешённые секреты (Telegram, OpenRouter, OpenAI, Anthropic, ElevenLabs)
+- **TTS-активы** — аудиофайлы рабочего пространства
+- **Инструкции рабочего пространства** — AGENTS.md (с `--workspace-target`)
 
-See `ruslan claw migrate --help` for all options, or use the `openclaw-migration` skill for an interactive agent-guided migration with dry-run previews.
+Смотрите `ruslan claw migrate --help` для всех опций или используйте навык `openclaw-migration` для интерактивной миграции с предпросмотром.
 
 ---
 
-## Contributing
+## Участие в разработке
 
-We welcome contributions! See the [Contributing Guide](https://ruslan.team/docs/developer-guide/contributing) for development setup, code style, and PR process.
+Мы приветствуем вклад! Смотрите [Руководство участника](https://ruslan.team/docs/developer-guide/contributing) для настройки разработки, кодстайла и PR-процесса.
 
-Quick start for contributors — use the standard installer, then work from the
-full git checkout it creates at `$RUSLAN_HOME/ruslan-agent` (usually
-`~/.ruslan/ruslan-agent`). This matches the layout used by `ruslan update`, the
-managed venv, lazy dependencies, gateway, and docs tooling.
+Быстрый старт для контрибьюторов — используйте стандартный установщик, затем работайте из полного git-чекаута, который он создаёт в `$RUSLAN_HOME/ruslan-agent` (обычно `~/.ruslan/ruslan-agent`):
 
 ```bash
 curl -fsSL https://ruslan.team/install.sh | bash
@@ -229,8 +226,7 @@ uv pip install -e ".[all,dev]"
 scripts/run_tests.sh
 ```
 
-Manual clone fallback (for throwaway clones/CI where you intentionally do not
-want the managed install layout):
+Ручной клон (для временных клонов/CI):
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -242,18 +238,18 @@ scripts/run_tests.sh
 
 ---
 
-## Community
+## Сообщество
 
 - 💬 [Discord](https://ruslan.team/discord)
 - 📚 [Skills Hub](https://agentskills.io)
 - 🐛 [Issues](https://github.com/valldun1/ruslan/issues)
-- 🔌 [computer-use-linux](https://github.com/avifenesh/computer-use-linux) — Linux desktop-control MCP server for Ruslan and other MCP hosts, with AT-SPI accessibility trees, Wayland/X11 input, screenshots, and compositor window targeting.
-- 🔌 [HermesClaw](https://github.com/AaronWong1999/hermesclaw) — Community WeChat bridge: Run Ruslan Agent and OpenClaw on the same WeChat account.
+- 🔌 [computer-use-linux](https://github.com/avifenesh/computer-use-linux) — Linux desktop-control MCP сервер для Ruslan
+- 🔌 [HermesClaw](https://github.com/AaronWong1999/hermesclaw) — WeChat-мост
 
 ---
 
-## License
+## Лицензия
 
-MIT — see [LICENSE](LICENSE).
+MIT — смотрите [LICENSE](LICENSE).
 
-Built by [Valldun](https://valldun.dev). Forked from [nousresearch/hermes-agent](https://github.com/nousresearch/hermes-agent). Updates & support: [ruslan.team](https://ruslan.team).
+Создано [Valldun](https://valldun.dev). Форк [nousresearch/hermes-agent](https://github.com/nousresearch/hermes-agent). Обновления и поддержка: [ruslan.team](https://ruslan.team).

@@ -29,7 +29,7 @@ def build_update_parser(subparsers, *, cmd_update: Callable) -> None:
         "--check",
         action="store_true",
         default=False,
-        help="Check whether an update is available without installing anything",
+        help="Проверить наличие обновления без установки",
     )
     update_parser.add_argument(
         "--no-backup",
@@ -55,7 +55,7 @@ def build_update_parser(subparsers, *, cmd_update: Callable) -> None:
         default=None,
         metavar="NAME",
         help=(
-            "Update against this branch instead of the default (main). "
+            "Обновить из этой ветки вместо ветки по умолчанию (master). "
             "If the local checkout is on a different branch, ruslan will "
             "switch to the requested branch first (auto-stashing any "
             "uncommitted changes)."

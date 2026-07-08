@@ -6043,7 +6043,7 @@ def _update_via_zip(args):
     # bug --branch was added to prevent. Refuse to proceed in that case
     # rather than lie.
     branch = _resolve_update_branch(args)
-    if branch != "main":
+    if branch != "master":
         print(
             f"✗ --branch={branch} is not supported on the Windows ZIP-fallback "
             "update path."
@@ -6574,7 +6574,7 @@ def _sync_fork_with_upstream(git_cmd: list[str], cwd: Path) -> bool:
     """
     try:
         result = subprocess.run(
-            git_cmd + ["push", "origin", "main", "--force-with-lease"],
+            git_cmd + ["push", "origin", "master", "--force-with-lease"],
             cwd=cwd,
             capture_output=True,
             text=True,
@@ -6589,8 +6589,8 @@ def _sync_with_upstream_if_needed(git_cmd: list[str], cwd: Path) -> None:
 
     This implements the fork upstream sync logic:
     - If upstream remote doesn't exist, ask user if they want to add it
-    - Compare origin/main with upstream/main
-    - If origin/main is strictly behind upstream/main, pull from upstream
+    - Compare origin/master with upstream/master
+    - If origin/master is strictly behind upstream/master, pull from upstream
     - Try to sync fork back to origin if possible
     """
     has_upstream = _has_upstream_remote(git_cmd, cwd)
@@ -6630,14 +6630,14 @@ def _sync_with_upstream_if_needed(git_cmd: list[str], cwd: Path) -> None:
             _mark_skip_upstream_prompt()
             return
 
-    # Fetch upstream main only. This sync compares upstream/main with
-    # origin/main, so there's no reason to pull every upstream ref — and a bare
+    # Fetch upstream main only. This sync compares upstream/master with
+    # origin/master, so there's no reason to pull every upstream ref — and a bare
     # fetch drags in thousands of auto-generated branches.
     print()
     print("→ Получение из вышестоящего репозитория...")
     try:
         subprocess.run(
-            git_cmd + ["fetch", "upstream", "main", "--quiet"],
+            git_cmd + ["fetch", "upstream", "master", "--quiet"],
             cwd=cwd,
             capture_output=True,
             check=True,
@@ -6646,17 +6646,17 @@ def _sync_with_upstream_if_needed(git_cmd: list[str], cwd: Path) -> None:
         print("✗ Не удалось получить upstream. Пропуск синхронизации upstream.")
         return
 
-    # Compare origin/main with upstream/main
-    origin_ahead = _count_commits_between(git_cmd, cwd, "upstream/main", "origin/main")
+    # Compare origin/master with upstream/master
+    origin_ahead = _count_commits_between(git_cmd, cwd, "upstream/master", "origin/master")
     upstream_ahead = _count_commits_between(
-        git_cmd, cwd, "origin/main", "upstream/main"
+        git_cmd, cwd, "origin/master", "upstream/master"
     )
 
     if origin_ahead < 0 or upstream_ahead < 0:
         print("✗ Не удалось сравнить ветки. Пропуск синхронизации с upstream.")
         return
 
-    # If origin/main has commits not on upstream, don't trample
+    # If origin/master has commits not on upstream, don't trample
     if origin_ahead > 0:
         print()
         print(f"ℹ Your fork has {origin_ahead} commit(s) not on upstream.")
@@ -6670,14 +6670,14 @@ def _sync_with_upstream_if_needed(git_cmd: list[str], cwd: Path) -> None:
         print("✓ Форк актуален с upstream")
         return
 
-    # origin/main is strictly behind upstream/main (can fast-forward)
+    # origin/master is strictly behind upstream/master (can fast-forward)
     print()
     print(f"→ Fork is {upstream_ahead} commit(s) behind upstream")
     print("→ Вытягивание из вышестоя")
 
     try:
         subprocess.run(
-            git_cmd + ["pull", "--ff-only", "upstream", "main"],
+            git_cmd + ["pull", "--ff-only", "upstream", "master"],
             cwd=cwd,
             check=True,
         )
@@ -7985,14 +7985,12 @@ def _resolve_update_branch(args) -> str:
     ``--branch`` (check path, git-update path, ZIP-fallback path) agrees on
     the same answer.
     """
-    return (getattr(args, "branch", None) or "main").strip() or "main"
+    return (getattr(args, "branch", None) or "master").strip() or "master"
 
-
-def _cmd_update_check(branch: str = "main", *, branch_explicit: bool = False):
-    """Implement ``ruslan update --check``: fetch and report without installing.
+def _cmd_update_check(branch: str = "master", *, branch_explicit: bool = False):    """Implement ``ruslan update --check``: fetch and report without installing.
 
     ``branch`` selects which branch the check compares against. Default is
-    "main"; callers can pass another branch to ask "are there new commits
+    "master"; callers can pass another branch to ask "are there new commits
     on origin/<branch>?" without performing the update.
 
     ``branch_explicit`` is True iff the caller passed --branch on the CLI.
@@ -8013,7 +8011,7 @@ def _cmd_update_check(branch: str = "main", *, branch_explicit: bool = False):
     if method == "pip":
         from ruslan_cli.config import recommended_update_command
         from ruslan_cli.banner import check_via_pypi
-        if branch_explicit and branch != "main":
+        if branch_explicit and branch != "master":
             print(f"⚠ --branch is ignored for PyPI installs (would have checked '{branch}').")
         result = check_via_pypi()
         if result is None:
@@ -8057,8 +8055,7 @@ def _cmd_update_check(branch: str = "main", *, branch_explicit: bool = False):
     )
     depth_args = ["--depth", "1"] if is_shallow else []
 
-    if branch == "main":
-        print("→ Получение из upstream...")
+    if branch == "master":        print("→ Получение из upstream...")
         fetch_result = subprocess.run(
             git_cmd + ["fetch"] + depth_args + ["upstream", branch],
             cwd=PROJECT_ROOT,
@@ -9043,7 +9040,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             _invalidate_update_cache()
 
             # Even if origin is up to date, the fork may be behind upstream
-            if is_fork and branch == "main":
+            if is_fork and branch == "master":
                 _sync_with_upstream_if_needed(git_cmd, PROJECT_ROOT)
 
             # Restore stash and switch back to original branch if we moved
@@ -9204,7 +9201,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             )
 
         # Fork upstream sync logic (only for main branch on forks)
-        if is_fork and branch == "main":
+        if is_fork and branch == "master":
             _sync_with_upstream_if_needed(git_cmd, PROJECT_ROOT)
 
         # Reinstall Python dependencies. Prefer .[all], but if one optional extra

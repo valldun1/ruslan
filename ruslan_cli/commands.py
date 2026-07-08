@@ -125,7 +125,7 @@ COMMAND_REGISTRY: list[CommandDef] = [
     # Configuration
     CommandDef("config", "Показать текущую конфигурацию", "Configuration",
                cli_only=True),
-    CommandDef("model", "Сменить модель (сохраняется по умолчанию)", "Configuration",
+    CommandDef("model", "Сменить модель или провайдера. Без аргументов — показать текущую", "Configuration",
                args_hint="[model] [--provider name] [--global|--session] [--refresh]"),
     CommandDef("codex-runtime", "Переключить runtime codex app-server для моделей OpenAI/Codex",
                "Configuration", aliases=("codex_runtime",),
@@ -490,7 +490,8 @@ def gateway_help_lines() -> list[str]:
         if cat != current_cat:
             current_cat = cat
             label = cat_labels.get(cat, f"**{cat}**")
-            lines.append("")
+            if lines:  # Don't add blank line before first category
+                lines.append("")
             lines.append(label)
         lines.append(line)
     

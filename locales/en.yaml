@@ -152,6 +152,7 @@ gateway:
 
   help:
     header:                "📖 **Ruslan Commands**\n"
+    developer:             "👨‍💻 **Developer:** RUslan.Team\n"
     skill_header:          "\n⚡ **Skill Commands** ({count} active):"
     more_use_commands:     "\n... and {count} more. Use `/commands` for the full paginated list."
 

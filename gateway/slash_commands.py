@@ -953,6 +953,7 @@ class GatewaySlashCommandsMixin:
         from ruslan_cli.commands import gateway_help_lines
         lines = [
             t("gateway.help.header"),
+            t("gateway.help.developer"),
             *gateway_help_lines(),
         ]
         try:

@@ -7987,7 +7987,8 @@ def _resolve_update_branch(args) -> str:
     """
     return (getattr(args, "branch", None) or "master").strip() or "master"
 
-def _cmd_update_check(branch: str = "master", *, branch_explicit: bool = False):    """Implement ``ruslan update --check``: fetch and report without installing.
+def _cmd_update_check(branch: str = "master", *, branch_explicit: bool = False):
+    """Implement ``ruslan update --check``: fetch and report without installing.
 
     ``branch`` selects which branch the check compares against. Default is
     "master"; callers can pass another branch to ask "are there new commits
@@ -8055,7 +8056,8 @@ def _cmd_update_check(branch: str = "master", *, branch_explicit: bool = False):
     )
     depth_args = ["--depth", "1"] if is_shallow else []
 
-    if branch == "master":        print("→ Получение из upstream...")
+    if branch == "master":
+        print("→ Получение из upstream...")
         fetch_result = subprocess.run(
             git_cmd + ["fetch"] + depth_args + ["upstream", branch],
             cwd=PROJECT_ROOT,

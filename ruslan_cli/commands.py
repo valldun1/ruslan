@@ -446,21 +446,54 @@ def _requires_argument(args_hint: str) -> bool:
 
 
 def gateway_help_lines() -> list[str]:
-    """Generate gateway help text lines from the registry."""
+    """Generate gateway help text lines from the registry, grouped by category."""
     overrides = _resolve_config_gates()
-    lines: list[str] = []
+    
+    # Category emoji and display order
+    category_config: list[tuple[str, str]] = [
+        ("Session",         "🚀 **Сеанс**"),
+        ("Configuration",   "⚙️ **Настройки**"),
+        ("Tools & Skills",  "🛠️ **Инструменты и навыки**"),
+        ("Info",            "📚 **Информация**"),
+        ("Exit",            "🚪 **Выход**"),
+    ]
+    
+    # Build a list of (category, line) tuples
+    entries: list[tuple[str, str]] = []
     for cmd in COMMAND_REGISTRY:
         if not _is_gateway_available(cmd, overrides):
             continue
         args = f" {cmd.args_hint}" if cmd.args_hint else ""
         alias_parts: list[str] = []
         for a in cmd.aliases:
-            # Skip internal aliases like reload_mcp (underscore variant)
             if a.replace("-", "_") == cmd.name.replace("-", "_") and a != cmd.name:
                 continue
             alias_parts.append(f"`/{a}`")
         alias_note = f" (alias: {', '.join(alias_parts)})" if alias_parts else ""
-        lines.append(f"`/{cmd.name}{args}` -- {cmd.description}{alias_note}")
+        entries.append((cmd.category, f"`/{cmd.name}{args}` — {cmd.description}{alias_note}"))
+    
+    # Build category-order lookup
+    cat_order = {cat: i for i, (cat, _) in enumerate(category_config)}
+    cat_labels = dict(category_config)
+    
+    # Sort by category order, then by name
+    def sort_key(item: tuple[str, str]) -> tuple[int, str]:
+        cat, line = item
+        return (cat_order.get(cat, 99), line)
+    
+    entries.sort(key=sort_key)
+    
+    # Assemble output with category headers
+    lines: list[str] = []
+    current_cat: str | None = None
+    for cat, line in entries:
+        if cat != current_cat:
+            current_cat = cat
+            label = cat_labels.get(cat, f"**{cat}**")
+            lines.append("")
+            lines.append(label)
+        lines.append(line)
+    
     return lines
 
 

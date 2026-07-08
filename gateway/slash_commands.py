@@ -968,6 +968,9 @@ class GatewaySlashCommandsMixin:
                     lines.append(t("gateway.help.more_use_commands", count=len(sorted_cmds) - 10))
         except Exception:
             pass
+        # Footer tip
+        lines.append("")
+        lines.append("💡 **Совет:** Используйте `/commands` для полного списка всех команд и навыков.")
         return _telegramize_command_mentions(
             "\n".join(lines),
             getattr(getattr(event, "source", None), "platform", None),

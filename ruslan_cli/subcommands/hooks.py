@@ -14,7 +14,7 @@ def build_hooks_parser(subparsers, *, cmd_hooks: Callable) -> None:
     # =========================================================================
     hooks_parser = subparsers.add_parser(
         "hooks",
-        help="Inspect and manage shell-script hooks",
+        help="Просмотр и управление shell-хуками",
         description=(
             "Inspect shell-script hooks declared in ~/.ruslan/config.yaml, "
             "test them against synthetic payloads, and manage the first-use "
@@ -26,16 +26,16 @@ def build_hooks_parser(subparsers, *, cmd_hooks: Callable) -> None:
     hooks_subparsers.add_parser(
         "list",
         aliases=["ls"],
-        help="List configured hooks with matcher, timeout, and consent status",
+        help="Список настроенных хуков с matcher, timeout и статусом разрешения",
     )
 
     _hk_test = hooks_subparsers.add_parser(
         "test",
-        help="Fire every hook matching <event> against a synthetic payload",
+        help="Запустить все хуки, соответствующие <event>, на синтетическом payload",
     )
     _hk_test.add_argument(
         "event",
-        help="Hook event name (e.g. pre_tool_call, pre_llm_call, subagent_stop)",
+        help="Имя события хука (напр. pre_tool_call, pre_llm_call, subagent_stop)",
     )
     _hk_test.add_argument(
         "--for-tool",
@@ -59,11 +59,11 @@ def build_hooks_parser(subparsers, *, cmd_hooks: Callable) -> None:
     _hk_revoke = hooks_subparsers.add_parser(
         "revoke",
         aliases=["remove", "rm"],
-        help="Remove a command's allowlist entries (takes effect on next restart)",
+        help="Удалить записи разрешений команды (вступает в силу при следующем перезапуске)",
     )
     _hk_revoke.add_argument(
         "command",
-        help="The exact command string to revoke (as declared in config.yaml)",
+        help="Точная строка команды для отзыва (как объявлено в config.yaml)",
     )
 
     hooks_subparsers.add_parser(

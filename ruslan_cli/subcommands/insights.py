@@ -13,13 +13,13 @@ def build_insights_parser(subparsers, *, cmd_insights: Callable) -> None:
     """Attach the ``insights`` subcommand to ``subparsers``."""
     insights_parser = subparsers.add_parser(
         "insights",
-        help="Show usage insights and analytics",
-        description="Analyze session history to show token usage, costs, tool patterns, and activity trends",
+        help="Показать аналитику использования и статистику",
+        description="Анализ истории сессий для показа использования токенов, стоимости, шаблонов инструментов и трендов активности",
     )
     insights_parser.add_argument(
-        "--days", type=int, default=30, help="Number of days to analyze (default: 30)"
+        "--days", type=int, default=30, help="Количество дней для анализа (по умолчанию: 30)"
     )
     insights_parser.add_argument(
-        "--source", help="Filter by platform (cli, telegram, discord, etc.)"
+        "--source", help="Фильтр по платформе (cli, telegram, discord, и т.д.)"
     )
     insights_parser.set_defaults(func=cmd_insights)

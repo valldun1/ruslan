@@ -12579,46 +12579,46 @@ def main():
     # =========================================================================
     sessions_parser = subparsers.add_parser(
         "sessions",
-        help="Manage session history (list, rename, export, prune, delete)",
-        description="View and manage the SQLite session store",
+        help="Управление историей сессий (список, переименование, экспорт, очистка, удаление)",
+        description="Просмотр и управление хранилищем сессий SQLite",
     )
     sessions_subparsers = sessions_parser.add_subparsers(dest="sessions_action")
 
-    sessions_list = sessions_subparsers.add_parser("list", help="List recent sessions")
+    sessions_list = sessions_subparsers.add_parser("list", help="Список недавних сессий")
     sessions_list.add_argument(
-        "--source", help="Filter by source (cli, telegram, discord, etc.)"
+        "--source", help="Фильтр по источнику (cli, telegram, discord, и т.д.)"
     )
     sessions_list.add_argument(
-        "--limit", type=int, default=20, help="Max sessions to show"
+        "--limit", type=int, default=20, help="Макс сессий для показа"
     )
 
     sessions_export = sessions_subparsers.add_parser(
-        "export", help="Export sessions to a JSONL file"
+        "export", help="Экспорт сессий в JSONL-файл"
     )
     sessions_export.add_argument(
         "output", help="Output JSONL file path (use - for stdout)"
     )
     sessions_export.add_argument("--source", help="Filter by source")
-    sessions_export.add_argument("--session-id", help="Export a specific session")
+    sessions_export.add_argument("--session-id", help="Фильтр по источнику")
 
     sessions_delete = sessions_subparsers.add_parser(
-        "delete", help="Delete a specific session"
+        "delete", help="Удалить конкретную сессию"
     )
     sessions_delete.add_argument("session_id", help="Session ID to delete")
     sessions_delete.add_argument(
-        "--yes", "-y", action="store_true", help="Skip confirmation"
+        "--yes", "-y", action="store_true", help="Пропустить подтверждение"
     )
 
-    sessions_prune = sessions_subparsers.add_parser("prune", help="Delete old sessions")
+    sessions_prune = sessions_subparsers.add_parser("prune", help="Удалить старые сессии")
     sessions_prune.add_argument(
         "--older-than",
         type=int,
         default=90,
-        help="Delete sessions older than N days (default: 90)",
+        help="Удалить сессии старше N дней (по умолчанию: 90)",
     )
-    sessions_prune.add_argument("--source", help="Only prune sessions from this source")
+    sessions_prune.add_argument("--source", help="Только сессии из этого источника")
     sessions_prune.add_argument(
-        "--yes", "-y", action="store_true", help="Skip confirmation"
+        "--yes", "-y", action="store_true", help="Пропустить подтверждение"
     )
 
     sessions_subparsers.add_parser(
@@ -12647,20 +12647,20 @@ def main():
         help="Skip the timestamped backup copy (not recommended)",
     )
 
-    sessions_subparsers.add_parser("stats", help="Show session store statistics")
+    sessions_subparsers.add_parser("stats", help="Показать статистику хранилища сессий")
 
     sessions_rename = sessions_subparsers.add_parser(
-        "rename", help="Set or change a session's title"
+        "rename", help="Установить или изменить заголовок сессии"
     )
     sessions_rename.add_argument("session_id", help="Session ID to rename")
-    sessions_rename.add_argument("title", nargs="+", help="New title for the session")
+    sessions_rename.add_argument("title", nargs="+", help="Новый заголовок для сессии")
 
     sessions_browse = sessions_subparsers.add_parser(
         "browse",
-        help="Interactive session picker — browse, search, and resume sessions",
+        help="Интерактивный выбор сессий — просмотр, поиск и возобновление",
     )
     sessions_browse.add_argument(
-        "--source", help="Filter by source (cli, telegram, discord, etc.)"
+        "--source", help="Фильтр по источнику (cli, telegram, discord, и т.д.)"
     )
     sessions_browse.add_argument(
         "--limit", type=int, default=500, help="Max sessions to load (default: 500)"
@@ -12953,14 +12953,14 @@ def main():
     # =========================================================================
     completion_parser = subparsers.add_parser(
         "completion",
-        help="Print shell completion script (bash, zsh, or fish)",
+        help="Вывести скрипт автодополнения оболочки (bash, zsh или fish)",
     )
     completion_parser.add_argument(
         "shell",
         nargs="?",
         default="bash",
         choices=["bash", "zsh", "fish"],
-        help="Shell type (default: bash)",
+        help="Тип оболочки (по умолчанию: bash)",
     )
     completion_parser.set_defaults(func=lambda args: cmd_completion(args, parser))
 

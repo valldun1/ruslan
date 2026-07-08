@@ -306,7 +306,7 @@ def build_parser(parent_subparsers: argparse._SubParsersAction) -> argparse.Argu
     p_create = sub.add_parser("create", help="Create a new task")
     p_create.add_argument("title", help="Task title")
     p_create.add_argument("--body", default=None, help="Optional opening post")
-    p_create.add_argument("--assignee", default=None, help="Profile name to assign")
+    p_create.add_argument("--assignee", default=None, help="Действие to assign")
     p_create.add_argument("--parent", action="append", default=[],
                           help="Parent task id (repeatable)")
     p_create.add_argument("--workspace", default="scratch",
@@ -438,7 +438,7 @@ def build_parser(parent_subparsers: argparse._SubParsersAction) -> argparse.Argu
     # --- assign ---
     p_assign = sub.add_parser("assign", help="Assign or reassign a task")
     p_assign.add_argument("task_id")
-    p_assign.add_argument("profile", help="Profile name (or 'none' to unassign)")
+    p_assign.add_argument("profile", help="Действие (or 'none' to unassign)")
 
     # --- reclaim / reassign (recovery) ---
     p_reclaim = sub.add_parser(
@@ -458,7 +458,7 @@ def build_parser(parent_subparsers: argparse._SubParsersAction) -> argparse.Argu
     p_reassign.add_argument("task_id")
     p_reassign.add_argument(
         "profile",
-        help="New profile name (or 'none' to unassign)",
+        help="Переименовать профиль (or 'none' to unassign)",
     )
     p_reassign.add_argument(
         "--reclaim", action="store_true",

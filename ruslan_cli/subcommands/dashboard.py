@@ -19,17 +19,17 @@ def build_dashboard_parser(
     # =========================================================================
     dashboard_parser = subparsers.add_parser(
         "dashboard",
-        help="Start the web UI dashboard",
+        help="Запустить веб-дашборд",
         description="Launch the Ruslan Agent web dashboard for managing config, API keys, and sessions",
     )
     dashboard_parser.add_argument(
         "--port", type=int, default=9119, help="Port (default 9119, 0 for auto-assign by OS)"
     )
     dashboard_parser.add_argument(
-        "--host", default="127.0.0.1", help="Host (default 127.0.0.1)"
+        "--host", default="127.0.0.1", help="Действие (default 127.0.0.1)"
     )
     dashboard_parser.add_argument(
-        "--no-open", action="store_true", help="Don't open browser automatically"
+        "--no-open", action="store_true", help="Не открывать браузер автоматически"
     )
     dashboard_parser.add_argument(
         "--insecure",

@@ -17,13 +17,13 @@ def build_update_parser(subparsers, *, cmd_update: Callable) -> None:
     update_parser = subparsers.add_parser(
         "update",
         help="Update Ruslan Agent to the latest version",
-        description="Pull the latest changes from git and reinstall dependencies",
+        description="Обновить Руслана",
     )
     update_parser.add_argument(
         "--gateway",
         action="store_true",
         default=False,
-        help="Gateway mode: use file-based IPC for prompts instead of stdin (used internally by /update)",
+        help="Режим шлюза: IPC через файлы вместо stdin",
     )
     update_parser.add_argument(
         "--check",

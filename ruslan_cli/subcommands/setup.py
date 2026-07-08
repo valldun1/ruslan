@@ -25,15 +25,15 @@ def build_setup_parser(subparsers, *, cmd_setup: Callable) -> None:
         nargs="?",
         choices=["model", "tts", "terminal", "gateway", "tools", "agent"],
         default=None,
-        help="Run a specific setup section instead of the full wizard",
+        help="Запустить конкретный раздел настройки вместо полного мастера",
     )
     setup_parser.add_argument(
         "--non-interactive",
         action="store_true",
-        help="Non-interactive mode (use defaults/env vars)",
+        help="Неинтерактивный режим (использовать значения по умолчанию/env)",
     )
     setup_parser.add_argument(
-        "--reset", action="store_true", help="Reset configuration to defaults"
+        "--reset", action="store_true", help="Сбросить настройки к значениям по умолчанию"
     )
     setup_parser.add_argument(
         "--reconfigure",

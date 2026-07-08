@@ -22,7 +22,7 @@ def build_uninstall_parser(subparsers, *, cmd_uninstall: Callable) -> None:
     uninstall_parser.add_argument(
         "--full",
         action="store_true",
-        help="Full uninstall - remove everything including configs and data",
+        help="Полное удаление — удалить всё включая конфиги и данные",
     )
     uninstall_parser.add_argument(
         "--gui",
@@ -36,6 +36,6 @@ def build_uninstall_parser(subparsers, *, cmd_uninstall: Callable) -> None:
         "(used by the desktop app to gate uninstall options)",
     )
     uninstall_parser.add_argument(
-        "--yes", "-y", action="store_true", help="Skip confirmation prompts"
+        "--yes", "-y", action="store_true", help="Пропустить подтверждения"
     )
     uninstall_parser.set_defaults(func=cmd_uninstall)

@@ -96,7 +96,7 @@ def build_top_level_parser():
     )
 
     parser.add_argument(
-        "--version", "-V", action="store_true", help="Show version and exit"
+        "--version", "-V", action="store_true", help="Показать версию и выйти"
     )
     parser.add_argument(
         "-z",
@@ -139,14 +139,14 @@ def build_top_level_parser():
         "-t",
         "--toolsets",
         default=None,
-        help="Comma-separated toolsets to enable for this invocation. Applies to -z/--oneshot and --tui.",
+        help="Список наборов инструментов через запятую for this invocation. Applies to -z/--oneshot and --tui.",
     )
     parser.add_argument(
         "--resume",
         "-r",
         metavar="SESSION",
         default=None,
-        help="Resume a previous session by ID or title",
+        help="Возобновить предыдущую сессию по ID или заголовку",
     )
     parser.add_argument(
         "--continue",
@@ -156,14 +156,14 @@ def build_top_level_parser():
         const=True,
         default=None,
         metavar="SESSION_NAME",
-        help="Resume a session by name, or the most recent if no name given",
+        help="Возобновить сессию по имени, или последнюю, если имя не указано",
     )
     parser.add_argument(
         "--worktree",
         "-w",
         action="store_true",
         default=False,
-        help="Run in an isolated git worktree (for parallel agents)",
+        help="Запустить в изолированном git worktree (для параллельных агентов)",
     )
     _inherited_flag(
         parser,
@@ -183,21 +183,21 @@ def build_top_level_parser():
         "-s",
         action="append",
         default=None,
-        help="Preload one or more skills for the session (repeat flag or comma-separate)",
+        help="Предзагрузить один или несколько скиллов (повтори флаг или через запятую)",
     )
     _inherited_flag(
         parser,
         "--yolo",
         action="store_true",
         default=False,
-        help="Bypass all dangerous command approval prompts (use at your own risk)",
+        help="Обойти все подтверждения опасных команд (на свой страх и риск)",
     )
     _inherited_flag(
         parser,
         "--pass-session-id",
         action="store_true",
         default=False,
-        help="Include the session ID in the agent's system prompt",
+        help="Включить ID сессии в системный промпт агента",
     )
     _inherited_flag(
         parser,
@@ -211,7 +211,7 @@ def build_top_level_parser():
         "--ignore-rules",
         action="store_true",
         default=False,
-        help="Skip auto-injection of AGENTS.md, SOUL.md, .cursorrules, memory, and preloaded skills",
+        help="Пропустить авто-загрузку AGENTS.md, SOUL.md, .cursorrules, памяти и предзагруженных скиллов",
     )
     _inherited_flag(
         parser,
@@ -225,14 +225,14 @@ def build_top_level_parser():
         "--tui",
         action="store_true",
         default=False,
-        help="Launch the modern TUI instead of the classic REPL",
+        help="Запустить современный TUI вместо классического REPL",
     )
     _inherited_flag(
         parser,
         "--cli",
         action="store_true",
         default=False,
-        help="Force the classic prompt_toolkit REPL (overrides display.interface=tui)",
+        help="Принудительно использовать классический prompt_toolkit REPL (переопределяет display.interface=tui)",
     )
     _inherited_flag(
         parser,
@@ -240,10 +240,10 @@ def build_top_level_parser():
         dest="tui_dev",
         action="store_true",
         default=False,
-        help="With --tui: run TypeScript sources via tsx (skip dist build)",
+        help="С --tui: запустить TypeScript источники через tsx (пропустить сборку dist)",
     )
 
-    subparsers = parser.add_subparsers(dest="command", help="Command to run")
+    subparsers = parser.add_subparsers(dest="command", help="Команда для выполнения")
 
     # =========================================================================
     # chat command
@@ -254,17 +254,17 @@ def build_top_level_parser():
         description="Start an interactive chat session with Ruslan Agent",
     )
     chat_parser.add_argument(
-        "-q", "--query", help="Single query (non-interactive mode)"
+        "-q", "--query", help="Один запрос (неинтерактивный режим)"
     )
     chat_parser.add_argument(
-        "--image", help="Optional local image path to attach to a single query"
+        "--image", help="Опциональный путь к локальному изображению для прикрепления к запросу"
     )
     _inherited_flag(
         chat_parser,
-        "-m", "--model", help="Model to use (e.g., anthropic/claude-sonnet-4)",
+        "-m", "--model", help="Модель (например: anthropic/claude-sonnet-4)",
     )
     chat_parser.add_argument(
-        "-t", "--toolsets", help="Comma-separated toolsets to enable"
+        "-t", "--toolsets", help="Список наборов инструментов через запятую"
     )
     _inherited_flag(
         chat_parser,
@@ -272,7 +272,7 @@ def build_top_level_parser():
         "--skills",
         action="append",
         default=argparse.SUPPRESS,
-        help="Preload one or more skills for the session (repeat flag or comma-separate)",
+        help="Предзагрузить один или несколько скиллов (повтори флаг или через запятую)",
     )
     _inherited_flag(
         chat_parser,
@@ -282,27 +282,27 @@ def build_top_level_parser():
         # handles validation/error reporting consistently with the top-level
         # `--provider` flag.
         default=None,
-        help="Inference provider (default: auto). Built-in or a user-defined name from `providers:` in config.yaml.",
+        help="Провайдер инференции (по умолчанию: auto). Built-in or a user-defined name from `providers:` in config.yaml.",
     )
     chat_parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
         default=argparse.SUPPRESS,
-        help="Verbose output",
+        help="Подробный вывод",
     )
     chat_parser.add_argument(
         "-Q",
         "--quiet",
         action="store_true",
-        help="Quiet mode for programmatic use: suppress banner, spinner, and tool previews. Only output the final response and session info.",
+        help="Тихий режим: убрать баннер, спиннер и превью. Только финальный ответ и инфо о сессии.",
     )
     chat_parser.add_argument(
         "--resume",
         "-r",
         metavar="SESSION_ID",
         default=argparse.SUPPRESS,
-        help="Resume a previous session by ID (shown on exit)",
+        help="Возобновить предыдущую сессию по ID (показывается при выходе)",
     )
     chat_parser.add_argument(
         "--continue",
@@ -312,14 +312,14 @@ def build_top_level_parser():
         const=True,
         default=argparse.SUPPRESS,
         metavar="SESSION_NAME",
-        help="Resume a session by name, or the most recent if no name given",
+        help="Возобновить сессию по имени, или последнюю, если имя не указано",
     )
     chat_parser.add_argument(
         "--worktree",
         "-w",
         action="store_true",
         default=argparse.SUPPRESS,
-        help="Run in an isolated git worktree (for parallel agents on the same repo)",
+        help="Запустить в изолированном git worktree (для параллельных агентов на одном репо)",
     )
     _inherited_flag(
         chat_parser,
@@ -336,28 +336,28 @@ def build_top_level_parser():
         "--checkpoints",
         action="store_true",
         default=False,
-        help="Enable filesystem checkpoints before destructive file operations (use /rollback to restore)",
+        help="Включить файловые чекпоинты (используй /rollback для восстановления)",
     )
     chat_parser.add_argument(
         "--max-turns",
         type=int,
         default=None,
         metavar="N",
-        help="Maximum tool-calling iterations per conversation turn (default: 90, or agent.max_turns in config)",
+        help="Максимум итераций вызова инструментов (по умолчанию: 90)",
     )
     _inherited_flag(
         chat_parser,
         "--yolo",
         action="store_true",
         default=argparse.SUPPRESS,
-        help="Bypass all dangerous command approval prompts (use at your own risk)",
+        help="Обойти все подтверждения опасных команд (на свой страх и риск)",
     )
     _inherited_flag(
         chat_parser,
         "--pass-session-id",
         action="store_true",
         default=argparse.SUPPRESS,
-        help="Include the session ID in the agent's system prompt",
+        help="Включить ID сессии в системный промпт агента",
     )
     _inherited_flag(
         chat_parser,
@@ -371,7 +371,7 @@ def build_top_level_parser():
         "--ignore-rules",
         action="store_true",
         default=argparse.SUPPRESS,
-        help="Skip auto-injection of AGENTS.md, SOUL.md, .cursorrules, memory, and preloaded skills. Combine with --ignore-user-config for a fully isolated run.",
+        help="Пропустить авто-загрузку AGENTS.md, памяти и скиллов. Сочетай с --ignore-user-config.",
     )
     _inherited_flag(
         chat_parser,
@@ -383,21 +383,21 @@ def build_top_level_parser():
     chat_parser.add_argument(
         "--source",
         default=None,
-        help="Session source tag for filtering (default: cli). Use 'tool' for third-party integrations that should not appear in user session lists.",
+        help="Тег источника сессии (по умолчанию: cli). Используй 'tool' для интеграций.",
     )
     _inherited_flag(
         chat_parser,
         "--tui",
         action="store_true",
         default=False,
-        help="Launch the modern TUI instead of the classic REPL",
+        help="Запустить современный TUI вместо классического REPL",
     )
     _inherited_flag(
         chat_parser,
         "--cli",
         action="store_true",
         default=False,
-        help="Force the classic prompt_toolkit REPL (overrides display.interface=tui)",
+        help="Принудительно использовать классический prompt_toolkit REPL (переопределяет display.interface=tui)",
     )
     _inherited_flag(
         chat_parser,
@@ -405,7 +405,7 @@ def build_top_level_parser():
         dest="tui_dev",
         action="store_true",
         default=False,
-        help="With --tui: run TypeScript sources via tsx (skip dist build)",
+        help="С --tui: запустить TypeScript источники через tsx (пропустить сборку dist)",
     )
 
     return parser, subparsers, chat_parser

@@ -22,28 +22,28 @@ def build_config_parser(subparsers, *, cmd_config: Callable) -> None:
     config_subparsers = config_parser.add_subparsers(dest="config_command")
 
     # config show (default)
-    config_subparsers.add_parser("show", help="Show current configuration")
+    config_subparsers.add_parser("show", help="Показать текущую конфигурацию")
 
     # config edit
-    config_subparsers.add_parser("edit", help="Open config file in editor")
+    config_subparsers.add_parser("edit", help="Открыть файл конфигурации в редакторе")
 
     # config set
-    config_set = config_subparsers.add_parser("set", help="Set a configuration value")
+    config_set = config_subparsers.add_parser("set", help="Установить значение конфигурации")
     config_set.add_argument(
-        "key", nargs="?", help="Configuration key (e.g., model, terminal.backend)"
+        "key", nargs="?", help="Ключ конфигурации (например: model, terminal.backend)"
     )
-    config_set.add_argument("value", nargs="?", help="Value to set")
+    config_set.add_argument("value", nargs="?", help="Значение для установки")
 
     # config path
-    config_subparsers.add_parser("path", help="Print config file path")
+    config_subparsers.add_parser("path", help="Показать путь к файлу конфигурации")
 
     # config env-path
-    config_subparsers.add_parser("env-path", help="Print .env file path")
+    config_subparsers.add_parser("env-path", help="Показать путь к файлу .env")
 
     # config check
-    config_subparsers.add_parser("check", help="Check for missing/outdated config")
+    config_subparsers.add_parser("check", help="Проверить конфигурацию на ошибки")
 
     # config migrate
-    config_subparsers.add_parser("migrate", help="Update config with new options")
+    config_subparsers.add_parser("migrate", help="Обновить конфигурацию (добавить новые опции)")
 
     config_parser.set_defaults(func=cmd_config)

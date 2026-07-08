@@ -21,11 +21,11 @@ def build_import_cmd_parser(subparsers, *, cmd_import: Callable) -> None:
         "Ruslan home directory, restoring configuration, skills, "
         "sessions, and data",
     )
-    import_parser.add_argument("zipfile", help="Path to the backup zip file")
+    import_parser.add_argument("zipfile", help="Путь к zip-файлу резервной копии")
     import_parser.add_argument(
         "--force",
         "-f",
         action="store_true",
-        help="Overwrite existing files without confirmation",
+        help="Перезаписать существующие файлы без подтверждения",
     )
     import_parser.set_defaults(func=cmd_import)

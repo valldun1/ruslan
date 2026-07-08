@@ -13,7 +13,7 @@ def build_tools_parser(subparsers, *, cmd_tools: Callable) -> None:
     """Attach the ``tools`` subcommand to ``subparsers``."""
     tools_parser = subparsers.add_parser(
         "tools",
-        help="Configure which tools are enabled per platform",
+        help="Настроить какие инструменты включены по платформе",
         description=(
             "Enable, disable, or list tools for CLI, Telegram, Discord, etc.\n\n"
             "Built-in toolsets use plain names (e.g. web, memory).\n"
@@ -24,53 +24,53 @@ def build_tools_parser(subparsers, *, cmd_tools: Callable) -> None:
     tools_parser.add_argument(
         "--summary",
         action="store_true",
-        help="Print a summary of enabled tools per platform and exit",
+        help="Вывести сводку включённых инструментов по платформам и выйти",
     )
     tools_sub = tools_parser.add_subparsers(dest="tools_action")
 
     # ruslan tools list [--platform cli]
     tools_list_p = tools_sub.add_parser(
         "list",
-        help="Show all tools and their enabled/disabled status",
+        help="Показать все инструменты и их статус вкл/откл",
     )
     tools_list_p.add_argument(
         "--platform",
         default="cli",
-        help="Platform to show (default: cli)",
+        help="Платформа для показа (по умолчанию: cli)",
     )
 
     # ruslan tools disable <name...> [--platform cli]
     tools_disable_p = tools_sub.add_parser(
         "disable",
-        help="Disable toolsets or MCP tools",
+        help="Отключить наборы инструментов или MCP-инструменты",
     )
     tools_disable_p.add_argument(
         "names",
         nargs="+",
         metavar="NAME",
-        help="Toolset name (e.g. web) or MCP tool in server:tool form",
+        help="Имя набора инструментов (напр. web) или MCP-инструмент в форме server:tool",
     )
     tools_disable_p.add_argument(
         "--platform",
         default="cli",
-        help="Platform to apply to (default: cli)",
+        help="Платформа для применения (по умолчанию: cli)",
     )
 
     # ruslan tools enable <name...> [--platform cli]
     tools_enable_p = tools_sub.add_parser(
         "enable",
-        help="Enable toolsets or MCP tools",
+        help="Включить наборы инструментов или MCP-инструменты",
     )
     tools_enable_p.add_argument(
         "names",
         nargs="+",
         metavar="NAME",
-        help="Toolset name or MCP tool in server:tool form",
+        help="Имя набора инструментов или MCP-инструмент в форме server:tool",
     )
     tools_enable_p.add_argument(
         "--platform",
         default="cli",
-        help="Platform to apply to (default: cli)",
+        help="Платформа для применения (по умолчанию: cli)",
     )
 
     # ruslan tools post-setup <key>

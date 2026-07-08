@@ -45,22 +45,22 @@ def build_gateway_parser(
 
     # gateway run (default)
     gateway_run = gateway_subparsers.add_parser(
-        "run", help="Run gateway in foreground (recommended for WSL, Docker, Termux)"
+        "run", help="Запустить шлюз в переднем плане (рекомендуется для WSL, Docker, Termux)"
     )
     gateway_run.add_argument(
         "-v",
         "--verbose",
         action="count",
         default=0,
-        help="Increase stderr log verbosity (-v=INFO, -vv=DEBUG)",
+        help="Увеличить детализацию логов stderr (-v=INFO, -vv=DEBUG)",
     )
     gateway_run.add_argument(
-        "-q", "--quiet", action="store_true", help="Suppress all stderr log output"
+        "-q", "--quiet", action="store_true", help="Подавить все логи stderr"
     )
     gateway_run.add_argument(
         "--replace",
         action="store_true",
-        help="Replace any existing gateway instance (useful for systemd)",
+        help="Заменить любой существующий экземпляр шлюза (полезно для systemd)",
     )
     gateway_run.add_argument(
         "--force",
@@ -90,52 +90,52 @@ def build_gateway_parser(
 
     # gateway start
     gateway_start = gateway_subparsers.add_parser(
-        "start", help="Start the installed systemd/launchd background service"
+        "start", help="Запустить установленную фоновую службу systemd/launchd"
     )
     gateway_start.add_argument(
         "--system",
         action="store_true",
-        help="Target the Linux system-level gateway service",
+        help="Целить системную Linux-службу шлюза",
     )
     gateway_start.add_argument(
         "--all",
         action="store_true",
-        help="Kill ALL stale gateway processes across all profiles before starting",
+        help="Убить ВСЕ устаревшие процессы шлюза во всех профилях перед запуском",
     )
     _add_compat_platform_flag(gateway_start)
 
     # gateway stop
-    gateway_stop = gateway_subparsers.add_parser("stop", help="Stop gateway service")
+    gateway_stop = gateway_subparsers.add_parser("stop", help="Остановить службу шлюза")
     gateway_stop.add_argument(
         "--system",
         action="store_true",
-        help="Target the Linux system-level gateway service",
+        help="Целить системную Linux-службу шлюза",
     )
     gateway_stop.add_argument(
         "--all",
         action="store_true",
-        help="Stop ALL gateway processes across all profiles",
+        help="Остановить ВСЕ процессы шлюза во всех профилях",
     )
 
     # gateway restart
     gateway_restart = gateway_subparsers.add_parser(
-        "restart", help="Restart gateway service"
+        "restart", help="Перезапустить службу шлюза"
     )
     gateway_restart.add_argument(
         "--system",
         action="store_true",
-        help="Target the Linux system-level gateway service",
+        help="Целить системную Linux-службу шлюза",
     )
     gateway_restart.add_argument(
         "--all",
         action="store_true",
-        help="Kill ALL gateway processes across all profiles before restarting",
+        help="Убить ВСЕ процессы шлюза во всех профилях перед перезапуском",
     )
     _add_compat_platform_flag(gateway_restart)
 
     # gateway status
     gateway_status = gateway_subparsers.add_parser("status", help="Show gateway status")
-    gateway_status.add_argument("--deep", action="store_true", help="Deep status check")
+    gateway_status.add_argument("--deep", action="store_true", help="Показать статус шлюза")
     gateway_status.add_argument(
         "-l",
         "--full",
@@ -145,24 +145,24 @@ def build_gateway_parser(
     gateway_status.add_argument(
         "--system",
         action="store_true",
-        help="Target the Linux system-level gateway service",
+        help="Целить системную Linux-службу шлюза",
     )
     _add_compat_platform_flag(gateway_status)
 
     # gateway install
     gateway_install = gateway_subparsers.add_parser(
-        "install", help="Install gateway as a systemd/launchd background service"
+        "install", help="Установить шлюз как фоновую службу systemd/launchd"
     )
-    gateway_install.add_argument("--force", action="store_true", help="Force reinstall")
+    gateway_install.add_argument("--force", action="store_true", help="Принудительная переустановка")
     gateway_install.add_argument(
         "--system",
         action="store_true",
-        help="Install as a Linux system-level service (starts at boot)",
+        help="Установить как системную Linux-службу (запуск при загрузке)",
     )
     gateway_install.add_argument(
         "--run-as-user",
         dest="run_as_user",
-        help="User account the Linux system service should run as",
+        help="Учетная запись пользователя, от имени которой должна работать системная Linux-служба",
     )
     gateway_install.add_argument(
         "--start-now",
@@ -199,19 +199,19 @@ def build_gateway_parser(
 
     # gateway uninstall
     gateway_uninstall = gateway_subparsers.add_parser(
-        "uninstall", help="Uninstall gateway service"
+        "uninstall", help="Деинсталлировать службу шлюза"
     )
     gateway_uninstall.add_argument(
         "--system",
         action="store_true",
-        help="Target the Linux system-level gateway service",
+        help="Целить системную Linux-службу шлюза",
     )
 
     # gateway list
-    gateway_subparsers.add_parser("list", help="List all profiles and their gateway status")
+    gateway_subparsers.add_parser("list", help="Список всех профилей and their gateway status")
 
     # gateway setup
-    gateway_subparsers.add_parser("setup", help="Configure messaging platforms")
+    gateway_subparsers.add_parser("setup", help="Настроить платформы сообщений")
 
     # gateway migrate-legacy
     gateway_migrate_legacy = gateway_subparsers.add_parser(
@@ -228,14 +228,14 @@ def build_gateway_parser(
         "--dry-run",
         dest="dry_run",
         action="store_true",
-        help="List what would be removed without doing it",
+        help="Показать, что будет удалено, без изменений",
     )
     gateway_migrate_legacy.add_argument(
         "-y",
         "--yes",
         dest="yes",
         action="store_true",
-        help="Skip the confirmation prompt",
+        help="Пропустить подтверждение",
     )
 
     # gateway enroll — enroll a self-hosted gateway with a relay connector

@@ -533,15 +533,15 @@ def register_cli(parent: argparse.ArgumentParser) -> None:
     p_resume.set_defaults(func=_cmd_resume)
 
     p_pin = subs.add_parser("pin", help="Pin a skill so the curator never auto-transitions it")
-    p_pin.add_argument("skill", help="Skill name")
+    p_pin.add_argument("skill", help="Действие")
     p_pin.set_defaults(func=_cmd_pin)
 
     p_unpin = subs.add_parser("unpin", help="Unpin a skill")
-    p_unpin.add_argument("skill", help="Skill name")
+    p_unpin.add_argument("skill", help="Действие")
     p_unpin.set_defaults(func=_cmd_unpin)
 
     p_restore = subs.add_parser("restore", help="Restore an archived skill")
-    p_restore.add_argument("skill", help="Skill name")
+    p_restore.add_argument("skill", help="Действие")
     p_restore.set_defaults(func=_cmd_restore)
 
     subs.add_parser("list-archived", help="List archived skills") \
@@ -551,7 +551,7 @@ def register_cli(parent: argparse.ArgumentParser) -> None:
         "archive",
         help="Manually archive a skill (move to .archive/, excluded from prompt)",
     )
-    p_archive.add_argument("skill", help="Skill name")
+    p_archive.add_argument("skill", help="Действие")
     p_archive.set_defaults(func=_cmd_archive)
 
     p_prune = subs.add_parser(
@@ -564,7 +564,7 @@ def register_cli(parent: argparse.ArgumentParser) -> None:
     )
     p_prune.add_argument(
         "-y", "--yes", action="store_true",
-        help="Skip the confirmation prompt",
+        help="Пропустить подтверждение",
     )
     p_prune.add_argument(
         "--dry-run", dest="dry_run", action="store_true",
@@ -598,7 +598,7 @@ def register_cli(parent: argparse.ArgumentParser) -> None:
     )
     p_rollback.add_argument(
         "-y", "--yes", action="store_true",
-        help="Skip confirmation prompt",
+        help="Пропустить подтверждение",
     )
     p_rollback.set_defaults(func=_cmd_rollback)
 

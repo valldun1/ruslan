@@ -14,7 +14,7 @@ def build_skills_parser(subparsers, *, cmd_skills: Callable) -> None:
     skills_parser = subparsers.add_parser(
         "skills",
         help="Search, install, configure, and manage skills",
-        description="Search, install, inspect, audit, configure, and manage skills from skills.sh, well-known agent skill endpoints, GitHub, ClawHub, and other registries.",
+        description="Поиск, установка, проверка, аудит, настройка и управление скиллами из skills.sh, well-known agent skill endpoints, GitHub, ClawHub и других реестров.",
     )
     skills_subparsers = skills_parser.add_subparsers(dest="skills_action")
 
@@ -71,10 +71,10 @@ def build_skills_parser(subparsers, *, cmd_skills: Callable) -> None:
     skills_install = skills_subparsers.add_parser("install", help="Install a skill")
     skills_install.add_argument(
         "identifier",
-        help="Skill identifier (e.g. openai/skills/skill-creator) or a direct HTTP(S) URL to a SKILL.md file",
+        help="Идентификатор скилла (e.g. openai/skills/skill-creator) or a direct HTTP(S) URL to a SKILL.md file",
     )
     skills_install.add_argument(
-        "--category", default="", help="Category folder to install into"
+        "--category", default="", help="Папка категории для установки"
     )
     skills_install.add_argument(
         "--name",
@@ -82,21 +82,21 @@ def build_skills_parser(subparsers, *, cmd_skills: Callable) -> None:
         help="Override the skill name (useful when installing from a URL whose SKILL.md has no `name:` frontmatter)",
     )
     skills_install.add_argument(
-        "--force", action="store_true", help="Install despite blocked scan verdict"
+        "--force", action="store_true", help="Установить несмотря на блокировку результата сканирования"
     )
     skills_install.add_argument(
         "--yes",
         "-y",
         action="store_true",
-        help="Skip confirmation prompt (needed in TUI mode)",
+        help="Пропустить подтверждение (needed in TUI mode)",
     )
 
     skills_inspect = skills_subparsers.add_parser(
-        "inspect", help="Preview a skill without installing"
+        "inspect", help="Предпросмотреть скилл без установки"
     )
-    skills_inspect.add_argument("identifier", help="Skill identifier")
+    skills_inspect.add_argument("identifier", help="Идентификатор скилла")
 
-    skills_list = skills_subparsers.add_parser("list", help="List installed skills")
+    skills_list = skills_subparsers.add_parser("list", help="Список установленных скиллов")
     skills_list.add_argument(
         "--source", default="all", choices=["all", "hub", "builtin", "local"]
     )
@@ -108,26 +108,26 @@ def build_skills_parser(subparsers, *, cmd_skills: Callable) -> None:
     )
 
     skills_check = skills_subparsers.add_parser(
-        "check", help="Check installed hub skills for updates"
+        "check", help="Проверить установленные скиллы на обновления"
     )
     skills_check.add_argument(
-        "name", nargs="?", help="Specific skill to check (default: all)"
+        "name", nargs="?", help="Конкретный скилл для проверки (по умолчанию: all)"
     )
 
     skills_update = skills_subparsers.add_parser(
-        "update", help="Update installed hub skills"
+        "update", help="Обновить установленные скиллы из хаба"
     )
     skills_update.add_argument(
         "name",
         nargs="?",
-        help="Specific skill to update (default: all outdated skills)",
+        help="Конкретный скилл для обновления (по умолчанию: все устаревшие)",
     )
 
     skills_audit = skills_subparsers.add_parser(
         "audit", help="Re-scan installed hub skills"
     )
     skills_audit.add_argument(
-        "name", nargs="?", help="Specific skill to audit (default: all)"
+        "name", nargs="?", help="Конкретный скилл для аудита (по умолчанию: all)"
     )
     skills_audit.add_argument(
         "--deep",
@@ -136,13 +136,13 @@ def build_skills_parser(subparsers, *, cmd_skills: Callable) -> None:
     )
 
     skills_uninstall = skills_subparsers.add_parser(
-        "uninstall", help="Remove a hub-installed skill"
+        "uninstall", help="Удалить скилл, установленный из хаба"
     )
-    skills_uninstall.add_argument("name", help="Skill name to remove")
+    skills_uninstall.add_argument("name", help="Действие to remove")
 
     skills_reset = skills_subparsers.add_parser(
         "reset",
-        help="Reset a bundled skill — clears 'user-modified' tracking so updates work again",
+        help="Сбросить встроенный скилл — очистит трекинг 'изменён пользователем' чтобы обновления снова работали",
         description=(
             "Clear a bundled skill's entry from the sync manifest (~/.ruslan/skills/.bundled_manifest) "
             "so future 'ruslan update' runs stop marking it as user-modified. Pass --restore to also "
@@ -150,18 +150,18 @@ def build_skills_parser(subparsers, *, cmd_skills: Callable) -> None:
         ),
     )
     skills_reset.add_argument(
-        "name", help="Skill name to reset (e.g. google-workspace)"
+        "name", help="Действие to reset (e.g. google-workspace)"
     )
     skills_reset.add_argument(
         "--restore",
         action="store_true",
-        help="Also delete the current copy and re-copy the bundled version",
+        help="Также удалить текущую копию и перекопировать встроенную версию",
     )
     skills_reset.add_argument(
         "--yes",
         "-y",
         action="store_true",
-        help="Skip confirmation prompt when using --restore",
+        help="Пропустить подтверждение when using --restore",
     )
 
     skills_list_modified = skills_subparsers.add_parser(
@@ -190,7 +190,7 @@ def build_skills_parser(subparsers, *, cmd_skills: Callable) -> None:
         ),
     )
     skills_diff.add_argument(
-        "name", help="Skill name to diff (e.g. google-workspace)"
+        "name", help="Действие to diff (e.g. google-workspace)"
     )
 
     skills_opt_out = skills_subparsers.add_parser(
@@ -213,7 +213,7 @@ def build_skills_parser(subparsers, *, cmd_skills: Callable) -> None:
         "--yes",
         "-y",
         action="store_true",
-        help="Skip confirmation prompt when using --remove",
+        help="Пропустить подтверждение when using --remove",
     )
 
     skills_opt_in = skills_subparsers.add_parser(
@@ -252,47 +252,47 @@ def build_skills_parser(subparsers, *, cmd_skills: Callable) -> None:
         "--yes",
         "-y",
         action="store_true",
-        help="Skip confirmation prompt when using --restore",
+        help="Пропустить подтверждение when using --restore",
     )
 
     skills_publish = skills_subparsers.add_parser(
-        "publish", help="Publish a skill to a registry"
+        "publish", help="Опубликовать скилл в реестр"
     )
-    skills_publish.add_argument("skill_path", help="Path to skill directory")
+    skills_publish.add_argument("skill_path", help="Путь к директории скилла")
     skills_publish.add_argument(
-        "--to", default="github", choices=["github", "clawhub"], help="Target registry"
+        "--to", default="github", choices=["github", "clawhub"], help="Целевой реестр"
     )
     skills_publish.add_argument(
         "--repo", default="", help="Target GitHub repo (e.g. openai/skills)"
     )
 
     skills_snapshot = skills_subparsers.add_parser(
-        "snapshot", help="Export/import skill configurations"
+        "snapshot", help="Экспорт/импорт конфигураций скиллов"
     )
     snapshot_subparsers = skills_snapshot.add_subparsers(dest="snapshot_action")
     snap_export = snapshot_subparsers.add_parser(
-        "export", help="Export installed skills to a file"
+        "export", help="Экспорт установленных скиллов в файл"
     )
     snap_export.add_argument("output", help="Output JSON file path (use - for stdout)")
     snap_import = snapshot_subparsers.add_parser(
-        "import", help="Import and install skills from a file"
+        "import", help="Импорт и установка скиллов из файла"
     )
     snap_import.add_argument("input", help="Input JSON file path")
     snap_import.add_argument(
-        "--force", action="store_true", help="Force install despite caution verdict"
+        "--force", action="store_true", help="Установить несмотря на предупреждение"
     )
 
-    skills_tap = skills_subparsers.add_parser("tap", help="Manage skill sources")
+    skills_tap = skills_subparsers.add_parser("tap", help="Управление источниками скиллов")
     tap_subparsers = skills_tap.add_subparsers(dest="tap_action")
     tap_subparsers.add_parser("list", help="List configured taps")
-    tap_add = tap_subparsers.add_parser("add", help="Add a GitHub repo as skill source")
+    tap_add = tap_subparsers.add_parser("add", help="Список настроенных источников")
     tap_add.add_argument("repo", help="GitHub repo (e.g. owner/repo)")
     tap_rm = tap_subparsers.add_parser("remove", help="Remove a tap")
-    tap_rm.add_argument("name", help="Tap name to remove")
+    tap_rm.add_argument("name", help="Удалить источник")
 
     # config sub-action: interactive enable/disable
     skills_subparsers.add_parser(
         "config",
-        help="Interactive skill configuration — enable/disable individual skills",
+        help="Интерактивная конфигурация скиллов — включение/отключение отдельных скиллов",
     )
     skills_parser.set_defaults(func=cmd_skills)

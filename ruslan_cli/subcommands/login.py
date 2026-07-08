@@ -43,36 +43,36 @@ def build_login_parser(subparsers, *, cmd_login: Callable) -> None:
     login_parser.add_argument(
         "--provider",
         default=None,
-        help="(deprecated) Provider name; ignored — see `ruslan model`",
+        help="(deprecated) Действие name; ignored — see `ruslan model`",
     )
     login_parser.add_argument(
-        "--portal-url", help="Portal base URL (default: production portal)"
+        "--portal-url", help="URL портала (по умолчанию: продакшн)"
     )
     login_parser.add_argument(
         "--inference-url",
-        help="Inference API base URL (default: production inference API)",
+        help="URL inference API (по умолчанию: продакшн)",
     )
     login_parser.add_argument(
         "--client-id", default=None, help="OAuth client id to use (default: ruslan-cli)"
     )
-    login_parser.add_argument("--scope", default=None, help="OAuth scope to request")
+    login_parser.add_argument("--scope", default=None, help="OAuth scope для запроса")
     login_parser.add_argument(
         "--no-browser",
         action="store_true",
-        help="Do not attempt to open the browser automatically",
+        help="Не открывать браузер автоматически",
     )
     login_parser.add_argument(
         "--timeout",
         type=float,
         default=15.0,
-        help="HTTP request timeout in seconds (default: 15)",
+        help="Таймаут HTTP-запроса в секундах (по умолчанию: 15)",
     )
     login_parser.add_argument(
-        "--ca-bundle", help="Path to CA bundle PEM file for TLS verification"
+        "--ca-bundle", help="Путь к CA bundle PEM для TLS-проверки"
     )
     login_parser.add_argument(
         "--insecure",
         action="store_true",
-        help="Disable TLS verification (testing only)",
+        help="Отключить проверку TLS (только для тестов)",
     )
     login_parser.set_defaults(func=cmd_login)

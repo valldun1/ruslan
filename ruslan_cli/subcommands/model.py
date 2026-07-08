@@ -17,7 +17,7 @@ def build_model_parser(subparsers, *, cmd_model: Callable) -> None:
     model_parser = subparsers.add_parser(
         "model",
         help="Select default model and provider",
-        description="Interactively select your inference provider and default model",
+        description="Выбрать модель и провайдера по умолчанию",
     )
     model_parser.add_argument(
         "--refresh",
@@ -26,11 +26,11 @@ def build_model_parser(subparsers, *, cmd_model: Callable) -> None:
     )
     model_parser.add_argument(
         "--portal-url",
-        help="Portal base URL for Nous login (default: production portal)",
+        help="Базовый URL портала для входа Nous (по умолчанию: production portal)",
     )
     model_parser.add_argument(
         "--inference-url",
-        help="Inference API base URL for Nous login (default: production inference API)",
+        help="Базовый URL API инференции для входа Nous (по умолчанию: production inference API)",
     )
     model_parser.add_argument(
         "--client-id",
@@ -38,12 +38,12 @@ def build_model_parser(subparsers, *, cmd_model: Callable) -> None:
         help="OAuth client id to use for Nous login (default: ruslan-cli)",
     )
     model_parser.add_argument(
-        "--scope", default=None, help="OAuth scope to request for Nous login"
+        "--scope", default=None, help="OAuth scope для запроса for Nous login"
     )
     model_parser.add_argument(
         "--no-browser",
         action="store_true",
-        help="Do not attempt to open the browser automatically during Nous login",
+        help="Не открывать браузер автоматически during Nous login",
     )
     model_parser.add_argument(
         "--manual-paste",
@@ -59,14 +59,14 @@ def build_model_parser(subparsers, *, cmd_model: Callable) -> None:
         "--timeout",
         type=float,
         default=15.0,
-        help="HTTP request timeout in seconds for Nous login (default: 15)",
+        help="Таймаут HTTP-запроса в секундах для входа Nous (по умолчанию: 15)",
     )
     model_parser.add_argument(
-        "--ca-bundle", help="Path to CA bundle PEM file for Nous TLS verification"
+        "--ca-bundle", help="Путь к CA bundle PEM-файлу для проверки TLS Nous"
     )
     model_parser.add_argument(
         "--insecure",
         action="store_true",
-        help="Disable TLS verification for Nous login (testing only)",
+        help="Отключить проверку TLS для входа Nous (только для тестирования)",
     )
     model_parser.set_defaults(func=cmd_model)

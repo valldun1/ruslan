@@ -35,24 +35,24 @@ Examples:
     debug_sub = debug_parser.add_subparsers(dest="debug_command")
     share_parser = debug_sub.add_parser(
         "share",
-        help="Upload debug report to a paste service and print a shareable URL",
+        help="Загрузить отчёт об отладке на сервис paste и вывести URL для обмена",
     )
     share_parser.add_argument(
         "--lines",
         type=int,
         default=200,
-        help="Number of log lines to include per log file (default: 200)",
+        help="Количество строк логов на файл (по умолчанию: 200)",
     )
     share_parser.add_argument(
         "--expire",
         type=int,
         default=7,
-        help="Paste expiry in days (default: 7)",
+        help="Срок жизни paste в днях (по умолчанию: 7)",
     )
     share_parser.add_argument(
         "--local",
         action="store_true",
-        help="Print the report locally instead of uploading",
+        help="Вывести отчёт локально вместо загрузки",
     )
     share_parser.add_argument(
         "--no-redact",
@@ -72,6 +72,6 @@ Examples:
         "urls",
         nargs="*",
         default=[],
-        help="One or more paste URLs to delete (e.g. https://paste.rs/abc123)",
+        help="Один или несколько URL paste для удаления (напр. https://paste.rs/abc123)",
     )
     debug_parser.set_defaults(func=cmd_debug)

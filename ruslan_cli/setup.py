@@ -2835,7 +2835,7 @@ def run_setup_wizard(args):
 
         print()
         print_header("Reconfigure")
-        print_success("You already have Ruslan configured.")
+        print_success("Руслан уже настроен.")
         print_info("Запуск полного мастера — каждый запрос показывает ваше текущее значение.")
         print_info("Нажмите Enter, чтобы оставить, или введите новое значение для изменения.")
         print_info("")
@@ -2860,11 +2860,11 @@ def run_setup_wizard(args):
             config = load_config()
 
         setup_mode = prompt_choice(
-            "How would you like to set up Ruslan?",
+            "Как настроить Руслана?",
             [
-                "Quick Setup (Ruslan Portal) — free OAuth login, no API keys, model + tools (recommended)",
-                "Full setup — configure every provider, tool & option yourself (bring your own keys)",
-                "Blank Slate — everything off except the bare minimum; opt in to each capability",
+                "Быстрая настройка (Ruslan Portal) — бесплатный OAuth, без ключей API, модель + инструменты (рекомендуется)",
+                "Полная настройка — каждый провайдер, инструмент и опция вручную (со своими ключами)",
+                "Blank Slate — всё выключено кроме минимума; включать возможности по выбору",
             ],
             0,
         )
@@ -2972,10 +2972,10 @@ def _run_first_time_quick_setup(config: dict, ruslan_home, is_existing: bool):
     # Step 4: Offer messaging gateway setup
     print()
     gateway_choice = prompt_choice(
-        "Connect a messaging platform? (Telegram, Discord, etc.)",
+        "Подключить мессенджер? (Telegram, Discord и др.)",
         [
-            "Set up messaging now (recommended)",
-            "Skip — set up later with 'ruslan setup gateway'",
+            "Настроить сейчас (рекомендуется)",
+            "Пропустить — настроить позже через 'ruslan setup gateway'",
         ],
         0,
     )
@@ -2985,7 +2985,7 @@ def _run_first_time_quick_setup(config: dict, ruslan_home, is_existing: bool):
         save_config(config)
 
     print()
-    print_success("Setup complete! You're ready to go.")
+    print_success("Настройка завершена! Руслан готов к работе.")
     print()
     print_info("Настройка всех параметров:    ruslan setup")
     if gateway_choice != 0:
@@ -3089,12 +3089,12 @@ def _run_blank_slate_setup(config: dict, ruslan_home, is_existing: bool):
     print()
 
     # ── Step 1: Provider & Model (REQUIRED — the agent cannot run without it) ──
-    print_header("Step 1 — Provider & Model (required)")
+    print_header("Шаг 1 — Провайдер и модель (обязательно)")
     setup_model_provider(config)
     save_config(config)
 
     # ── Step 2: Terminal backend (where commands run — a core decision) ──
-    print_header("Step 2 — Terminal Backend")
+    print_header("Шаг 2 — Терминальный бэкенд")
     setup_terminal_backend(config)
 
     # ── Step 3: Lock in the minimal toolset + minimized config knobs ──
@@ -3102,18 +3102,18 @@ def _run_blank_slate_setup(config: dict, ruslan_home, is_existing: bool):
     _blank_slate_minimize_config(config)
     save_config(config)
     print()
-    print_success("Minimal baseline applied:")
+    print_success("Минимальная база применена:")
     print_info("Наборы инструментов: файл, терминал (всё остальное выключено)")
     print_info("Сжатие, память, контрольные точки, умная маршрутизация: выключено")
 
     # ── The fork: stop here, or walk through enabling things ──
     print()
-    print_header("How far do you want to go?")
+    print_header("Насколько далеко вы хотите зайти?")
     path = prompt_choice(
-        "Your minimal agent is ready. What next?",
+        "Ваш минимальный агент готов. Что дальше?",
         [
-            "Start with everything disabled — finish now (most minimal)",
-            "Walk through all configurations — opt in to tools, skills, plugins, MCP",
+            "Начать со всем выключенным — завершить сейчас (минимально)",
+            "Пройти по всем конфигурациям — включить инструменты, навыки, плагины, MCP",
         ],
         0,
     )
@@ -3128,7 +3128,7 @@ def _run_blank_slate_setup(config: dict, ruslan_home, is_existing: bool):
         except Exception as exc:
             logger.debug("blank-slate skill opt-out error: %s", exc)
         print()
-        print_success("Blank Slate setup complete — minimal agent ready.")
+        print_success("Blank Slate настроен — минимальный агент готов.")
         print_info("Включите что-либо позже, по требованию:")
         print_info("Включить инструменты:        ruslan tools")
         print_info("Начальные навыки:         ruslan skills opt-in --sync")
@@ -3152,7 +3152,7 @@ def _blank_slate_walkthrough(config: dict, ruslan_home):
     print_header("Bundled Skills")
     print_info("Blank Slate поставляется без встроенных навыков по умолчанию.")
     seed_skills = prompt_yes_no(
-        "Seed the full bundled skill catalog? (No = start with zero skills)",
+        "Заполнить каталог встроенных навыков? (Нет = начать без навыков)",
         default=False,
     )
     try:
@@ -3178,7 +3178,7 @@ def _blank_slate_walkthrough(config: dict, ruslan_home):
     print_info("Выберите, какие дополнительные наборы инструментов включить.")
     print_info("(файл и терминал уже включены; остальные оставьте выключенными, если хотите")
     print_info("самого минимального агента.)")
-    if prompt_yes_no("Open the tool selector to enable more tools?", default=False):
+    if prompt_yes_no("Открыть выбор инструментов для включения других?", default=False):
         try:
             from ruslan_cli.tools_config import tools_command
             tools_command(first_install=False, config=config)
@@ -3195,7 +3195,7 @@ def _blank_slate_walkthrough(config: dict, ruslan_home):
     # ── Built-in plugins (off unless chosen) ──
     print()
     print_header("Plugins")
-    if prompt_yes_no("Review and enable built-in plugins now?", default=False):
+    if prompt_yes_no("Просмотреть и включить встроенные плагины сейчас?", default=False):
         print_info("Управляйте плагинами с помощью `ruslan plugins list` / `ruslan plugins install`.")
     else:
         print_info("Плагины не включены. Добавьте позже с помощью `ruslan plugins`.")
@@ -3203,20 +3203,20 @@ def _blank_slate_walkthrough(config: dict, ruslan_home):
     # ── MCP servers (off unless chosen) ──
     print()
     print_header("MCP Servers")
-    if prompt_yes_no("Add an MCP server now?", default=False):
+    if prompt_yes_no("Добавить MCP-сервер сейчас?", default=False):
         print_info("Добавьте серверы с помощью `ruslan mcp add <name> --url ... | --command ...`.")
     else:
         print_info("Серверы MCP не настроены. Добавьте позже с помощью `ruslan mcp add`.")
 
     # ── Optional messaging gateway ──
     print()
-    if prompt_yes_no("Connect a messaging platform (Telegram, Discord, …)?", default=False):
+    if prompt_yes_no("Подключить мессенджер (Telegram, Discord, …)?", default=False):
         setup_gateway(config)
 
     save_config(config)
 
     print()
-    print_success("Blank Slate setup complete — minimal agent ready.")
+    print_success("Blank Slate настроен — минимальный агент готов.")
     print_info("Включить больше инструментов:   ruslan tools")
     print_info("Начальные навыки:         ruslan skills opt-in --sync")
     print_info("Добавить MCP-серверы:  ruslan mcp add")
@@ -3255,7 +3255,7 @@ def _run_quick_setup(config: dict, ruslan_home):
     )
 
     if not has_anything_missing:
-        print_success("Everything is configured! Nothing to do.")
+        print_success("Всё настроено! Нечего добавлять.")
         print()
         print_info("Запустите 'ruslan setup' и выберите 'Полная настройка' для перенастройки,")
         print_info("или выберите конкретный раздел из меню.")
@@ -3264,7 +3264,7 @@ def _run_quick_setup(config: dict, ruslan_home):
     # Handle missing required env vars
     if missing_required:
         print()
-        print_info(f"{len(missing_required)} required setting(s) missing:")
+        print_info(f"Отсутствует {len(missing_required)} обязательных параметров:")
         for var in missing_required:
             print(f"     • {var['name']}")
         print()
@@ -3298,7 +3298,7 @@ def _run_quick_setup(config: dict, ruslan_home):
     # ── Tool API keys (checklist) ──
     if missing_tools:
         print()
-        print_header("Tool API Keys")
+        print_header("Ключи API инструментов")
 
         checklist_labels = []
         for var in missing_tools:
@@ -3307,7 +3307,7 @@ def _run_quick_setup(config: dict, ruslan_home):
             checklist_labels.append(f"{var.get('description', var['name'])}{tools_str}")
 
         selected_indices = prompt_checklist(
-            "Which tools would you like to configure?",
+            "Какие инструменты настроить?",
             checklist_labels,
         )
 
@@ -3318,7 +3318,7 @@ def _run_quick_setup(config: dict, ruslan_home):
     # ── Messaging platforms (checklist then prompt for selected) ──
     if missing_messaging:
         print()
-        print_header("Messaging Platforms")
+        print_header("Мессенджеры")
         print_info("Подключите Ruslan к мессенджерам, чтобы общаться откуда угодно.")
         print_info("Вы можете настроить их позже с помощью 'ruslan setup gateway'.")
 
@@ -3349,7 +3349,7 @@ def _run_quick_setup(config: dict, ruslan_home):
         ]
 
         selected_indices = prompt_checklist(
-            "Which platforms would you like to set up?",
+            "Какие платформы настроить?",
             platform_labels,
         )
 
@@ -3379,7 +3379,7 @@ def _run_quick_setup(config: dict, ruslan_home):
     if missing_config:
         print()
         print_info(
-            f"Adding {len(missing_config)} new config option(s) with defaults..."
+            f"Добавляю {len(missing_config)} новых опций конфигурации с умолчаниями..."
         )
         for field in missing_config:
             print_success(f"  Added {field['key']} = {field['default']}")

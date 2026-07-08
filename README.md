@@ -14,9 +14,13 @@
   <a href="README.en.md"><img src="https://img.shields.io/badge/Lang-English-blue?style=for-the-badge" alt="English"></a>
   <a href="README.zh-CN.md"><img src="https://img.shields.io/badge/Lang-中文-red?style=for-the-badge" alt="中文"></a>
   <a href="README.es.md"><img src="https://img.shields.io/badge/Lang-Español-orange?style=for-the-badge" alt="Español"></a>
+  <a href="https://habr.com/ru/users/RusLanTeam/"><img src="https://img.shields.io/badge/Habr-77A2FF?style=for-the-badge&logo=habr&logoColor=white" alt="Habr"></a>
+  <a href="https://vc.ru/id6036152"><img src="https://img.shields.io/badge/vc.ru-5A9EFF?style=for-the-badge&logo=readme&logoColor=white" alt="vc.ru"></a>
 </p>
 
-**Самообучающийся ИИ-агент, созданный от команды [ruslan.team](https://ruslan.team).** Единственный агент со встроенным циклом обучения — он создаёт навыки из опыта, улучшает их в процессе использования, сохраняет знания между сессиями, ищет в собственных прошлых разговорах и строит углублённую модель того, кто вы есть. Работает на VPS за $5, GPU-кластере или serverless-инфраструктуре, которая почти ничего не стоит в простое. Не привязан к вашему ноутбуку — общайтесь с ним из Telegram, пока он работает на облачной VM.
+**Самообучающийся ИИ-агент от команды [ruslan.team](https://ruslan.team).** Единственный агент со встроенным циклом обучения — он создаёт навыки из опыта, улучшает их в процессе использования, сохраняет знания между сессиями, ищет в собственных прошлых разговорах и строит углублённую модель того, кто вы есть. Работает на VPS за $5, GPU-кластере или serverless-инфраструктуре, которая почти ничего не стоит в простое. Не привязан к вашему ноутбуку — общайтесь с ним из Telegram, пока он работает на облачной VM.
+
+> ⚡ **44+ LLM провайдера** · **100+ инструментов** · **20+ платформ** · 200+ тестов · Нулевой отток данных
 
 Используйте любые модели — **российские модели** [**YandexGPT**](https://yandex.cloud/ru/services/yandexgpt) и [**GigaChat**](https://developers.sber.ru/gigachat) от Sber, а также [Nous Portal](https://portal.nousresearch.com), [OpenRouter](https://openrouter.ai) (200+ моделей), [NovitaAI](https://novita.ai), [NVIDIA NIM](https://build.nvidia.com) (Nemotron), [Xiaomi MiMo](https://platform.xiaomimimo.com), [z.ai/GLM](https://z.ai), [Kimi/Moonshot](https://platform.moonshot.ai), [MiniMax](https://www.minimax.io), [Hugging Face](https://huggingface.co), OpenAI или свой собственный endpoint. Переключение одной командой `ruslan model` — без правки кода и привязки к вендору.
 
@@ -240,9 +244,12 @@ scripts/run_tests.sh
 
 ## Сообщество
 
+- 💬 [Telegram-канал](https://t.me/ruslan_agent)
 - 💬 [Discord](https://ruslan.team/discord)
-- 📚 [Skills Hub](https://agentskills.io)
+- 📖 [Habr — блог RusLanTeam](https://habr.com/ru/users/RusLanTeam/)
+- 📖 [vc.ru — блог RusLanTeam](https://vc.ru/id6036152)
 - 🐛 [Issues](https://github.com/valldun1/ruslan/issues)
+- 📚 [Skills Hub](https://agentskills.io)
 - 🔌 [computer-use-linux](https://github.com/avifenesh/computer-use-linux) — Linux desktop-control MCP сервер для Ruslan
 - 🔌 [HermesClaw](https://github.com/AaronWong1999/hermesclaw) — WeChat-мост
 

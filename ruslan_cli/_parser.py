@@ -250,8 +250,8 @@ def build_top_level_parser():
     # =========================================================================
     chat_parser = subparsers.add_parser(
         "chat",
-        help="Interactive chat with the agent",
-        description="Start an interactive chat session with Ruslan Agent",
+        help="Интерактивный чат с агентом",
+        description="Запустить интерактивный чат с AI-агентом",
     )
     chat_parser.add_argument(
         "-q", "--query", help="Один запрос (неинтерактивный режим)"

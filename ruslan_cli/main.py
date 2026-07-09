@@ -12006,6 +12006,11 @@ def main():
     # in ps/top/htop.  Non-fatal — just a nicer UX.
     _set_process_title()
 
+    # When called as `ruslan-setup`, automatically route to `ruslan setup`
+    _script_name = os.path.basename(sys.argv[0])
+    if _script_name in ("ruslan-setup", "ruslan-setup.exe", "ruslan_setup"):
+        sys.argv = [sys.argv[0], "setup"] + sys.argv[1:]
+
     # Force UTF-8 stdio on Windows before anything prints.  No-op elsewhere.
     try:
         from ruslan_cli.stdio import configure_windows_stdio

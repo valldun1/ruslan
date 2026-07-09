@@ -295,6 +295,7 @@ all = [
 
 [project.scripts]
 ruslan = "ruslan_cli.main:main"
+ruslan-setup = "ruslan_cli.main:main"
 ruslan-agent = "run_agent:main"
 ruslan-acp = "acp_adapter.entry:main"
 

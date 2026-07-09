@@ -1952,11 +1952,12 @@ def setup_gateway(config: dict):
     pre_selected = []
     for i, plat in enumerate(platforms):
         status = _platform_status(plat)
-        items.append(f"{plat['emoji']} {plat['label']}  ({status})")
+        # Без эмодзи — на Termux Android они разной ширины ломают выравнивание
+        items.append(f"{plat['label']}  ({status})")
         if status == "configured":
             pre_selected.append(i)
 
-    selected = prompt_checklist("Select platforms to configure:", items, pre_selected)
+    selected = prompt_checklist("Выберите платформы для настройки:", items, pre_selected)
 
     if not selected:
         print_info("Платформы не выбраны. Запустите 'ruslan setup gateway' позже для настройки.")
@@ -3287,6 +3288,31 @@ def _run_quick_setup(config: dict, ruslan_home):
             else:
                 print_warning(f"  Skipped {var['name']}")
 
+    # ── Проверка: настроена ли модель/провайдер ──
+    from ruslan_cli.auth import get_active_provider
+    from ruslan_cli.config import get_env_value as _gev
+
+    has_provider = bool(get_active_provider()) or bool(_gev("OPENROUTER_API_KEY")) or bool(_gev("OPENAI_BASE_URL"))
+    if not has_provider:
+        print()
+        print_header("Модель и провайдер")
+        print_info("Сначала нужно выбрать LLM-модель и провайдера.")
+        setup_choice = prompt_choice(
+            "Настроить модель сейчас?",
+            [
+                "Да — выбрать провайдера и модель",
+                "Пропустить — настрою позже через 'ruslan setup model'",
+            ],
+            0,
+        )
+        if setup_choice == 0:
+            print()
+            # Используем тот же мастер, что и в полной настройке
+            setup_model_provider(config)
+            save_config(config)
+            # Refresh config after model setup
+            config = load_config()
+
     # Split missing optional vars by category
     missing_tools = [v for v in missing_optional if v.get("category") == "tool"]
     missing_messaging = [
@@ -3341,9 +3367,9 @@ def _run_quick_setup(config: dict, ruslan_home):
 
         platform_labels = [
             {
-                "Telegram": "📱 Telegram",
-                "Discord": "💬 Discord",
-                "Slack": "💼 Slack",
+                "Telegram": "Telegram",
+                "Discord": "Discord",
+                "Slack": "Slack",
             }.get(p, p)
             for p in platform_order
         ]

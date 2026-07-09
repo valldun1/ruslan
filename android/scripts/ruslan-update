@@ -1,0 +1,3 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# Руслан — обновление
+cd ~/Руслан && curl -fsSL https://ruslan.team/android | bash

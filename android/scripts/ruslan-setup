@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+"""Руслан — мастер настройки (setup)"""
+import sys, os
+sys.path.insert(0, os.path.expanduser('~/Руслан'))
+from ruslan_cli.main import main
+if __name__ == '__main__':
+    sys.argv = ['руслан-setup', 'setup', '--quick'] + sys.argv[1:]
+    sys.exit(main())

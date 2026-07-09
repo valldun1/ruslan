@@ -1,0 +1,11 @@
+#!/usr/bin/env python3
+"""Руслан — главная команда"""
+import sys, os
+sys.path.insert(0, os.path.expanduser('~/Руслан'))
+from ruslan_cli.main import main
+if __name__ == '__main__':
+    # Если аргументов нет — запускаем gateway (как раньше)
+    if len(sys.argv) == 1:
+        sys.argv = ['руслан', 'gateway', 'run', '--accept-hooks', '--replace']
+    # Если есть аргументы — передаём как есть (setup, doctor, status...)
+    sys.exit(main())

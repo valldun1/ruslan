@@ -1,23 +1,16 @@
-# 🇷🇺 Руслан — Установка
+# Установщики Руслана
 
-| Платформа    | Команда |
-|-------------|---------|
-| **macOS / Linux** | `curl -fsSL https://raw.githubusercontent.com/valldun1/ruslan/main/install/install.sh \| bash` |
-| **Windows** (PowerShell 7+) | `iwr -Uri https://raw.githubusercontent.com/valldun1/ruslan/main/install/install.bat -OutFile install.bat; .\install.bat` |
-| **Android** (Termux) | `curl -fsSL https://raw.githubusercontent.com/valldun1/ruslan/main/android/install.sh \| bash` |
-| **WSL** | `curl -fsSL https://raw.githubusercontent.com/valldun1/ruslan/main/android/install.sh \| bash` |
+| Платформа | Файл | Статус |
+|---|---|---|
+| **Android (Termux)** | `android/install.sh` | ✅ **Актуальный, поддерживается** |
+| Linux | `install-linux.sh` (на сервере) | ⛔ Устарел, не обновляется |
+| macOS | `install-macos.sh` (на сервере) | ⛔ Устарел, не обновляется |
+| Windows | `install-windows.ps1` (на сервере) | ⛔ Устарел, не обновляется |
 
-## Системные требования
+**Сейчас активен только Android.** Остальные установщики пока не перенесены в репозиторий и не поддерживаются.
 
-- **macOS**: macOS 10.13+, Python 3.9+, Git
-- **Linux**: Ubuntu 20.04+ / Debian 11+, Python 3.9+, Git
-- **Windows**: Windows 10+, PowerShell 7+, Python 3.9+, Git
-- **Android**: Termux из F-Droid (не Google Play)
-
-## После установки
-
-1. Отредактируй `~/.hermes/config.yaml` — выбери провайдера
-2. Создай `~/.hermes/.env` с API-ключами
-3. Запусти: `hermes gateway run --accept-hooks`
-
-Бесплатный старт: [OpenRouter](https://openrouter.ai/keys) — регистрация за 2 минуты, карта не нужна.
+Установка Android:
+```bash
+curl -fsSL https://ruslan.team/android | bash
+```
+→ перенаправляется на `android/install.sh` в этом репозитории.

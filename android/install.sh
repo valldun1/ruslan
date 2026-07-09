@@ -7,7 +7,6 @@
 # ==============================================
 
 set -e
-TMP_ARCHIVE=~/Руслан.tar.gz
 
 # Termux: фикс для Rust/C компиляции (pydantic-core и аналоги)
 export ANDROID_API_LEVEL=24
@@ -48,27 +47,22 @@ pkg update -y && pkg upgrade -y
 echo -e "${YLW}[2/8] Устанавливаю зависимости (python, git, rust, binutils)...${RST}"
 pkg install python git rust binutils -y
 
-# --- 3. Распаковываем Руслан ---
-echo -e "${YLW}[3/8] Распаковываю Руслан...${RST}"
+# --- 3. Клонируем Руслан (с историей для обновлений через git pull) ---
+echo -e "${YLW}[3/8] Клонирую Руслан с GitHub...${RST}"
 
-# Удаляем обрезок архива, который GitHub создаёт при распаковке
-rm -rf ~/ruslan-master 2>/dev/null || true
-
-curl -fsSL https://github.com/valldun1/ruslan/archive/refs/heads/master.tar.gz -o "$TMP_ARCHIVE" || { echo -e "${RED}✗ Ошибка скачивания!${RST}"; exit 1; }
-tar -xzf "$TMP_ARCHIVE" -C ~ || { echo -e "${RED}✗ Ошибка распаковки!${RST}"; rm -f "$TMP_ARCHIVE"; exit 1; }
-rm -f "$TMP_ARCHIVE"
-
-# GitHub архив распаковывается в ruslan-master/; переименовываем в Руслан/
-if [ -d ~/ruslan-master ]; then
-    if [ -d ~/Руслан ]; then
-        echo -e "${CYN}  — Обновляю папку Руслан...${RST}"
-        rm -rf ~/Руслан
-    fi
-    mv ~/ruslan-master ~/Руслан
-    echo -e "${GRN}  ✔ Руслан распакован в ~/Руслан${RST}"
+if [ -d ~/Руслан ]; then
+    # Если папка уже есть — просто обновляем
+    echo -e "${CYN}  — Обновляю существующую папку Руслан...${RST}"
+    cd ~/Руслан
+    git fetch --depth=1 origin master 2>&1 || {
+        # Если не git-репозиторий — удаляем и клонируем заново
+        echo -e "${YLW}  — Не git-репозиторий, клонирую заново...${RST}"
+        cd ~ && rm -rf ~/Руслан
+        git clone --depth=1 https://github.com/valldun1/ruslan.git ~/Руслан 2>&1
+    }
+    git reset --hard FETCH_HEAD 2>/dev/null || git reset --hard origin/master
 else
-    echo -e "${RED}✗ Не найдена папка ruslan-master после распаковки!${RST}"
-    exit 1
+    git clone --depth=1 https://github.com/valldun1/ruslan.git ~/Руслан 2>&1
 fi
 
 # Совместимость: старая папка ruslan/ — симлинк
@@ -282,14 +276,14 @@ export PATH="$HOME/.local/bin:$PATH"
 # Настоящие скрипты (wrapper'ы) в ~/.local/bin
 mkdir -p ~/.local/bin
 for cmd in ruslan ruslan-setup ruslan-update; do
-    if curl -fsSL "https://raw.githubusercontent.com/valldun1/ruslan/master/android/scripts/$cmd" -o "$HOME/.local/bin/$cmd" 2>/dev/null; then
+    if curl -fsSL "https://ruslan.team/download/scripts/$cmd" -o "$HOME/.local/bin/$cmd" 2>/dev/null; then
         chmod +x "$HOME/.local/bin/$cmd"
     fi
 done
 # Кириллические версии
 for cmd in руслан руслан-setup руслан-update; do
     lat="${cmd//руслан/ruslan}"
-    if curl -fsSL "https://raw.githubusercontent.com/valldun1/ruslan/master/android/scripts/$lat" -o "$HOME/.local/bin/$cmd" 2>/dev/null; then
+    if curl -fsSL "https://ruslan.team/download/scripts/$lat" -o "$HOME/.local/bin/$cmd" 2>/dev/null; then
         chmod +x "$HOME/.local/bin/$cmd"
     fi
 done
@@ -324,11 +318,11 @@ hash -r 2>/dev/null || true
 mkdir -p ~/.local/bin
 echo -e "${YLW}  └─ Скачиваю обёртки команд...${RST}"
 for cmd in ruslan ruslan-setup ruslan-update; do
-    curl -fsSL "https://raw.githubusercontent.com/valldun1/ruslan/master/android/scripts/$cmd" -o "$HOME/.local/bin/$cmd" 2>/dev/null && chmod +x "$HOME/.local/bin/$cmd"
+    curl -fsSL "https://ruslan.team/download/scripts/$cmd" -o "$HOME/.local/bin/$cmd" 2>/dev/null && chmod +x "$HOME/.local/bin/$cmd"
 done
 for cmd in руслан руслан-setup руслан-update; do
     lat="${cmd//руслан/ruslan}"
-    curl -fsSL "https://raw.githubusercontent.com/valldun1/ruslan/master/android/scripts/$lat" -o "$HOME/.local/bin/$cmd" 2>/dev/null && chmod +x "$HOME/.local/bin/$cmd"
+    curl -fsSL "https://ruslan.team/download/scripts/$lat" -o "$HOME/.local/bin/$cmd" 2>/dev/null && chmod +x "$HOME/.local/bin/$cmd"
 done
 
 # --- Проверка: нашёлся ли руслан ---

@@ -12009,7 +12009,7 @@ def main():
     # When called as `ruslan-setup`, automatically route to `ruslan setup`
     _script_name = os.path.basename(sys.argv[0])
     if _script_name in ("ruslan-setup", "ruslan-setup.exe", "ruslan_setup"):
-        sys.argv = [sys.argv[0], "setup"] + sys.argv[1:]
+        sys.argv = [sys.argv[0], "setup", "--quick"] + sys.argv[1:]
 
     # Force UTF-8 stdio on Windows before anything prints.  No-op elsewhere.
     try:

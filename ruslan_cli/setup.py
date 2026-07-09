@@ -2849,9 +2849,12 @@ def run_setup_wizard(args):
         # ── First-Time Setup ──
         print()
 
-        # --reconfigure / --quick on a fresh install are meaningless — fall
-        # through to the normal first-time flow.
-        if reconfigure_requested or quick_requested:
+        # --quick / --reconfigure: если это fresh install, идём сразу в быструю
+        if quick_requested:
+            _run_quick_setup(config, ruslan_home)
+            return
+
+        if reconfigure_requested:
             print_info("Существующая конфигурация не найдена — запуск первоначальной настройки.")
             print()
 
@@ -3228,191 +3231,54 @@ def _blank_slate_walkthrough(config: dict, ruslan_home):
 
 
 def _run_quick_setup(config: dict, ruslan_home):
-    """Quick setup — only configure items that are missing."""
-    from ruslan_cli.config import (
-        get_missing_env_vars,
-        get_missing_config_fields,
-        check_config_version,
-    )
-
-    print()
-    print_header("Быстрая установка — только недостающее")
-
-    # Check what's missing
-    missing_required = [
-        v for v in get_missing_env_vars(required_only=False) if v.get("is_required")
-    ]
-    missing_optional = [
-        v for v in get_missing_env_vars(required_only=False) if not v.get("is_required")
-    ]
-    missing_config = get_missing_config_fields()
-    current_ver, latest_ver = check_config_version()
-
-    has_anything_missing = (
-        missing_required
-        or missing_optional
-        or missing_config
-        or current_ver < latest_ver
-    )
-
-    if not has_anything_missing:
-        print_success("Всё настроено! Нечего добавлять.")
-        print()
-        print_info("Запустите 'ruslan setup' и выберите 'Полная настройка' для перенастройки,")
-        print_info("или выберите конкретный раздел из меню.")
-        return
-
-    # Handle missing required env vars
-    if missing_required:
-        print()
-        print_info(f"Отсутствует {len(missing_required)} обязательных параметров:")
-        for var in missing_required:
-            print(f"     • {var['name']}")
-        print()
-
-        for var in missing_required:
-            print()
-            print(color(f"  {var['name']}", Colors.CYAN))
-            print_info(f"  {var.get('description', '')}")
-            if var.get("url"):
-                print_info(f"  Get key at: {var['url']}")
-
-            if var.get("password"):
-                value = prompt(f"  {var.get('prompt', var['name'])}", password=True)
-            else:
-                value = prompt(f"  {var.get('prompt', var['name'])}")
-
-            if value:
-                save_env_value(var["name"], value)
-                print_success(f"  Saved {var['name']}")
-            else:
-                print_warning(f"  Skipped {var['name']}")
-
-    # ── Проверка: настроена ли модель/провайдер ──
+    """Быстрая установка — модель/провайдер + Telegram."""
     from ruslan_cli.auth import get_active_provider
     from ruslan_cli.config import get_env_value as _gev
 
+    print()
+    print_header("Быстрая установка Руслана")
+
+    # ── Шаг 1: Модель и провайдер ──
     has_provider = bool(get_active_provider()) or bool(_gev("OPENROUTER_API_KEY")) or bool(_gev("OPENAI_BASE_URL"))
     if not has_provider:
         print()
-        print_header("Модель и провайдер")
-        print_info("Сначала нужно выбрать LLM-модель и провайдера.")
-        setup_choice = prompt_choice(
-            "Настроить модель сейчас?",
-            [
-                "Да — выбрать провайдера и модель",
-                "Пропустить — настрою позже через 'ruslan setup model'",
-            ],
-            0,
-        )
-        if setup_choice == 0:
-            print()
-            # Используем тот же мастер, что и в полной настройке
-            setup_model_provider(config)
-            save_config(config)
-            # Refresh config after model setup
-            config = load_config()
-
-    # Split missing optional vars by category
-    missing_tools = [v for v in missing_optional if v.get("category") == "tool"]
-    missing_messaging = [
-        v
-        for v in missing_optional
-        if v.get("category") == "messaging" and not v.get("advanced")
-    ]
-
-    # ── Tool API keys (checklist) ──
-    if missing_tools:
+        print_info("Шаг 1 из 2: выберите LLM-модель и провайдера.")
         print()
-        print_header("Ключи API инструментов")
-
-        checklist_labels = []
-        for var in missing_tools:
-            tools = var.get("tools", [])
-            tools_str = f" → {', '.join(tools[:2])}" if tools else ""
-            checklist_labels.append(f"{var.get('description', var['name'])}{tools_str}")
-
-        selected_indices = prompt_checklist(
-            "Какие инструменты настроить?",
-            checklist_labels,
-        )
-
-        for idx in selected_indices:
-            var = missing_tools[idx]
-            _prompt_api_key(var)
-
-    # ── Messaging platforms (checklist then prompt for selected) ──
-    if missing_messaging:
-        print()
-        print_header("Мессенджеры")
-        print_info("Подключите Ruslan к мессенджерам, чтобы общаться откуда угодно.")
-        print_info("Вы можете настроить их позже с помощью 'ruslan setup gateway'.")
-
-        # Group by platform (preserving order)
-        platform_order = []
-        platforms = {}
-        for var in missing_messaging:
-            name = var["name"]
-            if "TELEGRAM" in name:
-                plat = "Telegram"
-            elif "DISCORD" in name:
-                plat = "Discord"
-            elif "SLACK" in name:
-                plat = "Slack"
-            else:
-                continue
-            if plat not in platforms:
-                platform_order.append(plat)
-            platforms.setdefault(plat, []).append(var)
-
-        platform_labels = [
-            {
-                "Telegram": "Telegram",
-                "Discord": "Discord",
-                "Slack": "Slack",
-            }.get(p, p)
-            for p in platform_order
-        ]
-
-        selected_indices = prompt_checklist(
-            "Какие платформы настроить?",
-            platform_labels,
-        )
-
-        for idx in selected_indices:
-            plat = platform_order[idx]
-            vars_list = platforms[plat]
-            emoji = {"Telegram": "📱", "Discord": "💬", "Slack": "💼"}.get(plat, "")
-            print()
-            print(color(f"  ─── {emoji} {plat} ───", Colors.CYAN))
-            print()
-            for var in vars_list:
-                print_info(f"  {var.get('description', '')}")
-                if var.get("url"):
-                    print_info(f"  {var['url']}")
-                if var.get("password"):
-                    value = prompt(f"  {var.get('prompt', var['name'])}", password=True)
-                else:
-                    value = prompt(f"  {var.get('prompt', var['name'])}")
-                if value:
-                    save_env_value(var["name"], value)
-                    print_success("  ✓ Saved")
-                else:
-                    print_warning("Пропущено")
-                print()
-
-    # Handle missing config fields
-    if missing_config:
-        print()
-        print_info(
-            f"Добавляю {len(missing_config)} новых опций конфигурации с умолчаниями..."
-        )
-        for field in missing_config:
-            print_success(f"  Added {field['key']} = {field['default']}")
-
-        # Update config version
-        config["_config_version"] = latest_ver
+        setup_model_provider(config)
         save_config(config)
+        config = load_config()
+        print()
+        print_success("Модель настроена!")
+    else:
+        print_info("✓ Модель уже настроена")
 
-    # Jump to summary
+    # ── Шаг 2: Telegram ──
+    has_telegram = bool(_gev("TELEGRAM_BOT_TOKEN"))
+    if not has_telegram:
+        print()
+        print_info("Шаг 2 из 2: настройте Telegram для общения с Русланом.")
+        print()
+
+        # Простой ввод: токен бота
+        bot_token = prompt("Введи TELEGRAM_BOT_TOKEN (получить у @BotFather)")
+        if bot_token:
+            save_env_value("TELEGRAM_BOT_TOKEN", bot_token)
+            print_success("✓ Токен сохранён")
+        else:
+            print_warning("Пропущено — настрой позже: ruslan setup gateway")
+
+        # ID пользователя
+        user_id = prompt("Введи свой Telegram ID (узнать у @userinfobot)")
+        if user_id:
+            save_env_value("TELEGRAM_ALLOWED_USERS", user_id)
+            print_success("✓ Telegram ID сохранён")
+        else:
+            print_warning("Пропущено — без ID бот не будет отвечать вам")
+    else:
+        print_info("✓ Telegram уже настроен")
+
+    # ── Готово ──
+    print()
+    print_success("Быстрая настройка завершена!")
+    print_info("Запустите 'ruslan' чтобы начать общение.")
     _print_setup_summary(config, ruslan_home)

@@ -51,16 +51,16 @@ pkg install python git rust binutils -y
 echo -e "${YLW}[3/8] Клонирую Руслан с GitHub...${RST}"
 
 if [ -d ~/Руслан ]; then
-    # Если папка уже есть — просто обновляем
-    echo -e "${CYN}  — Обновляю существующую папку Руслан...${RST}"
-    cd ~/Руслан
-    git fetch --depth=1 origin master 2>&1 || {
-        # Если не git-репозиторий — удаляем и клонируем заново
-        echo -e "${YLW}  — Не git-репозиторий, клонирую заново...${RST}"
-        cd ~ && rm -rf ~/Руслан
+    if [ -d ~/Руслан/.git ]; then
+        # Git-репозиторий — быстро обновляем
+        echo -e "${CYN}  — Обновляю существующий репозиторий...${RST}"
+        cd ~/Руслан && git fetch --depth=1 origin master 2>&1 && git reset --hard FETCH_HEAD
+    else
+        # Не git — удаляем и клонируем заново
+        echo -e "${YLW}  — Старая версия без git, клонирую заново...${RST}"
+        rm -rf ~/Руслан
         git clone --depth=1 https://github.com/valldun1/ruslan.git ~/Руслан 2>&1
-    }
-    git reset --hard FETCH_HEAD 2>/dev/null || git reset --hard origin/master
+    fi
 else
     git clone --depth=1 https://github.com/valldun1/ruslan.git ~/Руслан 2>&1
 fi

@@ -3231,7 +3231,7 @@ def _blank_slate_walkthrough(config: dict, ruslan_home):
 
 
 def _run_quick_setup(config: dict, ruslan_home):
-    """Быстрая установка — модель/провайдер + Telegram."""
+    """Быстрая установка — модель/провайдер + Telegram + Gateway."""
     from ruslan_cli.auth import get_active_provider
     from ruslan_cli.config import get_env_value as _gev
 
@@ -3239,43 +3239,45 @@ def _run_quick_setup(config: dict, ruslan_home):
     print_header("Быстрая установка Руслана")
 
     # ── Шаг 1: Модель и провайдер ──
-    has_provider = bool(get_active_provider()) or bool(_gev("OPENROUTER_API_KEY")) or bool(_gev("OPENAI_BASE_URL"))
-    if not has_provider:
-        print()
-        print_info("Шаг 1 из 2: выберите LLM-модель и провайдера.")
-        print()
-        setup_model_provider(config)
-        save_config(config)
-        config = load_config()
-        print()
-        print_success("Модель настроена!")
-    else:
-        print_info("✓ Модель уже настроена")
+    print()
+    print_info("Шаг 1 из 3: выберите LLM-модель и провайдера.")
+    print()
+    setup_model_provider(config)
+    save_config(config)
+    config = load_config()
+    print()
+    print_success("Модель настроена!")
 
     # ── Шаг 2: Telegram ──
-    has_telegram = bool(_gev("TELEGRAM_BOT_TOKEN"))
-    if not has_telegram:
-        print()
-        print_info("Шаг 2 из 2: настройте Telegram для общения с Русланом.")
-        print()
+    print()
+    print_info("Шаг 2 из 3: настройте Telegram для общения с Русланом.")
+    print()
 
-        # Простой ввод: токен бота
-        bot_token = prompt("Введи TELEGRAM_BOT_TOKEN (получить у @BotFather)")
-        if bot_token:
-            save_env_value("TELEGRAM_BOT_TOKEN", bot_token)
-            print_success("✓ Токен сохранён")
-        else:
-            print_warning("Пропущено — настрой позже: ruslan setup gateway")
-
-        # ID пользователя
-        user_id = prompt("Введи свой Telegram ID (узнать у @userinfobot)")
-        if user_id:
-            save_env_value("TELEGRAM_ALLOWED_USERS", user_id)
-            print_success("✓ Telegram ID сохранён")
-        else:
-            print_warning("Пропущено — без ID бот не будет отвечать вам")
+    bot_token = prompt("Введи TELEGRAM_BOT_TOKEN (получить у @BotFather)")
+    if bot_token:
+        save_env_value("TELEGRAM_BOT_TOKEN", bot_token)
+        print_success("✓ Токен сохранён")
     else:
-        print_info("✓ Telegram уже настроен")
+        print_warning("Пропущено — настрой позже: ruslan setup gateway")
+
+    user_id = prompt("Введи свой Telegram ID (узнать у @userinfobot)")
+    if user_id:
+        save_env_value("TELEGRAM_ALLOWED_USERS", user_id)
+        print_success("✓ Telegram ID сохранён")
+    else:
+        print_warning("Пропущено — без ID бот не будет отвечать вам")
+
+    # ── Шаг 3: Gateway ──
+    print()
+    print_info("Шаг 3 из 3: настройте Gateway (каналы связи).")
+    print()
+    print("Gateway — это шлюз, который соединяет Руслана с мессенджерами.")
+    print("Сейчас настроен Telegram. При необходимости добавьте другие каналы")
+    print("позже через: ruslan setup gateway")
+    print()
+    if prompt_yes_no("Запустить Gateway сейчас?", default=True):
+        print()
+        print_success("Gateway будет запущен при старте Руслана.")
 
     # ── Готово ──
     print()

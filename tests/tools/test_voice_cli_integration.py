@@ -11,15 +11,15 @@ import pytest
 
 
 def _make_voice_cli(**overrides):
-    """Create a minimal HermesCLI with only voice-related attrs initialized.
+    """Create a minimal RuslanCLI with only voice-related attrs initialized.
 
     Uses ``__new__()`` to bypass ``__init__`` so no config/env/API setup is
     needed.  Only the voice state attributes (from __init__ lines 3749-3758)
     are populated.
     """
-    from cli import HermesCLI
+    from cli import RuslanCLI
 
-    cli = HermesCLI.__new__(HermesCLI)
+    cli = RuslanCLI.__new__(RuslanCLI)
     cli._voice_lock = threading.Lock()
     cli._voice_mode = False
     cli._voice_tts = False
@@ -513,8 +513,8 @@ class TestEdgeTTSLazyImport:
                     if isinstance(n, _ast.Name) and n.id == "edge_tts"
                 ]
                 assert bare_refs == [], (
-                    f"_generate_edge_tts uses bare 'edge_tts' name — "
-                    f"should use _import_edge_tts() lazy helper"
+                    "_generate_edge_tts uses bare 'edge_tts' name — "
+                    "should use _import_edge_tts() lazy helper"
                 )
 
                 # Must have a call to _import_edge_tts
@@ -594,9 +594,9 @@ class TestDisableVoiceModeStopsTTS:
     def test_disable_voice_mode_calls_stop_playback(self):
         """Source check: _disable_voice_mode must call stop_playback()."""
         import inspect
-        from cli import HermesCLI
+        from cli import RuslanCLI
 
-        source = inspect.getsource(HermesCLI._disable_voice_mode)
+        source = inspect.getsource(RuslanCLI._disable_voice_mode)
         assert "stop_playback" in source, (
             "_disable_voice_mode must call stop_playback()"
         )

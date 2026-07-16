@@ -130,7 +130,9 @@ def _config_default_interface_early() -> str:
             import yaml as _yaml_iface
 
             with open(cfg_path, encoding="utf-8") as _f:
-                raw = _yaml_iface.safe_load(_f) or {}
+                raw = _yaml_iface.load(
+                    _f, Loader=getattr(_yaml_iface, "CSafeLoader", None) or _yaml_iface.SafeLoader
+                ) or {}
             disp = raw.get("display", {})
             if isinstance(disp, dict):
                 iface = disp.get("interface")
@@ -146,7 +148,17 @@ def _wants_tui_early(argv: "list[str] | None" = None) -> bool:
     """Earliest TUI decision, usable before argparse/config imports.
 
     Precedence: explicit ``--cli`` wins (forces classic REPL), then
-    ``--tui``/``RUSLAN_TUI=1``, then ``display.interface`` in config.
+    explicit ``--tui``/``RUSLAN_TUI=1``, then a real-TTY gate (a
+    non-interactive stdio can't host the Ink UI, so ambient config never
+    boots it there), then ``display.interface`` in config.
+
+    The TTY gate is load-bearing for headless spawners — kanban workers,
+    cron jobs, pipes run ``ruslan … chat -q`` with stdio on a pipe. This
+    is the earliest launch decision (it runs before ``cmd_chat`` /
+    ``_resolve_use_tui``), so a ``display.interface: tui`` default used to
+    boot the TUI here — whose no-TTY bail-out exits 0 without doing the
+    task → "protocol violation" on every attempt. An explicit ``--tui``
+    still reaches the informative bail-out.
     """
     if argv is None:
         argv = sys.argv[1:]
@@ -154,6 +166,11 @@ def _wants_tui_early(argv: "list[str] | None" = None) -> bool:
         return False
     if os.environ.get("RUSLAN_TUI") == "1" or "--tui" in argv:
         return True
+    try:
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            return False
+    except Exception:
+        return False
     return _config_default_interface_early() == "tui"
 
 
@@ -227,9 +244,9 @@ def _read_openai_version_fast() -> str | None:
 def _print_fast_version_info() -> None:
     from ruslan_cli import __release_date__, __version__
 
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
     print(f"Ruslan Agent v{__version__} ({__release_date__})")
-    print(f"Project: {project_root}")
+    print(f"Install directory: {PROJECT_ROOT}")
+
     print(f"Python: {sys.version.split()[0]}")
 
     openai_version = _read_openai_version_fast()
@@ -255,6 +272,7 @@ if _try_termux_ultrafast_version():
 import argparse
 import hashlib
 import json
+import shlex
 import shutil
 import stat
 import subprocess
@@ -284,6 +302,7 @@ from ruslan_cli.subcommands.debug import build_debug_parser
 from ruslan_cli.subcommands.backup import build_backup_parser
 from ruslan_cli.subcommands.import_cmd import build_import_cmd_parser
 from ruslan_cli.subcommands.config import build_config_parser
+from ruslan_cli.subcommands.console import build_console_parser
 from ruslan_cli.subcommands.version import build_version_parser
 from ruslan_cli.subcommands.update import build_update_parser
 from ruslan_cli.subcommands.uninstall import build_uninstall_parser
@@ -395,6 +414,7 @@ def _apply_profile_override() -> None:
         "-t", "--toolsets",
         "-r", "--resume",
         "-s", "--skills",
+        "--usage-file",
     }
     optional_value_flags = {"-c", "--continue"}
     i = 0
@@ -530,7 +550,9 @@ try:
     _cfg_path = get_ruslan_home() / "config.yaml"
     if _cfg_path.exists():
         with open(_cfg_path, encoding="utf-8") as _f:
-            _early_cfg_raw = _yaml_early.safe_load(_f) or {}
+            _early_cfg_raw = _yaml_early.load(
+                _f, Loader=getattr(_yaml_early, "CSafeLoader", None) or _yaml_early.SafeLoader
+            ) or {}
         # Managed scope: overlay administrator-pinned values so a managed
         # security.redact_secrets / network.force_ipv4 wins here too. This early
         # bridge reads config.yaml directly (before load_config is usable), so
@@ -566,7 +588,7 @@ try:
         mode=(
             "gui"
             if next((arg for arg in sys.argv[1:] if not arg.startswith("-")), "")
-            in {"dashboard", "gui", "desktop"}
+            in {"dashboard", "serve", "gui", "desktop"}
             else "cli"
         )
     )
@@ -611,8 +633,10 @@ from ruslan_cli.model_setup_flows import (
     _model_flow_stepfun,
     _model_flow_bedrock_api_key,
     _model_flow_bedrock,
+    _model_flow_vertex,
     _model_flow_api_key_provider,
     _model_flow_anthropic,
+    _model_flow_moa,
 )
 logger = logging.getLogger(__name__)
 
@@ -822,6 +846,8 @@ def _has_any_provider_configured() -> bool:
                 line = line.strip()
                 if line.startswith("#") or "=" not in line:
                     continue
+                if line.startswith("export "):
+                    line = line[7:]
                 key, _, val = line.partition("=")
                 val = val.strip().strip("'\"")
                 if key.strip() in provider_env_vars and val:
@@ -895,7 +921,7 @@ def _session_browse_picker(sessions: list) -> Optional[str]:
     bug in tmux/iTerm when arrow keys are used.
     """
     if not sessions:
-        print("Сессии не найдены.")
+        print("No sessions found.")
         return None
 
     # Try curses-based picker first
@@ -1122,7 +1148,7 @@ def _session_browse_picker(sessions: list) -> Optional[str]:
                 return sessions[idx]["id"]
             print(f"  Invalid selection. Enter 1-{len(sessions)} or q to cancel.")
         except ValueError:
-            print("Неверный ввод. Введите число или q для отмены.")
+            print("  Invalid input. Enter a number or q to cancel.")
         except (KeyboardInterrupt, EOFError):
             print()
             return None
@@ -1354,7 +1380,7 @@ def _print_tui_exit_summary(
             db.close()
 
     print()
-    print("Возобновить эту сессию с:")
+    print("Resume this session with:")
     print(f"  ruslan --tui --resume {target}")
     if title:
         print(f'  ruslan --tui -c "{title}"')
@@ -1777,7 +1803,7 @@ def _make_tui_argv(tui_dir: Path, tui_dev: bool) -> tuple[list[str], Path]:
     ):
         npm = _node_bin("npm")
         if not os.environ.get("RUSLAN_QUIET"):
-            print("Установка зависимостей TUI...")
+            print("Installing TUI dependencies…")
         npm_cwd = _workspace_root(tui_dir)
         # --workspace ui-tui avoids resolving apps/desktop (Electron + node-pty).
         # See #38772.
@@ -1812,7 +1838,7 @@ def _make_tui_argv(tui_dir: Path, tui_dev: bool) -> tuple[list[str], Path]:
         if result.returncode != 0:
             combined = f"{result.stdout or ''}\n{result.stderr or ''}".strip()
             preview = "\n".join(combined.splitlines()[-30:])
-            print("Ошибка установки npm.")
+            print("npm install failed.")
             if preview:
                 print(preview)
             sys.exit(1)
@@ -1837,7 +1863,7 @@ def _make_tui_argv(tui_dir: Path, tui_dev: bool) -> tuple[list[str], Path]:
         if result.returncode != 0:
             combined = f"{result.stdout or ''}{result.stderr or ''}".strip()
             preview = "\n".join(combined.splitlines()[-30:])
-            print("Ошибка предсборки TUI.")
+            print("TUI dev prebuild failed.")
             if preview:
                 print(preview)
             sys.exit(1)
@@ -1867,7 +1893,7 @@ def _make_tui_argv(tui_dir: Path, tui_dev: bool) -> tuple[list[str], Path]:
         if result.returncode != 0:
             combined = f"{result.stdout or ''}{result.stderr or ''}".strip()
             preview = "\n".join(combined.splitlines()[-30:])
-            print("Ошибка сборки TUI.")
+            print("TUI build failed.")
             if preview:
                 print(preview)
             sys.exit(1)
@@ -2129,7 +2155,7 @@ def _launch_tui(
         from ruslan_cli.relaunch import relaunch
 
         print()
-        print("🛡️ Запуск обновления...")
+        print("⚕ Launching update...")
         print()
         relaunch(["update"], preserve_inherited=False)
 
@@ -2182,16 +2208,34 @@ def _resolve_use_tui(args) -> bool:
 
     Precedence (highest first):
       1. ``--cli`` flag         → always classic REPL
-      2. ``--tui`` flag / ``RUSLAN_TUI=1`` → always TUI
-      3. ``display.interface`` config value ("cli" | "tui")
-      4. default → classic REPL
+      2. ``--tui`` flag         → always TUI (explicit ask)
+      3. no TTY                 → always classic (ambient prefs don't apply)
+      4. ``RUSLAN_TUI=1`` env   → TUI
+      5. ``display.interface`` config value ("cli" | "tui")
+      6. default → classic REPL
 
     Explicit flags always win over config so muscle memory and scripts keep
     working regardless of the configured default.
+
+    The TTY gate (3) is load-bearing: ambient TUI preferences (env var or
+    config default) must never hijack a NON-interactive invocation. Kanban
+    workers, cron jobs, and pipelines run ``ruslan … chat -q`` with stdout
+    on a pipe; booting the Ink TUI there hits its no-TTY bail-out, which
+    prints a resume hint and exits 0 — a kanban worker then dies with
+    "exited cleanly without calling kanban_complete — protocol violation"
+    on every attempt (found dogfooding the desktop kanban board). A user
+    who *explicitly* passes ``--tui`` still gets the informative bail-out.
     """
     if getattr(args, "cli", False):
         return False
-    if getattr(args, "tui", False) or os.environ.get("RUSLAN_TUI") == "1":
+    if getattr(args, "tui", False):
+        return True
+    try:
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            return False
+    except Exception:
+        return False
+    if os.environ.get("RUSLAN_TUI") == "1":
         return True
     try:
         from ruslan_cli.config import load_config
@@ -2206,6 +2250,8 @@ def cmd_chat(args):
     """Run interactive chat CLI."""
     use_tui = _resolve_use_tui(args)
 
+    _apply_safe_mode(args)
+
     # Resolve --continue into --resume with the latest session or by name
     continue_val = getattr(args, "continue_last", None)
     if continue_val and not getattr(args, "resume", None):
@@ -2216,7 +2262,7 @@ def cmd_chat(args):
                 args.resume = resolved
             else:
                 print(f"No session found matching '{continue_val}'.")
-                print("Используйте 'ruslan sessions list' для просмотра доступных сессий.")
+                print("Use 'ruslan sessions list' to see available sessions.")
                 sys.exit(1)
         else:
             # -c with no argument — continue the most recent session
@@ -2239,6 +2285,27 @@ def cmd_chat(args):
             args.resume = resolved
         # If resolution fails, keep the original value — _init_agent will
         # report "Session not found" with the original input
+
+    # Session<->workspace binding: cd back into a resumed session's recorded cwd
+    # so it resumes in the repo it belonged to. Opt out with --no-restore-cwd;
+    # skipped under --worktree (that path owns its own dir). Best-effort — a
+    # missing dir warns and stays put rather than failing the resume.
+    if (
+        getattr(args, "resume", None)
+        and not getattr(args, "no_restore_cwd", False)
+        and not getattr(args, "worktree", False)
+    ):
+        try:
+            from ruslan_state import SessionDB
+
+            _saved_cwd = ((SessionDB().get_session(args.resume) or {}).get("cwd") or "").strip()
+            if _saved_cwd and not os.path.isdir(_saved_cwd):
+                print(f"⚠ session's recorded dir is gone ({_saved_cwd}); staying in {os.getcwd()}")
+            elif _saved_cwd and os.path.realpath(_saved_cwd) != os.path.realpath(os.getcwd()):
+                os.chdir(_saved_cwd)
+                print(f"↪ restored workspace dir: {_saved_cwd}")
+        except Exception:
+            pass  # never let cwd-restore break a resume
 
     # xAI retirement warning — one-shot, non-blocking, never fails startup
     try:
@@ -2267,10 +2334,10 @@ def cmd_chat(args):
     if not _has_any_provider_configured():
         print()
         print(
-            "Похоже, что Ruslan еще не настроен — ключи API или провайдеры не найдены."
+            "It looks like Ruslan isn't configured yet -- no API keys or providers found."
         )
         print()
-        print("Выполните: ruslan setup")
+        print("  Run:  ruslan setup")
         print()
 
         from ruslan_cli.setup import (
@@ -2285,14 +2352,14 @@ def cmd_chat(args):
             sys.exit(1)
 
         try:
-            reply = input("Запустить настройку сейчас? [Y/n]").strip().lower()
+            reply = input("Run setup now? [Y/n] ").strip().lower()
         except (EOFError, KeyboardInterrupt):
             reply = "n"
         if reply in {"", "y", "yes"}:
             cmd_setup(args)
             return
         print()
-        print("Вы можете выполнить 'ruslan setup' в любое время для настройки.")
+        print("You can run 'ruslan setup' at any time to configure.")
         sys.exit(1)
 
     # Start update check in background (runs while other init happens).
@@ -2312,21 +2379,13 @@ def cmd_chat(args):
     except Exception:
         pass
 
-    # --yolo: bypass all dangerous command approvals
+    # --yolo: bypass all dangerous command approvals.
+    # Also set in main() before _prepare_agent_startup() — that is the
+    # authoritative site because it runs before tool imports freeze
+    # _YOLO_MODE_FROZEN.  This redundant set is a safety net for callers
+    # that invoke cmd_chat directly (e.g. subcommand dispatch).
     if getattr(args, "yolo", False):
         os.environ["RUSLAN_YOLO_MODE"] = "1"
-
-    # --safe-mode: troubleshooting mode that disables ALL customizations.
-    # Inspired by Claude Code v2.1.169's --safe-mode (June 2026): run with a
-    # pristine environment to isolate whether a problem comes from the user's
-    # setup (config, rules files, plugins, MCP servers) or from Ruslan itself.
-    # Implemented as a superset of --ignore-user-config + --ignore-rules plus
-    # plugin/MCP discovery suppression (RUSLAN_SAFE_MODE is checked by
-    # ruslan_cli/plugins.py and tools/mcp_tool.py).
-    if getattr(args, "safe_mode", False):
-        os.environ["RUSLAN_SAFE_MODE"] = "1"
-        os.environ["RUSLAN_IGNORE_USER_CONFIG"] = "1"
-        os.environ["RUSLAN_IGNORE_RULES"] = "1"
 
     # --ignore-user-config: make load_cli_config() / load_config() skip the
     # user's ~/.ruslan/config.yaml and return built-in defaults. Set BEFORE
@@ -2426,27 +2485,27 @@ def cmd_whatsapp(args):
     from ruslan_constants import find_node_executable, with_ruslan_node_path
 
     print()
-    print("🛡️ Настройка WhatsApp")
+    print("⚕ WhatsApp Setup")
     print("=" * 50)
 
     # ── Step 1: Choose mode ──────────────────────────────────────────────
     current_mode = get_env_value("WHATSAPP_MODE") or ""
     if not current_mode:
         print()
-        print("Как вы будете использовать WhatsApp с Ruslan?")
+        print("How will you use WhatsApp with Ruslan?")
         print()
-        print("1. Отдельный номер бота (рекомендуется)")
-        print("Люди отправляют сообщения на номер бота напрямую — самый чистый опыт.")
+        print("  1. Separate bot number (recommended)")
+        print("     People message the bot's number directly — cleanest experience.")
         print(
-            "Требуется второй номер телефона с WhatsApp, установленным на устройстве."
+            "     Requires a second phone number with WhatsApp installed on a device."
         )
         print()
-        print("2. Личный номер (само-чат)")
-        print("Вы пишете себе, чтобы общаться с агентом.")
-        print("Быстро настраивается, но UX менее интуитивен.")
+        print("  2. Personal number (self-chat)")
+        print("     You message yourself to talk to the agent.")
+        print("     Quick to set up, but the UX is less intuitive.")
         print()
         try:
-            choice = input("Выберите [1/2]:").strip()
+            choice = input("  Choose [1/2]: ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\nSetup cancelled.")
             return
@@ -2490,7 +2549,7 @@ def cmd_whatsapp(args):
     # successful pairing) stay enabled — we just don't write it pre-emptively.
     print()
     if (get_env_value("WHATSAPP_ENABLED") or "").lower() == "true":
-        print("✓ WhatsApp уже включен")
+        print("✓ WhatsApp is already enabled")
 
     # ── Step 3: Allowed users ────────────────────────────────────────────
     current_users = get_env_value("WHATSAPP_ALLOWED_USERS") or ""
@@ -2503,10 +2562,10 @@ def cmd_whatsapp(args):
         if response.lower() in {"y", "yes"}:
             if wa_mode == "bot":
                 phone = input(
-                    "Номера телефонов, которые могут писать боту (через запятую):"
+                    "  Phone numbers that can message the bot (comma-separated): "
                 ).strip()
             else:
-                phone = input("Ваш номер телефона (например, 15551234567):").strip()
+                phone = input("  Your phone number (e.g. 15551234567): ").strip()
             if phone:
                 save_env_value("WHATSAPP_ALLOWED_USERS", phone.replace(" ", ""))
                 print(f"  ✓ Updated to: {phone}")
@@ -2515,10 +2574,10 @@ def cmd_whatsapp(args):
         if wa_mode == "bot":
             print("  Who should be allowed to message the bot?")
             phone = input(
-                "Номера телефонов (через запятую или * для всех):"
+                "  Phone numbers (comma-separated, or * for anyone): "
             ).strip()
         else:
-            phone = input("Ваш номер телефона (например, 15551234567):").strip()
+            phone = input("  Your phone number (e.g. 15551234567): ").strip()
         if phone:
             save_env_value("WHATSAPP_ALLOWED_USERS", phone.replace(" ", ""))
             print(f"  ✓ Allowed users set: {phone}")
@@ -2562,16 +2621,16 @@ def cmd_whatsapp(args):
             print("  ✗ npm install failed:")
             print(preview)
             return
-        print("✓ Зависимости установлены")
+        print("  ✓ Dependencies installed")
     else:
-        print("✓ Зависимости моста уже установлены")
+        print("✓ Bridge dependencies already installed")
 
     # ── Step 5: Check for existing session ───────────────────────────────
     session_dir = get_ruslan_home() / "whatsapp" / "session"
     session_dir.mkdir(parents=True, exist_ok=True)
 
     if (session_dir / "creds.json").exists():
-        print("✓ Найдена существующая сессия WhatsApp")
+        print("✓ Existing WhatsApp session found")
         try:
             response = input(
                 "\n  Re-pair? This will clear the existing session. [y/N] "
@@ -2597,12 +2656,12 @@ def cmd_whatsapp(args):
     print()
     print("─" * 50)
     if wa_mode == "bot":
-        print("📱 Откройте WhatsApp (или WhatsApp Business) на")
-        print("телефоне с номером бота, затем отсканируйте:")
+        print("📱 Open WhatsApp (or WhatsApp Business) on the")
+        print("   phone with the BOT's number, then scan:")
     else:
-        print("📱 Откройте WhatsApp на своем телефоне, затем отсканируйте:")
+        print("📱 Open WhatsApp on your phone, then scan:")
     print()
-    print("Настройки → Связанные устройства → Привязать устройство")
+    print("   Settings → Linked Devices → Link a Device")
     print("─" * 50)
     print()
 
@@ -2629,7 +2688,7 @@ def cmd_whatsapp(args):
         # and `ruslan gateway` skips it cleanly instead of paying a 30s
         # bridge timeout + queueing the platform for indefinite retries.
         save_env_value("WHATSAPP_ENABLED", "true")
-        print("✓ WhatsApp успешно сопряжен!")
+        print("✓ WhatsApp paired successfully!")
         print()
         if wa_mode == "bot":
             print("  Next steps:")
@@ -2637,19 +2696,19 @@ def cmd_whatsapp(args):
             print("    2. Send a message to the bot's WhatsApp number")
             print("    3. The agent will reply automatically")
             print()
-            print("  Tip: Agent responses are prefixed with '🛡️ Ruslan Agent'")
+            print("  Tip: Agent responses are prefixed with '⚕ Ruslan Agent'")
         else:
             print("  Next steps:")
             print("    1. Start the gateway:  ruslan gateway")
             print("    2. Open WhatsApp → Message Yourself")
             print("    3. Type a message — the agent will reply")
             print()
-            print("  Tip: Agent responses are prefixed with '🛡️ Ruslan Agent'")
+            print("  Tip: Agent responses are prefixed with '⚕ Ruslan Agent'")
             print("  so you can tell them apart from your own messages.")
         print()
-        print("Или установите как службу: ruslan gateway install")
+        print("  Or install as a service: ruslan gateway install")
     else:
-        print("⚠ Сопряжение могло не завершиться. Запустите 'ruslan whatsapp', чтобы попробовать снова.")
+        print("⚠ Pairing may not have completed. Run 'ruslan whatsapp' to try again.")
 
 
 def cmd_whatsapp_cloud(args):
@@ -2685,7 +2744,7 @@ def cmd_postinstall(args):
 
     stamp_install_method("pip")
 
-    print("🛡️ Пост-установочный bootstrap для Ruslan")
+    print("⚕ Ruslan post-install bootstrap")
     print()
 
     for dep in ("node", "browser", "ripgrep", "ffmpeg"):
@@ -2696,7 +2755,7 @@ def cmd_postinstall(args):
         cmd_setup(args)
     else:
         print()
-        print("✓ Пост-установка завершена.")
+        print("✓ Post-install complete.")
 
 
 def cmd_model(args):
@@ -3025,7 +3084,7 @@ def select_provider_and_model(args=None):
         default=default_idx,
     )
     if provider_idx is None or ordered[provider_idx][0] == "cancel":
-        print("Без изменений.")
+        print("No change.")
         return
 
     selected_key = ordered[provider_idx][0]
@@ -3045,10 +3104,10 @@ def select_provider_and_model(args=None):
         member_idx = _prompt_provider_choice(
             member_labels,
             default=member_default,
-            title=f"Выберите {group_label} провайдера:",
+            title=f"Select {group_label} provider:",
         )
         if member_idx is None:
-            print("Без изменений.")
+            print("No change.")
             return
         selected_provider = selected_members[member_idx]
     else:
@@ -3061,6 +3120,8 @@ def select_provider_and_model(args=None):
     # Step 2: Provider-specific setup + model selection
     if selected_provider == "openrouter":
         _model_flow_openrouter(config, current_model)
+    elif selected_provider == "moa":
+        _model_flow_moa(config, current_model)
     elif selected_provider == "nous":
         _model_flow_nous(config, current_model, args=args)
     elif selected_provider == "openai-codex":
@@ -3099,6 +3160,8 @@ def select_provider_and_model(args=None):
         _model_flow_stepfun(config, current_model)
     elif selected_provider == "bedrock":
         _model_flow_bedrock(config, current_model)
+    elif selected_provider == "vertex":
+        _model_flow_vertex(config, current_model)
     elif selected_provider == "azure-foundry":
         _model_flow_azure_foundry(config, current_model)
     elif selected_provider in {
@@ -3122,7 +3185,6 @@ def select_provider_and_model(args=None):
         "ollama-cloud",
         "tencent-tokenhub",
         "lmstudio",
-        "yandexgpt",
     } or _is_profile_api_key_provider(selected_provider):
         _model_flow_api_key_provider(config, selected_provider, current_model)
 
@@ -3315,13 +3377,13 @@ def _aux_config_menu() -> None:
         aux = cfg.get("auxiliary", {}) if isinstance(cfg.get("auxiliary"), dict) else {}
 
         print()
-        print("Вспомогательные модели — маршрутизация побочных задач")
+        print("  Auxiliary models — side-task routing")
         print()
-        print("Побочные задачи (зрение, сжатие, извлечение из интернета и т. д.) по умолчанию")
-        print('используют вашу основную чат-модель.  «auto» означает «использовать мою основную модель» —')
-        print("Ruslan использует легковесный бэкенд (OpenRouter,")
-        print("Nous Portal) только если основная модель недоступна.  Переопределите")
-        print("задачу ниже, если хотите закрепить ее за конкретным провайдером/моделью.")
+        print("  Side tasks (vision, compression, web extraction, etc.) default")
+        print('  to your main chat model.  "auto" means "use my main model" —')
+        print("  Ruslan only falls back to a lightweight backend (OpenRouter,")
+        print("  Nous Portal) if the main model is unavailable.  Override a")
+        print("  task below if you want it pinned to a specific provider/model.")
         print()
 
         # Build the task menu with current settings inline
@@ -3355,7 +3417,7 @@ def _aux_config_menu() -> None:
             if n:
                 print(f"Reset {n} auxiliary task(s) to auto.")
             else:
-                print("Все вспомогательные задачи уже установлены в автоматический режим.")
+                print("All auxiliary tasks were already set to auto.")
             print()
             continue
         # Otherwise configure the specific task
@@ -3467,9 +3529,9 @@ def _aux_flow_provider_model(
     # to a raw input prompt.
     if not model_list:
         print(f"No curated model list for {provider_slug}.")
-        print("Введите слаг модели вручную (пусто = использовать значение провайдера по умолчанию):")
+        print("Enter a model slug manually (blank = use provider default):")
         try:
-            val = input("Модель:").strip()
+            val = input("Model: ").strip()
         except (KeyboardInterrupt, EOFError):
             print()
             return
@@ -3482,7 +3544,7 @@ def _aux_flow_provider_model(
             confirm_provider=provider_slug,
         )
         if selected is None:
-            print("Без изменений.")
+            print("No change.")
             return
 
     _save_aux_choice(
@@ -3504,7 +3566,7 @@ def _aux_flow_custom_endpoint(task: str, task_cfg: dict) -> None:
 
     print()
     print(f"  Custom endpoint for {display_name}")
-    print("Укажите базовый URL, совместимый с OpenAI (например, http://localhost:11434/v1)")
+    print("  Provide an OpenAI-compatible base URL (e.g. http://localhost:11434/v1)")
     print()
     try:
         url_prompt = (
@@ -3516,7 +3578,7 @@ def _aux_flow_custom_endpoint(task: str, task_cfg: dict) -> None:
         return
     url = url or current_base_url
     if not url:
-        print("URL не предоставлен. Без изменений.")
+        print("No URL provided. No change.")
         return
     try:
         model_prompt = (
@@ -3548,7 +3610,7 @@ def _aux_flow_custom_endpoint(task: str, task_cfg: dict) -> None:
     print(f"{display_name}: custom ({short_url})" + (f" · {model}" if model else ""))
 
 
-def _prompt_provider_choice(choices, *, default=0, title="Выберите провайдера:"):
+def _prompt_provider_choice(choices, *, default=0, title="Select provider:"):
     """Show provider selection menu with curses arrow-key navigation.
 
     Falls back to a numbered list when curses is unavailable (e.g. piped
@@ -3581,7 +3643,7 @@ def _prompt_provider_choice(choices, *, default=0, title="Выберите пр�
                 return idx
             print(f"Please enter 1-{len(choices)}")
         except ValueError:
-            print("Пожалуйста, введите число")
+            print("Please enter a number")
         except (KeyboardInterrupt, EOFError):
             print()
             return None
@@ -3636,7 +3698,7 @@ def _prompt_custom_api_mode_selection(base_url: str, current_api_mode: str = "")
     ]
 
     print()
-    print("Выберите режим совместимости API:")
+    print("Select API compatibility mode:")
     for idx, (value, label, description) in enumerate(mode_options, 1):
         markers = []
         if value == detected_mode:
@@ -3649,7 +3711,7 @@ def _prompt_custom_api_mode_selection(base_url: str, current_api_mode: str = "")
 
     try:
         raw = input(
-            "Выбор [1-4, Enter для сохранения текущего/обнаруженного]:"
+            "Choice [1-4, Enter to keep current/detected]: "
         ).strip().lower()
     except (KeyboardInterrupt, EOFError):
         print("\nCancelled.")
@@ -3786,10 +3848,10 @@ def _remove_custom_provider(config):
     cfg = load_config()
     providers = cfg.get("custom_providers") or []
     if not isinstance(providers, list) or not providers:
-        print("Не настроено ни одного пользовательского провайдера.")
+        print("No custom providers configured.")
         return
 
-    print("Удалить своего провайдера:\n")
+    print("Remove a custom provider:\n")
 
     choices = []
     for entry in providers:
@@ -3825,7 +3887,7 @@ def _remove_custom_provider(config):
             idx = None
 
     if idx is None or idx >= len(providers):
-        print("Без изменений.")
+        print("No change.")
         return
 
     removed = providers.pop(idx)
@@ -3884,7 +3946,7 @@ def _prompt_reasoning_effort_selection(efforts, current_effort=""):
             str(effort).strip().lower() for effort in efforts if str(effort).strip()
         )
     )
-    canonical_order = ("minimal", "low", "medium", "high", "xhigh")
+    canonical_order = ("minimal", "low", "medium", "high", "xhigh", "max", "ultra")
     ordered = [effort for effort in canonical_order if effort in deduped]
     ordered.extend(effort for effort in deduped if effort not in canonical_order)
     if not ordered:
@@ -3930,7 +3992,7 @@ def _prompt_reasoning_effort_selection(efforts, current_effort=""):
     except (ImportError, NotImplementedError, OSError, subprocess.SubprocessError):
         pass
 
-    print("Выберите уровень рассуждений:")
+    print("Select reasoning effort:")
     for i, effort in enumerate(ordered, 1):
         print(f"  {i}. {_label(effort)}")
     n = len(ordered)
@@ -3952,7 +4014,7 @@ def _prompt_reasoning_effort_selection(efforts, current_effort=""):
                 return None
             print(f"Please enter 1-{n + 2}")
         except ValueError:
-            print("Пожалуйста, введите число")
+            print("Please enter a number")
         except (KeyboardInterrupt, EOFError):
             return None
 
@@ -3999,10 +4061,10 @@ def _prompt_api_key(pconfig, existing_key: str, provider_id: str = "") -> tuple:
             return "", True
         new_key = _prompt_new_key(allow_lmstudio_default=True)
         if not new_key:
-            print("Отменено.")
+            print("Cancelled.")
             return "", True
         save_env_value(key_env, new_key)
-        print("Ключ API сохранен.")
+        print("API key saved.")
         print()
         return new_key, False
 
@@ -4016,7 +4078,7 @@ def _prompt_api_key(pconfig, existing_key: str, provider_id: str = "") -> tuple:
         print()
         return existing_key, False
     try:
-        choice = input("[K]оставить / [R]аменить / [C]тереть (по умолчанию K):").strip().lower()
+        choice = input("  [K]eep / [R]eplace / [C]lear (default K): ").strip().lower()
     except (KeyboardInterrupt, EOFError):
         print()
         choice = "k"
@@ -4028,7 +4090,7 @@ def _prompt_api_key(pconfig, existing_key: str, provider_id: str = "") -> tuple:
             print()
             return existing_key, False
         save_env_value(key_env, new_key)
-        print("Ключ API обновлен.")
+        print("  API key updated.")
         print()
         return new_key, False
 
@@ -4107,8 +4169,8 @@ def _run_anthropic_oauth_flow(save_env_value):
 
     try:
         print()
-        print("Запуск 'claude setup-token' — следуйте инструкциям ниже.")
-        print("Откроется окно браузера для авторизации доступа.")
+        print("  Running 'claude setup-token' — follow the prompts below.")
+        print("  A browser window will open for you to authorize access.")
         print()
         token = run_oauth_setup_token()
         if token:
@@ -4120,7 +4182,7 @@ def _run_anthropic_oauth_flow(save_env_value):
 
         # Subprocess completed but no token auto-detected — ask user to paste
         print()
-        print("Если setup-token был отображен выше, вставьте его здесь:")
+        print("  If the setup-token was displayed above, paste it here:")
         print()
         from ruslan_cli.secret_prompt import masked_secret_prompt
 
@@ -4136,7 +4198,7 @@ def _run_anthropic_oauth_flow(save_env_value):
             print("  ✓ Setup-token saved.")
             return True
 
-        print("⚠ Не удалось обнаружить сохраненные учетные данные.")
+        print("  ⚠ Could not detect saved credentials.")
         return False
 
     except FileNotFoundError:
@@ -4146,12 +4208,12 @@ def _run_anthropic_oauth_flow(save_env_value):
         print()
         print("  To install and authenticate:")
         print()
-        print("1. Установите Claude Code:  npm install -g @anthropic-ai/claude-code")
-        print("2. Запустите:                  claude setup-token")
-        print("3. Следуйте подсказкам браузера для авторизации")
-        print("4. Повторно запустите:               ruslan model")
+        print("    1. Install Claude Code:  npm install -g @anthropic-ai/claude-code")
+        print("    2. Run:                  claude setup-token")
+        print("    3. Follow the browser prompts to authorize")
+        print("    4. Re-run:               ruslan model")
         print()
-        print("Или вставьте существующий setup-token сейчас (sk-ant-oat-...):")
+        print("  Or paste an existing setup-token now (sk-ant-oat-...):")
         print()
         from ruslan_cli.secret_prompt import masked_secret_prompt
 
@@ -4164,7 +4226,7 @@ def _run_anthropic_oauth_flow(save_env_value):
             save_anthropic_oauth_token(token, save_fn=save_env_value)
             print("  ✓ Setup-token saved.")
             return True
-        print("Отменено — установите Claude Code и попробуйте снова.")
+        print("  Cancelled — install Claude Code and try again.")
         return False
 
 
@@ -4250,6 +4312,13 @@ def cmd_kanban(args):
     return kanban_command(args)
 
 
+def cmd_project(args):
+    """Manage projects (named, multi-folder workspaces)."""
+    from ruslan_cli.projects_cmd import projects_command
+
+    return projects_command(args)
+
+
 def cmd_hooks(args):
     """Shell-hook inspection and management."""
     from ruslan_cli.hooks import hooks_command
@@ -4318,10 +4387,12 @@ def cmd_import(args):
 
 
 def _print_version_info(*, check_updates: bool = True) -> None:
+    from ruslan_cli.config import detect_install_method
     from ruslan_cli.banner import format_banner_version_label
 
     print(format_banner_version_label())
-    print(f"Project: {PROJECT_ROOT}")
+    print(f"Install directory: {PROJECT_ROOT}")
+    print(f"Install method: {detect_install_method(PROJECT_ROOT)}")
 
     # Show Python version
     print(f"Python: {sys.version.split()[0]}")
@@ -4335,9 +4406,9 @@ def _print_version_info(*, check_updates: bool = True) -> None:
         try:
             print(f"OpenAI SDK: {_pkg_version('openai')}")
         except PackageNotFoundError:
-            print("OpenAI SDK: Не установлен")
+            print("OpenAI SDK: Not installed")
     except ImportError:
-        print("OpenAI SDK: Не установлен")
+        print("OpenAI SDK: Not installed")
 
     if not check_updates:
         return
@@ -4355,7 +4426,7 @@ def _print_version_info(*, check_updates: bool = True) -> None:
                 f"run '{recommended_update_command()}'"
             )
         elif behind == 0:
-            print("Уже обновлено")
+            print("Up to date")
     except Exception:
         pass
 
@@ -4423,14 +4494,17 @@ def _clear_bytecode_cache(root: Path) -> int:
     return removed
 
 
-# Critical files that every ``ruslan`` invocation imports at startup. If any
-# of these fail to parse after a pull, the CLI is bricked — the user can't
-# even run ``ruslan update`` again to roll forward. The post-pull syntax
-# guard validates these and auto-rolls-back on failure.
+# Critical files that Ruslan must be able to import immediately after an
+# update/install. Most are imported on every CLI startup; ``web_server.py``
+# is the desktop/dashboard backend path that a fresh Windows install launches
+# right away. If any of these fail to parse after a pull, the user can be
+# left with a bricked CLI or desktop backend. The post-pull syntax guard
+# validates these and auto-rolls-back on failure.
 _UPDATE_CRITICAL_FILES = (
     "ruslan_cli/main.py",
     "ruslan_cli/config.py",
     "ruslan_cli/__init__.py",
+    "ruslan_cli/web_server.py",
     "cli.py",
     "run_agent.py",
     "model_tools.py",
@@ -4822,9 +4896,9 @@ def _build_web_ui(web_dir: Path, *, fatal: bool = False) -> bool:
             encoding = getattr(sys.stdout, "encoding", None) or "ascii"
             print(text.encode(encoding, errors="replace").decode(encoding, errors="replace"))
 
-    from ruslan_constants import find_node_executable, with_ruslan_node_path
+    from ruslan_constants import with_ruslan_node_path
 
-    npm = find_node_executable("npm")
+    npm = _resolve_node_runtime_npm()
     if not npm:
         if fatal:
             _say("Web UI frontend not built and npm is not available.")
@@ -5405,6 +5479,74 @@ def _desktop_macos_relaunchable_fixup(desktop_dir: Path) -> None:
         print(f"  (warning: macOS relaunch fixup skipped: {exc})")
 
 
+def _force_adhoc_macos_signing(env: dict, *, source_mode: bool) -> bool:
+    """Stop electron-builder grabbing a random keychain identity on self-update.
+
+    The desktop self-updater rebuilds *and re-signs the .app on the end user's
+    machine* (``ruslan desktop --build-only`` → electron-builder ``--dir``).
+    With ``CSC_IDENTITY_AUTO_DISCOVERY`` on (its default), electron-builder
+    signs the ``type=distribution``, hardened-runtime bundle with whatever it
+    finds in that user's keychain — typically a personal "Apple Development"
+    cert. That stalls/fails the sign step (no Developer ID + no provisioning
+    profile) or clobbers your real notarized signature with an unusable one, so
+    every post-update launch trips Gatekeeper.
+
+    Force ad-hoc signing for the local packaged rebuild instead: deterministic,
+    and exactly what ``_desktop_macos_relaunchable_fixup`` already finishes off.
+    No-op for source runs, off-macOS, when a real identity is configured
+    (``CSC_LINK`` / ``APPLE_SIGNING_IDENTITY``), or when the caller already
+    pinned the flag. Mutates ``env``; returns True when it set the flag.
+    """
+    if sys.platform != "darwin" or source_mode:
+        return False
+    if env.get("CSC_LINK") or env.get("APPLE_SIGNING_IDENTITY"):
+        return False
+    if "CSC_IDENTITY_AUTO_DISCOVERY" in env:
+        return False
+    env["CSC_IDENTITY_AUTO_DISCOVERY"] = "false"
+    return True
+
+
+def _desktop_linux_needs_no_sandbox() -> bool:
+    """Return True when Chromium/Electron should bypass the Linux sandbox.
+
+    Ubuntu 23.10+ can enable AppArmor's
+    ``apparmor_restrict_unprivileged_userns`` hardening, which breaks
+    Chromium/Electron's user-namespace sandbox for normal users unless the app
+    ships a working root-owned 4755 ``chrome-sandbox`` helper. In headless or
+    non-interactive CLI contexts we may be unable to ``sudo chown/chmod`` that
+    helper, so detect the host restriction and fall back to ``--no-sandbox``
+    rather than hard-failing the launcher.
+
+    We intentionally do NOT return True for root users here: running Electron as
+    root without a sandbox is a qualitatively riskier path than launching as an
+    unprivileged desktop user on an AppArmor-restricted host. The root case
+    should remain an explicit user choice.
+    """
+    if sys.platform != "linux":
+        return False
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        return False
+    try:
+        with open("/proc/sys/kernel/apparmor_restrict_unprivileged_userns", encoding="utf-8") as f:
+            return f.read().strip() == "1"
+    except OSError:
+        return False
+
+
+def _desktop_linux_sandbox_helper_is_regular_file(packaged_executable: Path) -> bool:
+    """Return True when ``chrome-sandbox`` exists as a regular file."""
+    if sys.platform != "linux":
+        return False
+    sandbox = packaged_executable.parent / "chrome-sandbox"
+    try:
+        sandbox_lstat = sandbox.lstat()
+    except OSError:
+        return False
+    return stat.S_ISREG(sandbox_lstat.st_mode)
+
+
+
 def _desktop_linux_sandbox_fixup(packaged_executable: Path) -> bool:
     """Configure Electron's Linux SUID sandbox helper when required."""
     if sys.platform != "linux":
@@ -5432,15 +5574,53 @@ def _desktop_linux_sandbox_fixup(packaged_executable: Path) -> bool:
 
     sudo = shutil.which("sudo")
     if not sudo:
-        print("✗ Для Ruslan Desktop требуются права sudo для настройки sandbox-помощника Electron для Linux.")
+        print("✗ Ruslan Desktop requires sudo to configure Electron's Linux sandbox helper.")
         return False
 
-    print("→ Настройка вспомогательного компонента sandbox Electron Linux (требуется sudo)...")
+    print("→ Configuring Electron Linux sandbox helper (sudo required)...")
     for command in ([sudo, "chown", "root:root", str(sandbox)], [sudo, "chmod", "4755", str(sandbox)]):
         if subprocess.run(command, check=False).returncode != 0:
             print(f"✗ Failed to configure Electron's Linux sandbox helper: {sandbox}")
             return False
     return True
+
+
+def _desktop_launch_options() -> tuple[list[str], str]:
+    """Read `desktop.*` launch options from config.yaml.
+
+    Returns ``(electron_flags, disable_gpu)`` where ``electron_flags`` is a list
+    of extra Electron CLI flags and ``disable_gpu`` is one of "auto"/"1"/"0"
+    (normalized for the RUSLAN_DESKTOP_DISABLE_GPU env var the Electron app
+    reads). Best-effort: any config error yields the safe defaults
+    ``([], "auto")`` so a malformed config never blocks the launch.
+    """
+    flags: list[str] = []
+    disable_gpu = "auto"
+    try:
+        from ruslan_cli.config import load_config
+
+        desktop_cfg = (load_config() or {}).get("desktop") or {}
+    except Exception:
+        return flags, disable_gpu
+
+    raw_flags = desktop_cfg.get("electron_flags")
+    if isinstance(raw_flags, str):
+        flags = shlex.split(raw_flags, posix=(os.name != "nt"))
+    elif isinstance(raw_flags, (list, tuple)):
+        flags = [str(f) for f in raw_flags if str(f).strip()]
+
+    raw_gpu = desktop_cfg.get("disable_gpu", "auto")
+    if isinstance(raw_gpu, bool):
+        disable_gpu = "1" if raw_gpu else "0"
+    elif isinstance(raw_gpu, str):
+        low = raw_gpu.strip().lower()
+        if low in ("1", "true", "yes", "on"):
+            disable_gpu = "1"
+        elif low in ("0", "false", "no", "off"):
+            disable_gpu = "0"
+        else:
+            disable_gpu = "auto"
+    return flags, disable_gpu
 
 
 def cmd_gui(args: argparse.Namespace):
@@ -5456,7 +5636,7 @@ def cmd_gui(args: argparse.Namespace):
     except Exception:
         pass
 
-    from ruslan_constants import find_node_executable, with_ruslan_node_path
+    from ruslan_constants import with_ruslan_node_path
 
     # with_ruslan_node_path() copies os.environ when called with no arg.
     env = with_ruslan_node_path()
@@ -5468,6 +5648,16 @@ def cmd_gui(args: argparse.Namespace):
         env["RUSLAN_DESKTOP_RUSLAN_ROOT"] = str(Path(args.ruslan_root).expanduser().resolve())
     if getattr(args, "cwd", None):
         env["RUSLAN_DESKTOP_CWD"] = str(Path(args.cwd).expanduser().resolve())
+    else:
+        env["RUSLAN_DESKTOP_CWD"] = os.getcwd()
+
+    # Desktop launch options from config.yaml (`desktop.electron_flags`,
+    # `desktop.disable_gpu`). The GPU policy is bridged to the env var the
+    # Electron app already reads; an explicit env var still wins over config so
+    # `RUSLAN_DESKTOP_DISABLE_GPU=... ruslan desktop` keeps working.
+    config_electron_flags, config_disable_gpu = _desktop_launch_options()
+    if config_disable_gpu != "auto" and "RUSLAN_DESKTOP_DISABLE_GPU" not in os.environ:
+        env["RUSLAN_DESKTOP_DISABLE_GPU"] = config_disable_gpu
 
     source_mode = getattr(args, "source", False)
     skip_build = getattr(args, "skip_build", False)
@@ -5476,10 +5666,10 @@ def cmd_gui(args: argparse.Namespace):
     packaged_executable = _desktop_packaged_executable(desktop_dir)
 
     if source_mode or not skip_build:
-        npm = find_node_executable("npm")
+        npm = _resolve_node_runtime_npm()
         if not npm:
-            print("Настольному GUI требуется Node.js/npm, но npm не найден в PATH.")
-            print("Установите Node.js, затем запустите:  ruslan gui")
+            print("Desktop GUI requires Node.js/npm, but npm was not found on PATH.")
+            print("Install Node.js, then run:  ruslan gui")
             sys.exit(1)
     else:
         npm = None
@@ -5488,19 +5678,19 @@ def cmd_gui(args: argparse.Namespace):
         if source_mode:
             if not _desktop_dist_exists(desktop_dir):
                 print(f"✗ --skip-build --source was passed but no desktop dist found at: {desktop_dir / 'dist'}")
-                print("Сначала выполните предварительную сборку: cd apps/desktop && npm run build")
-                print("Или уберите --skip-build, чтобы установить зависимости и выполнить сборку автоматически.")
+                print("  Pre-build first:  cd apps/desktop && npm run build")
+                print("  Or drop --skip-build to install dependencies and build automatically.")
                 sys.exit(1)
             if not (_electron_dir(PROJECT_ROOT) / "package.json").exists():
-                print("✗ --skip-build --source требует существующих зависимостей рабочего пространства десктопного приложения.")
+                print("✗ --skip-build --source requires existing desktop workspace dependencies.")
                 print(f"  Install first:  cd {PROJECT_ROOT} && npm ci")
-                print("Или уберите --skip-build, чтобы установить зависимости и выполнить сборку автоматически.")
+                print("  Or drop --skip-build to install dependencies and build automatically.")
                 sys.exit(1)
             print(f"→ Skipping desktop source build (--skip-build --source); using dist at {desktop_dir / 'dist'}")
         elif packaged_executable is None:
             print(f"✗ --skip-build was passed but no packaged desktop app was found at: {desktop_dir / 'release'}")
-            print("Сначала выполните предварительную сборку: cd apps/desktop && npm run pack")
-            print("Или уберите --skip-build, чтобы упаковать автоматически.")
+            print("  Pre-build first:  cd apps/desktop && npm run pack")
+            print("  Or drop --skip-build to package automatically.")
             sys.exit(1)
         else:
             print(f"→ Skipping desktop package build (--skip-build); using {packaged_executable}")
@@ -5516,12 +5706,12 @@ def cmd_gui(args: argparse.Namespace):
             build_label = "source build" if source_mode else "packaged app"
             print(f"✓ Desktop {build_label} is up to date (content stamp matches)")
         else:
-            print("→ Установка зависимостей рабочего стола...")
+            print("→ Installing desktop workspace dependencies...")
             nixos_env = _nixos_build_env()
             install_result = _run_npm_install_deterministic(npm, PROJECT_ROOT, capture_output=False, env=nixos_env)
             if install_result.returncode != 0:
                 if not _electron_pkg_staged_missing_dist(PROJECT_ROOT):
-                    print("✗ Установка зависимостей рабочей среды не удалась")
+                    print("✗ Desktop dependency install failed")
                     print(f"  Run manually:  cd {PROJECT_ROOT} && npm ci")
                     sys.exit(install_result.returncode or 1)
                 repaired = _try_redownload_electron_dist(PROJECT_ROOT, env)
@@ -5536,6 +5726,9 @@ def cmd_gui(args: argparse.Namespace):
             build_label = "source build" if source_mode else "packaged app"
             print(f"→ Building desktop {build_label}...")
             build_script = "build" if source_mode else "pack"
+            if _force_adhoc_macos_signing(env, source_mode=source_mode):
+                print("  → No Developer ID configured; ad-hoc signing this local rebuild "
+                      "(CSC_IDENTITY_AUTO_DISCOVERY=false)")
             if not source_mode:
                 # A running desktop instance launched from release/win-unpacked
                 # holds Ruslan.exe locked on Windows, so the pack can't replace
@@ -5546,24 +5739,39 @@ def cmd_gui(args: argparse.Namespace):
                 if stopped:
                     print(f"  ⚠ Stopped running desktop app to free the build output (pid {', '.join(map(str, stopped))})")
             build_result = subprocess.run([npm, "run", build_script], cwd=desktop_dir, env=env, check=False)
-            if build_result.returncode != 0 and not source_mode:
+            if (
+                build_result.returncode != 0
+                and not source_mode
+                and _desktop_packaged_executable(desktop_dir) is None
+            ):
                 # Corrupt cached Electron zip → partial unpack → ENOENT on rename.
                 # stdlib zipfile won't catch the common concat-junk case, so purge
                 # and retry once; @electron/get SHASUM is the real gate.
+                #
+                # Gate on a MISSING packaged executable: that is the signature of
+                # the corrupt-download class this recovery exists for. A late
+                # failure such as macOS code signing leaves the executable in
+                # place — redownloading Electron can't repair it, so the purge +
+                # retry would only add another slow, identical failure (#40187).
                 purged: list[Path] = []
                 restored = False
                 if not _electron_dist_ok(PROJECT_ROOT):
                     purged = _purge_electron_build_cache(desktop_dir)
                     restored = _redownload_electron_dist(PROJECT_ROOT, env)
                 if restored:
-                    print("⚠ Сборка рабочей среды не удалась; обновили загрузку Electron и пробуем еще раз...")
+                    print("  ⚠ Desktop build failed; refreshed the Electron download and retrying once...")
                     for p in purged:
                         print(f"    - {p}")
                     # The purge can't remove a win-unpacked tree whose Ruslan.exe
                     # is still locked by a running instance; stop it before retry.
                     _stop_desktop_processes_locking_build(desktop_dir)
                     build_result = subprocess.run([npm, "run", build_script], cwd=desktop_dir, env=env, check=False)
-            if build_result.returncode != 0 and not source_mode and not env.get("ELECTRON_MIRROR"):
+            if (
+                build_result.returncode != 0
+                and not source_mode
+                and not env.get("ELECTRON_MIRROR")
+                and _desktop_packaged_executable(desktop_dir) is None
+            ):
                 print("  ⚠ Desktop build still failing; the Electron download from "
                       "GitHub looks blocked. Re-downloading via a public mirror "
                       "(npmmirror.com)... (set ELECTRON_MIRROR to use another mirror)")
@@ -5575,13 +5783,13 @@ def cmd_gui(args: argparse.Namespace):
                 _stop_desktop_processes_locking_build(desktop_dir)
                 build_result = subprocess.run([npm, "run", build_script], cwd=desktop_dir, env=mirror_env, check=False)
             if build_result.returncode != 0:
-                print("✗ Сборка графического интерфейса десктопного приложения не удалась")
+                print("✗ Desktop GUI build failed")
                 print(f"  Run manually:  cd apps/desktop && npm run {build_script}")
                 if sys.platform == "win32":
                     print("  If this says \"Access is denied\" on Ruslan.exe, close any")
-                    print("запущенные окна настольного Ruslan и повторите попытку.")
-                print("Если в журнале отображаются повторные попытки загрузки Electron, выполните сборку через зеркало:")
-                print("ELECTRON_MIRR")
+                    print("  running Ruslan desktop window and retry.")
+                print("  If the log shows Electron download retries, rebuild via a mirror:")
+                print("    ELECTRON_MIRROR=<mirror-base-url> ruslan desktop --force-build")
                 sys.exit(build_result.returncode or 1)
             packaged_executable = _desktop_packaged_executable(desktop_dir)
             if not source_mode:
@@ -5607,27 +5815,33 @@ def cmd_gui(args: argparse.Namespace):
             print(f"✓ Desktop source build ready at {desktop_dir / 'dist'} (not launching; --build-only)")
         elif packaged_executable is None:
             print(f"✗ --build-only produced no launchable app at: {desktop_dir / 'release'}")
-            print("Ожидается распакованное приложение Electron для текущей операционной системы.")
+            print("  Expected an unpacked Electron app for the current OS.")
             sys.exit(1)
         else:
             print(f"✓ Desktop packaged app ready: {packaged_executable} (not launching; --build-only)")
         return
 
     if source_mode:
-        print("→ Запуск Ruslan Desktop из исходной сборки...")
+        print("→ Launching Ruslan Desktop from source build...")
         launch_result = subprocess.run([npm, "exec", "--", "electron", "."], cwd=desktop_dir, env=env, check=False)
         sys.exit(launch_result.returncode)
 
     if packaged_executable is None:
         print(f"✗ Desktop package build completed but no launchable app was found at: {desktop_dir / 'release'}")
-        print("Ожидается распакованное приложение Electron для текущей операционной системы.")
+        print("  Expected an unpacked Electron app for the current OS.")
         sys.exit(1)
 
+    launch_command = [str(packaged_executable)]
     if not _desktop_linux_sandbox_fixup(packaged_executable):
-        sys.exit(1)
+        if _desktop_linux_needs_no_sandbox() and _desktop_linux_sandbox_helper_is_regular_file(packaged_executable):
+            print("⚠ Falling back to --no-sandbox because this Linux host restricts unprivileged user namespaces and the Electron sandbox helper could not be configured.")
+            launch_command.append("--no-sandbox")
+        else:
+            sys.exit(1)
 
-    print(f"→ Launching packaged Ruslan Desktop: {packaged_executable}")
-    launch_result = subprocess.run([str(packaged_executable)], cwd=desktop_dir, env=env, check=False)
+    launch_command.extend(config_electron_flags)
+    print(f"→ Launching packaged Ruslan Desktop: {' '.join(launch_command)}")
+    launch_result = subprocess.run(launch_command, cwd=desktop_dir, env=env, check=False)
     sys.exit(launch_result.returncode)
 
 
@@ -5651,9 +5865,9 @@ def _find_stale_dashboard_pids(
 
     *exclude_pids* is an optional set of PIDs that must never be returned.
     This is used by the Ruslan Desktop Electron app to protect its own
-    backend child process: when the desktop spawns ``ruslan dashboard`` as
+    backend child process: when the desktop spawns ``ruslan serve`` as
     a backend and triggers an auto-update, the update must not kill the
-    dashboard that the desktop itself manages.  The desktop sets the
+    backend that the desktop itself manages.  The desktop sets the
     environment variable ``RUSLAN_DESKTOP_CHILD_PID`` on the spawned
     backend process; ``_kill_stale_dashboard_processes`` reads it and
     passes it here.  (#37532)
@@ -5664,6 +5878,12 @@ def _find_stale_dashboard_pids(
         "ruslan dashboard",
         "ruslan_cli.main dashboard",
         "ruslan_cli/main.py dashboard",
+        # The headless backend (`ruslan serve`) is the same long-lived server
+        # under a different command name — the desktop app spawns it. Reap it
+        # on update for the same frontend/backend-mismatch reason.
+        "ruslan serve",
+        "ruslan_cli.main serve",
+        "ruslan_cli/main.py serve",
     ]
     self_pid = os.getpid()
     dashboard_pids: list[int] = []
@@ -5677,6 +5897,11 @@ def _find_stale_dashboard_pids(
             # here is errors="ignore": it prevents a reader-thread
             # UnicodeDecodeError from leaving result.stdout=None and turning
             # the later .split() into an AttributeError (#17049).
+            # CREATE_NO_WINDOW hides the conhost flash: this scan can run from
+            # the windowless pythonw.exe desktop/gateway backend during an
+            # update, where a bare wmic spawn would pop a console window.
+            from ruslan_cli._subprocess_compat import windows_hide_flags
+
             result = subprocess.run(
                 ["wmic", "process", "get", "ProcessId,CommandLine", "/FORMAT:LIST"],
                 capture_output=True,
@@ -5684,6 +5909,7 @@ def _find_stale_dashboard_pids(
                 timeout=10,
                 encoding="utf-8",
                 errors="ignore",
+                creationflags=windows_hide_flags(),
             )
             if result.returncode != 0 or result.stdout is None:
                 return []
@@ -5766,16 +5992,16 @@ def _print_curator_first_run_notice() -> None:
         hours = 24 * 7
     days = max(1, hours // 24)
     print()
-    print("ℹ Куратор навыков")
+    print("ℹ Skill curator")
     print(
         f"  Background skill maintenance is enabled. First pass is deferred "
         f"~{days}d after installation; only agent-created skills are in "
         f"scope and nothing is ever auto-deleted (archive is recoverable)."
     )
-    print("Просмотреть сейчас:  ruslan curator run --dry-run")
-    print("Приостановить:     ruslan curator pause")
+    print("  Preview now:  ruslan curator run --dry-run")
+    print("  Pause it:     ruslan curator pause")
     print(
-        "Документация:         https://ruslan.team/docs/user-guide/features/curator"
+        "  Docs:         https://ruslan-agent.nousresearch.com/docs/user-guide/features/curator"
     )
 
 
@@ -5980,8 +6206,8 @@ def _kill_stale_dashboard_processes(
         print(f"    ✗ failed to stop PID {pid}: {err_msg}")
 
     if killed:
-        print("Перезапустите панель управления, когда будете готовы:")
-        print("ruslan dashboard --port <port>")
+        print("  Restart the dashboard when you're ready:")
+        print("    ruslan dashboard --port <port>")
 
 
 # Back-compat alias: some tests and any external callers may import the old
@@ -6043,7 +6269,7 @@ def _update_via_zip(args):
     # bug --branch was added to prevent. Refuse to proceed in that case
     # rather than lie.
     branch = _resolve_update_branch(args)
-    if branch != "master":
+    if branch != "main":
         print(
             f"✗ --branch={branch} is not supported on the Windows ZIP-fallback "
             "update path."
@@ -6056,16 +6282,16 @@ def _update_via_zip(args):
         )
         sys.exit(1)
     zip_url = (
-        f"https://github.com/valldun1/ruslan/archive/refs/heads/{branch}.zip"
+        f"https://github.com/NousResearch/ruslan-agent/archive/refs/heads/{branch}.zip"
     )
 
-    print("→ Загрузка последней версии...")
+    print("→ Downloading latest version...")
     tmp_dir = tempfile.mkdtemp(prefix="ruslan-update-")
     try:
         zip_path = os.path.join(tmp_dir, f"ruslan-agent-{branch}.zip")
         urlretrieve(zip_url, zip_path)
 
-        print("→ Извлечение...")
+        print("→ Extracting...")
         import stat as _stat
         with zipfile.ZipFile(zip_path, "r") as zf:
             # Validate paths to prevent zip-slip (path traversal) AND reject
@@ -6136,7 +6362,7 @@ def _update_via_zip(args):
     # Reinstall Python dependencies. Prefer .[all], but if one optional extra
     # breaks on this machine, keep base deps and reinstall the remaining extras
     # individually so update does not silently strip working capabilities.
-    print("→ Обновление зависимостей Python...")
+    print("→ Updating Python dependencies...")
 
     from ruslan_cli.managed_uv import ensure_uv, update_managed_uv
 
@@ -6174,14 +6400,14 @@ def _update_via_zip(args):
             )
         _install_python_dependencies_with_optional_fallback(pip_cmd)
 
-    _update_node_dependencies()
+    node_failures = _update_node_dependencies()
     _build_web_ui(PROJECT_ROOT / "web")
 
     # Sync skills
     try:
         from tools.skills_sync import sync_skills
 
-        print("→ Синхронизация встроенных навыков...")
+        print("→ Syncing bundled skills...")
         result = sync_skills(quiet=True)
         if result["copied"]:
             print(f"  + {len(result['copied'])} new: {', '.join(result['copied'])}")
@@ -6198,7 +6424,7 @@ def _update_via_zip(args):
         if result.get("cleaned"):
             print(f"  − {len(result['cleaned'])} removed from manifest")
         if not result["copied"] and not result.get("updated"):
-            print("✓ Навыки актуальны")
+            print("  ✓ Skills are up to date")
     except Exception:
         pass
 
@@ -6208,12 +6434,20 @@ def _update_via_zip(args):
         from ruslan_cli.model_catalog import seed_cache_from_checkout
 
         if seed_cache_from_checkout(PROJECT_ROOT):
-            print("✓ Кеш каталога моделей обновлен из репозитория")
+            print("  ✓ Model catalog cache refreshed from checkout")
     except Exception as e:
         logger.debug("Model catalog seed during zip update failed: %s", e)
 
     print()
-    print("✓ Обновление завершено!")
+    if node_failures:
+        print(
+            "⚠ Update partially complete — Node.js dependencies for "
+            f"{', '.join(node_failures)} did not refresh."
+        )
+        print("  Code and Python deps are updated, but the dashboard/TUI may")
+        print("  be in a mixed state until the Node deps are rebuilt.")
+    else:
+        print("✓ Update complete!")
     try:
         _print_curator_first_run_notice()
     except Exception as e:
@@ -6222,7 +6456,14 @@ def _update_via_zip(args):
         _print_curator_recent_run_notice()
     except Exception as e:
         logger.debug("Curator recent-run notice failed: %s", e)
-    _kill_stale_dashboard_processes()
+    # Don't stop a working dashboard when the Node refresh failed — see the
+    # git-update path for rationale (#30271).
+    if node_failures:
+        print()
+        print("  ℹ Leaving running dashboard process(es) untouched because the")
+        print("    Node.js dependency refresh did not complete.")
+    else:
+        _kill_stale_dashboard_processes()
 
 
 def _stash_local_changes_if_needed(git_cmd: list[str], cwd: Path) -> Optional[str]:
@@ -6247,7 +6488,7 @@ def _stash_local_changes_if_needed(git_cmd: list[str], cwd: Path) -> Optional[st
         text=True,
     )
     if unmerged.stdout.strip():
-        print("→ Очистка несмерженных записей индекса от предыдущего конфликта...")
+        print("→ Clearing unmerged index entries from a previous conflict...")
         subprocess.run(git_cmd + ["reset"], cwd=cwd, capture_output=True)
 
     from datetime import datetime, timezone
@@ -6255,7 +6496,7 @@ def _stash_local_changes_if_needed(git_cmd: list[str], cwd: Path) -> Optional[st
     stash_name = datetime.now(timezone.utc).strftime(
         "ruslan-update-autostash-%Y%m%d-%H%M%S"
     )
-    print("→ Обнаружены локальные изменения — стеширование перед обновлением...")
+    print("→ Local changes detected — stashing before update...")
     subprocess.run(
         git_cmd + ["stash", "push", "--include-untracked", "-m", stash_name],
         cwd=cwd,
@@ -6292,9 +6533,9 @@ def _print_stash_cleanup_guidance(
     stash_ref: str, stash_selector: Optional[str] = None
 ) -> None:
     print(
-        "Сначала проверьте `git status`, чтобы случайно не применить одно и то же изменение дважды."
+        "  Check `git status` first so you don't accidentally reapply the same change twice."
     )
-    print("Найдите сохраненную запись с помощью: git stash list --format='%gd %H %s'")
+    print("  Find the saved entry with: git stash list --format='%gd %H %s'")
     if stash_selector:
         print(f"  Remove it with: git stash drop {stash_selector}")
     else:
@@ -6312,23 +6553,23 @@ def _restore_stashed_changes(
 ) -> bool:
     if prompt_user:
         print()
-        print("⚠ Локальные изменения были припрятаны перед обновлением.")
+        print("⚠ Local changes were stashed before updating.")
         print(
-            "Их восстановление может повторно применить локальные настройки к обновленной кодовой базе."
+            "  Restoring them may reapply local customizations onto the updated codebase."
         )
-        print("Проверьте результат впоследствии, если Ruslan ведет себя неожиданно.")
-        print("Восстановить локальные изменения сейчас? [Y/n]")
+        print("  Review the result afterward if Ruslan behaves unexpectedly.")
+        print("Restore local changes now? [Y/n]")
         if input_fn is not None:
             response = input_fn("Restore local changes now? [Y/n]", "y")
         else:
             response = input().strip().lower()
         if response not in {"", "y", "yes"}:
-            print("Пропущено восстановление локальных изменений.")
-            print("Ваши изменения сохранены в git stash.")
+            print("Skipped restoring local changes.")
+            print("Your changes are still preserved in git stash.")
             print(f"Restore manually with: git stash apply {stash_ref}")
             return False
 
-    print("→ Восстановление локальных изменений...")
+    print("→ Restoring local changes...")
     restore = subprocess.run(
         git_cmd + ["stash", "apply", stash_ref],
         cwd=cwd,
@@ -6346,7 +6587,7 @@ def _restore_stashed_changes(
     has_conflicts = bool(unmerged.stdout.strip())
 
     if restore.returncode != 0 or has_conflicts:
-        print("✗ Обновление получило новый код, но восстановление локальных изменений вызвало конфликты.")
+        print("✗ Update pulled new code, but restoring local changes hit conflicts.")
         if restore.stdout.strip():
             print(restore.stdout.strip())
         if restore.stderr.strip():
@@ -6370,7 +6611,7 @@ def _restore_stashed_changes(
             cwd=cwd,
             capture_output=True,
         )
-        print("Рабочий каталог сброшен до чистого состояния.")
+        print("Working tree reset to clean state.")
         print(f"Restore your changes later with: git stash apply {stash_ref}")
         # Don't sys.exit — the code update itself succeeded, only the stash
         # restore had conflicts.  Let cmd_update continue with pip install,
@@ -6380,10 +6621,10 @@ def _restore_stashed_changes(
     stash_selector = _resolve_stash_selector(git_cmd, cwd, stash_ref)
     if stash_selector is None:
         print(
-            "⚠ Локальные изменения восстановлены, но Ruslan не смог найти запись в stash для удаления."
+            "⚠ Local changes were restored, but Ruslan couldn't find the stash entry to drop."
         )
         print(
-            "Stash был оставлен на месте. Вы можете удалить его вручную после проверки результата."
+            "  The stash was left in place. You can remove it manually after checking the result."
         )
         _print_stash_cleanup_guidance(stash_ref)
     else:
@@ -6395,19 +6636,19 @@ def _restore_stashed_changes(
         )
         if drop.returncode != 0:
             print(
-                "⚠ Локальные изменения были восстановлены, но Ruslan не смог удалить сохранённую запись stash."
+                "⚠ Local changes were restored, but Ruslan couldn't drop the saved stash entry."
             )
             if drop.stdout.strip():
                 print(drop.stdout.strip())
             if drop.stderr.strip():
                 print(drop.stderr.strip())
             print(
-                "Stash был оставлен на месте. Вы можете удалить его вручную после проверки результата."
+                "  The stash was left in place. You can remove it manually after checking the result."
             )
             _print_stash_cleanup_guidance(stash_ref, stash_selector)
 
-    print("⚠ Локальные изменения были восстановлены поверх обновленной кодовой базы.")
-    print("Проверьте `git diff` / `git status`, если Ruslan ведет себя неожиданно.")
+    print("⚠ Local changes were restored on top of the updated codebase.")
+    print("  Review `git diff` / `git status` if Ruslan behaves unexpectedly.")
     return True
 
 
@@ -6455,7 +6696,7 @@ def _discard_stashed_changes(
         _print_stash_cleanup_guidance(stash_ref, stash_selector)
         return False
 
-    print("→ Отброшены локальные изменения исходного кода (updates.non_interactive_local_changes=discard).")
+    print("→ Discarded local source changes (updates.non_interactive_local_changes=discard).")
     return True
 
 
@@ -6464,12 +6705,12 @@ def _discard_stashed_changes(
 # =========================================================================
 
 OFFICIAL_REPO_URLS = {
-    "https://github.com/valldun1/ruslan.git",
-    "git@github.com:valldun1/ruslan.git",
-    "https://github.com/valldun1/ruslan",
-    "git@github.com:valldun1/ruslan",
+    "https://github.com/NousResearch/ruslan-agent.git",
+    "git@github.com:NousResearch/ruslan-agent.git",
+    "https://github.com/NousResearch/ruslan-agent",
+    "git@github.com:NousResearch/ruslan-agent",
 }
-OFFICIAL_REPO_URL = "https://github.com/valldun1/ruslan.git"
+OFFICIAL_REPO_URL = "https://github.com/NousResearch/ruslan-agent.git"
 SKIP_UPSTREAM_PROMPT_FILE = ".skip_upstream_prompt"
 
 
@@ -6574,7 +6815,7 @@ def _sync_fork_with_upstream(git_cmd: list[str], cwd: Path) -> bool:
     """
     try:
         result = subprocess.run(
-            git_cmd + ["push", "origin", "master", "--force-with-lease"],
+            git_cmd + ["push", "origin", "main", "--force-with-lease"],
             cwd=cwd,
             capture_output=True,
             text=True,
@@ -6589,8 +6830,8 @@ def _sync_with_upstream_if_needed(git_cmd: list[str], cwd: Path) -> None:
 
     This implements the fork upstream sync logic:
     - If upstream remote doesn't exist, ask user if they want to add it
-    - Compare origin/master with upstream/master
-    - If origin/master is strictly behind upstream/master, pull from upstream
+    - Compare origin/main with upstream/main
+    - If origin/main is strictly behind upstream/main, pull from upstream
     - Try to sync fork back to origin if possible
     """
     has_upstream = _has_upstream_remote(git_cmd, cwd)
@@ -6602,102 +6843,102 @@ def _sync_with_upstream_if_needed(git_cmd: list[str], cwd: Path) -> None:
 
         # Ask user if they want to add upstream
         print()
-        print("ℹ Ваш форк не отслеживает официальный репозиторий Ruslan.")
-        print("Это означает, что вы можете пропустить обновления из NousResearch/ruslan-agent.")
+        print("ℹ Your fork is not tracking the official Ruslan repository.")
+        print("  This means you may miss updates from NousResearch/ruslan-agent.")
         print()
         try:
             response = (
-                input("Добавить официальный репозиторий как удалённый 'upstream'? [Y/n]:").strip().lower()
+                input("Add official repo as 'upstream' remote? [Y/n]: ").strip().lower()
             )
         except (EOFError, KeyboardInterrupt):
             print()
             response = "n"
 
         if response in {"", "y", "yes"}:
-            print("→ Добавление upstream удалённого репозитория...")
+            print("→ Adding upstream remote...")
             if _add_upstream_remote(git_cmd, cwd):
                 print(
-                    "✓ Добавлен upstream: https://github.com/valldun1/ruslan.git"
+                    "  ✓ Added upstream: https://github.com/NousResearch/ruslan-agent.git"
                 )
                 has_upstream = True
             else:
-                print("✗ Не удалось добавить удаленный upstream. Пропуск синхронизации upstream.")
+                print("  ✗ Failed to add upstream remote. Skipping upstream sync.")
                 return
         else:
             print(
-                "Пропущено. Выполните 'git remote add upstream https://github.com/valldun1/ruslan.git', чтобы добавить позже."
+                "  Skipped. Run 'git remote add upstream https://github.com/NousResearch/ruslan-agent.git' to add later."
             )
             _mark_skip_upstream_prompt()
             return
 
-    # Fetch upstream main only. This sync compares upstream/master with
-    # origin/master, so there's no reason to pull every upstream ref — and a bare
+    # Fetch upstream main only. This sync compares upstream/main with
+    # origin/main, so there's no reason to pull every upstream ref — and a bare
     # fetch drags in thousands of auto-generated branches.
     print()
-    print("→ Получение из вышестоящего репозитория...")
+    print("→ Fetching upstream...")
     try:
         subprocess.run(
-            git_cmd + ["fetch", "upstream", "master", "--quiet"],
+            git_cmd + ["fetch", "upstream", "main", "--quiet"],
             cwd=cwd,
             capture_output=True,
             check=True,
         )
     except subprocess.CalledProcessError:
-        print("✗ Не удалось получить upstream. Пропуск синхронизации upstream.")
+        print("  ✗ Failed to fetch upstream. Skipping upstream sync.")
         return
 
-    # Compare origin/master with upstream/master
-    origin_ahead = _count_commits_between(git_cmd, cwd, "upstream/master", "origin/master")
+    # Compare origin/main with upstream/main
+    origin_ahead = _count_commits_between(git_cmd, cwd, "upstream/main", "origin/main")
     upstream_ahead = _count_commits_between(
-        git_cmd, cwd, "origin/master", "upstream/master"
+        git_cmd, cwd, "origin/main", "upstream/main"
     )
 
     if origin_ahead < 0 or upstream_ahead < 0:
-        print("✗ Не удалось сравнить ветки. Пропуск синхронизации с upstream.")
+        print("  ✗ Could not compare branches. Skipping upstream sync.")
         return
 
-    # If origin/master has commits not on upstream, don't trample
+    # If origin/main has commits not on upstream, don't trample
     if origin_ahead > 0:
         print()
         print(f"ℹ Your fork has {origin_ahead} commit(s) not on upstream.")
-        print("Пропуск синхронизации с upstream для сохранения ваших изменений.")
-        print("Если вы хотите объединить изменения из upstream, выполните:")
-        print("git pull upstream main")
+        print("  Skipping upstream sync to preserve your changes.")
+        print("  If you want to merge upstream changes, run:")
+        print("    git pull upstream main")
         return
 
     # If upstream is not ahead, fork is up to date
     if upstream_ahead == 0:
-        print("✓ Форк актуален с upstream")
+        print("  ✓ Fork is up to date with upstream")
         return
 
-    # origin/master is strictly behind upstream/master (can fast-forward)
+    # origin/main is strictly behind upstream/main (can fast-forward)
     print()
     print(f"→ Fork is {upstream_ahead} commit(s) behind upstream")
-    print("→ Вытягивание из вышестоя")
+    print("→ Pulling from upstream...")
 
     try:
         subprocess.run(
-            git_cmd + ["pull", "--ff-only", "upstream", "master"],
+            git_cmd + ["pull", "--ff-only", "upstream", "main"],
             cwd=cwd,
             check=True,
         )
     except subprocess.CalledProcessError:
         print(
-            "✗ Не удалось выполнить pull из upstream. Возможно, потребуется разрешить конфликты вручную."
+            "  ✗ Failed to pull from upstream. You may need to resolve conflicts manually."
         )
         return
 
-    print("✓ Обновлено из вышестоящего репозитория")
+    print("  ✓ Updated from upstream")
 
     # Try to sync fork back to origin
-    print("→ Синхронизация форка...")
+    print("→ Syncing fork...")
     if _sync_fork_with_upstream(git_cmd, cwd):
-        print("✓ Форк синхронизирован с upstream")
+        print("  ✓ Fork synced with upstream")
     else:
         print(
-            "ℹ Получены обновления из upstream, но не удалось отправить в форк (нет прав на запись?)"
+            "  ℹ Got updates from upstream but couldn't push to fork (no write access?)"
         )
-        print("Ваш локальный репозиторий обновлён, но ваш форк на GitHub может отставать.")
+        print("    Your local repo is updated, but your fork on GitHub may be behind.")
 
 
 def _invalidate_update_cache():
@@ -6844,6 +7085,55 @@ def _recover_from_interrupted_install() -> None:
         # the install itself will surface the real problem.
         logger.debug("Could not create install-recovery lock: %s", exc)
 
+    # Windows self-lock guard: if ruslan.exe is the launcher that spawned
+    # this Python process, any attempt to pip-install will fail with
+    # "拒绝访问 / WinError 32" because the running .exe cannot be replaced.
+    # Rather than entering the permanent retry loop described in issue
+    # #45542, clear the marker and give the user an offline recovery command.
+    if _is_windows():
+        scripts_dir = _venv_scripts_dir()
+        if scripts_dir is not None:
+            shims = _ruslan_exe_shims(scripts_dir)
+            if shims:
+                _shim_set: set[str] = set()
+                for _s in shims:
+                    try:
+                        _shim_set.add(str(_s.resolve()).lower())
+                    except OSError:
+                        _shim_set.add(str(_s).lower())
+                try:
+                    import psutil
+                    _me = psutil.Process()
+                    for _anc in [_me] + list(_me.parents()):
+                        try:
+                            _anc_exe = _anc.exe()
+                            _anc_norm = str(Path(_anc_exe).resolve()).lower()
+                        except Exception:
+                            continue
+                        if _anc_norm in _shim_set:
+                            print(
+                                "✗ Ruslan is running from the binary that "
+                                "needs to be replaced — the auto-recovery "
+                                "cannot overwrite a running executable."
+                            )
+                            print(
+                                "  Restart Ruslan from a different terminal, "
+                                "then run the manual recovery command below:"
+                            )
+                            print(f'    cd /d "{PROJECT_ROOT}"')
+                            print(
+                                f'    "{sys.executable}" -m pip install '
+                                '-e ".[all]"'
+                            )
+                            _clear_update_incomplete_marker()
+                            try:
+                                lock_path.unlink()
+                            except OSError:
+                                pass
+                            return
+                except Exception:
+                    pass  # psutil is best-effort; fall through to install
+
     saved_stdout_fd = None
     saved_sys_stdout = sys.stdout
     try:
@@ -6894,13 +7184,13 @@ def _recover_from_interrupted_install() -> None:
                 )
 
             _clear_update_incomplete_marker()
-            print("✓ Установка зависимостей восстановлена — ваша установка снова в порядке.")
+            print("✓ Dependency installation recovered — your install is healthy again.")
         except Exception as exc:
             # Leave the marker in place so the next launch retries. Give the user
             # the exact manual recovery command in the meantime.
             logger.debug("Interrupted-install recovery failed: %s", exc)
-            print("✗ Не удалось автоматически восстановить прерванную установку.")
-            print("Восстановите вручную с помощью:")
+            print("✗ Could not auto-recover the interrupted install.")
+            print("  Recover manually with:")
             print(f"    cd {PROJECT_ROOT}")
             print(f"    {sys.executable} -m ensurepip --upgrade")
             print(f"    {sys.executable} -m pip install -e '.[all]'")
@@ -6979,10 +7269,12 @@ def _ruslan_exe_shims(scripts_dir: Path) -> list[Path]:
     """
     if not _is_windows():
         return []
-    return [
-        scripts_dir / "ruslan.exe",
-        scripts_dir / "ruslan-gateway.exe",
-    ]
+
+    names = set(_load_console_script_names()) or {"ruslan", "ruslan-agent", "ruslan-acp"}
+    # The gateway shim is not a [project.scripts] entry point, but older
+    # update/install paths still rewrite and quarantine it.
+    names.add("ruslan-gateway")
+    return [scripts_dir / f"{name}.exe" for name in sorted(names)]
 
 
 def _detect_concurrent_ruslan_instances(
@@ -7397,8 +7689,8 @@ def _refresh_active_lazy_features() -> None:
             if len(reason) > 200:
                 reason = reason[:200] + "..."
             print(f"  ⚠ {feature} failed to refresh: {reason}")
-        print("Бэкенды сохраняют свою ранее установленную версию; повторно выполните")
-        print("`ruslan update` после устранения проблемы с upstream.")
+        print("  Backends keep their previously-installed version; rerun")
+        print("  `ruslan update` once the upstream issue is resolved.")
 
 
 def _install_python_dependencies_with_optional_fallback(
@@ -7426,10 +7718,11 @@ def _install_python_dependencies_with_optional_fallback(
 
     try:
         _install(["install", "-e", f".[{group}]"])
+        _verify_console_scripts_installed(install_cmd_prefix, env=env)
         return
     except subprocess.CalledProcessError:
         print(
-            "⚠ Дополнительные пакеты не установлены, переустановка базовых зависимостей и повторные попытки по отдельности..."
+            "  ⚠ Optional extras failed, reinstalling base dependencies and retrying extras individually..."
         )
 
     _install(["install", "-e", "."])
@@ -7463,6 +7756,97 @@ def _install_python_dependencies_with_optional_fallback(
     # missing, then re-verify so the failure surfaces here instead of
     # downstream.
     _verify_core_dependencies_installed(install_cmd_prefix, env=env, group=group)
+    _verify_console_scripts_installed(install_cmd_prefix, env=env)
+
+
+def _load_console_script_names() -> list[str]:
+    """Return ``[project.scripts]`` entry-point names from pyproject.toml."""
+    try:
+        import tomllib  # Python 3.11+
+    except ImportError:  # pragma: no cover
+        return []
+
+    pyproject = PROJECT_ROOT / "pyproject.toml"
+    if not pyproject.is_file():
+        return []
+
+    try:
+        with open(pyproject, "rb") as f:
+            data = tomllib.load(f)
+        scripts = data.get("project", {}).get("scripts", {}) or {}
+        return [str(name) for name in scripts if name]
+    except Exception as e:
+        logger.debug("console script verification: failed to read pyproject.toml: %s", e)
+        return []
+
+
+def _verify_console_scripts_installed(
+    install_cmd_prefix: list[str],
+    *,
+    env: dict[str, str] | None = None,
+) -> None:
+    """Ensure every declared console_script shim exists on disk after install.
+
+    On Windows, ``uv pip install -e .`` can register ``ruslan.exe`` in the
+    wheel RECORD while the file never lands on disk — typically when the live
+    ``ruslan.exe`` shim is locked during ``ruslan update``, or when uv/distlib
+    skips a launcher write. The symptom is ``ruslan-agent.exe`` and
+    ``ruslan-acp.exe`` present but ``ruslan.exe`` missing, so ``ruslan`` drops
+    off PATH even though the install reported success (issue #52931).
+
+    If any shim is missing we reinstall with ``--reinstall -e .`` under the
+    same quarantine dance as the primary install path, then re-check.
+    """
+    if not _is_windows():
+        return
+
+    scripts_dir = _venv_scripts_dir()
+    if scripts_dir is None:
+        return
+
+    names = _load_console_script_names()
+    if not names:
+        return
+
+    def _missing() -> list[str]:
+        return [
+            name
+            for name in names
+            if not (scripts_dir / f"{name}.exe").is_file()
+        ]
+
+    missing = _missing()
+    if not missing:
+        return
+
+    print(
+        f"  ⚠ Verification: {len(missing)} console script(s) missing on disk: "
+        f"{', '.join(missing)}"
+    )
+    print("  → Reinstalling entry points with --reinstall...")
+
+    try:
+        _run_quarantined_install(
+            install_cmd_prefix + ["install", "--reinstall", "-e", "."],
+            env=env,
+            scripts_dir=scripts_dir,
+        )
+    except subprocess.CalledProcessError as e:
+        logger.warning("console script verification: repair install failed: %s", e)
+        print(
+            "  ⚠ Entry point repair failed; try `ruslan update --force` after "
+            "closing other ruslan processes."
+        )
+        return
+
+    still_missing = _missing()
+    if still_missing:
+        print(
+            f"  ⚠ Still missing after repair: {', '.join(still_missing)}. "
+            "Workaround: python -m ruslan_cli.main <command>"
+        )
+    else:
+        print("  ✓ All console entry points restored")
 
 
 def _verify_core_dependencies_installed(
@@ -7582,7 +7966,7 @@ def _verify_core_dependencies_installed(
         f"  ⚠ Verification: {len(missing)} declared dep(s) missing after install: "
         f"{', '.join(missing[:8])}{'...' if len(missing) > 8 else ''}"
     )
-    print("→ Переустановка базовой группы с --reinstall для исправления...")
+    print("  → Reinstalling base group with --reinstall to repair...")
 
     # Reinstall base group with --reinstall so uv re-resolves from scratch
     # against the current pyproject. We don't pass ``[{group}]`` here on
@@ -7600,13 +7984,13 @@ def _verify_core_dependencies_installed(
             install_cmd_prefix + repair_args, env=env, scripts_dir=scripts_dir
         )
     except subprocess.CalledProcessError as e:
-        logger.warning("dep проверка: восстановление установки не удалось: %s", e)
-        print("⚠ Восстановление установки не удалось; проверьте вывод `ruslan update` выше.")
+        logger.warning("dep verification: repair install failed: %s", e)
+        print("  ⚠ Repair install failed; check `ruslan update` output above.")
         return
 
     still_missing = _missing_deps()
     if not still_missing:
-        print("✓ Все указанные основные зависимости теперь установлены")
+        print("  ✓ All declared core dependencies now installed")
         return
 
     # Last-ditch: install each remaining missing dep with its pin directly.
@@ -7631,7 +8015,7 @@ def _verify_core_dependencies_installed(
             install_cmd_prefix + ["install", "--reinstall", *specs], env=env
         )
     except subprocess.CalledProcessError as e:
-        logger.warning("dep проверка: восстановление отдельных пакетов не удалось: %s", e)
+        logger.warning("dep verification: per-package repair failed: %s", e)
         print(
             f"  ⚠ Could not install: {', '.join(still_missing)}. "
             "Run `ruslan update --force` after closing other ruslan processes."
@@ -7645,7 +8029,7 @@ def _verify_core_dependencies_installed(
             "Run `ruslan update --force` after closing other ruslan processes."
         )
     else:
-        print("✓ Все указанные основные зависимости теперь установлены")
+        print("  ✓ All declared core dependencies now installed")
 
 
 def _resolve_install_target_python(
@@ -7725,8 +8109,9 @@ def _ensure_uv_for_termux(pip_cmd: list[str]) -> str | None:
 
     The normal path (``ensure_uv()`` in managed_uv) installs the managed
     standalone uv into ``$RUSLAN_HOME/bin/uv``, but on Termux the official
-    installer may not work (glibc vs bionic).  Fall back to ``pip install uv``
-    which gets a Termux-compatible binary.
+    installer may not work (glibc vs bionic).  Prefer a uv already on PATH
+    (e.g. ``pkg install uv``); only if there is none do we fall back to a
+    wheel-only ``pip install uv`` so we never source-build the Rust crate.
     """
     from ruslan_cli.managed_uv import resolve_uv
 
@@ -7735,24 +8120,209 @@ def _ensure_uv_for_termux(pip_cmd: list[str]) -> str | None:
         return existing
     if not _is_termux_env():
         return None
+    # A Termux-packaged uv lands on PATH but not in the managed bin dir, so
+    # resolve_uv() misses it. Use it before pip, which has no Android wheel and
+    # would otherwise build uv from source on a low-memory device.
+    system_uv = shutil.which("uv")
+    if system_uv:
+        return system_uv
     try:
-        print("→ Обнаружен Termux: попытка установить uv для более быстрого обновления зависимостей...")
-        subprocess.run(pip_cmd + ["install", "uv"], cwd=PROJECT_ROOT, check=False)
+        print("  → Termux detected: trying to install uv for faster dependency updates...")
+        result = subprocess.run(
+            pip_cmd + ["install", "uv", "--only-binary", ":all:"],
+            cwd=PROJECT_ROOT,
+            check=False,
+        )
+        if result.returncode != 0:
+            return None
     except Exception:
         pass
     # After pip install, check managed path first, then PATH
     return resolve_uv() or shutil.which("uv")
 
 
-def _update_node_dependencies() -> None:
-    from ruslan_constants import find_node_executable, with_ruslan_node_path
+def _npm_manifest_paths() -> tuple[Path, ...]:
+    """Manifests whose changes must defeat the update-skip.
+
+    The lockfile alone is NOT a sufficient key: on a local checkout a dev
+    can edit package.json (root or a workspace) without running npm — the
+    lockfile is then unchanged but `ruslan update` is exactly the step
+    expected to sync node_modules (via the `npm install` fallback in
+    _run_npm_install_deterministic).
+
+    The workspace list is pulled from the root package.json's `workspaces`
+    globs (npm's own source of truth) rather than hardcoded, so adding a
+    workspace can never silently escape the skip key. The root install
+    (step 1, --workspaces=false) still hoists shared deps for EVERY
+    workspace — desktop included — so all of them belong in the key, not
+    just the ones step 2 installs. Falls back to hashing just root
+    manifests if package.json is unreadable (never skips more than main
+    would have installed).
+    """
+    root_pkg = PROJECT_ROOT / "package.json"
+    paths = [PROJECT_ROOT / "package-lock.json", root_pkg]
+    try:
+        workspaces = json.loads(root_pkg.read_text(encoding="utf-8")).get(
+            "workspaces", []
+        )
+        if isinstance(workspaces, dict):  # legacy {"packages": [...]} form
+            workspaces = workspaces.get("packages", [])
+        for pattern in workspaces:
+            for match in sorted(PROJECT_ROOT.glob(str(pattern))):
+                manifest = match / "package.json"
+                if manifest.is_file():
+                    paths.append(manifest)
+    except (OSError, json.JSONDecodeError, TypeError):
+        pass
+    return tuple(paths)
+
+
+def _npm_manifests_digest() -> str | None:
+    """Combined sha256 over the lockfile + all workspace package.json files.
+
+    Returns None when the lockfile is missing (never skip then).
+    """
+    if not (PROJECT_ROOT / "package-lock.json").exists():
+        return None
+    h = hashlib.sha256()
+    for p in _npm_manifest_paths():
+        h.update(str(p.relative_to(PROJECT_ROOT)).encode())
+        try:
+            h.update(p.read_bytes())
+        except OSError:
+            h.update(b"<missing>")
+    return h.hexdigest()
+
+
+def _npm_lockfile_changed(ruslan_root: Path) -> bool:
+    current = _npm_manifests_digest()
+    if current is None:
+        return True
+    # Also check that node_modules exists; a matching hash with missing
+    # node_modules means the cache was recorded by another checkout.
+    if not (PROJECT_ROOT / "node_modules").is_dir():
+        return True
+    try:
+        # Key the cache by PROJECT_ROOT so parallel worktrees don't collide.
+        cache_key = hashlib.sha256(str(PROJECT_ROOT).encode()).hexdigest()[:12]
+        cache_file = ruslan_root / f".npm_lock_hash_{cache_key}"
+        if not cache_file.exists():
+            return True
+        return cache_file.read_text(encoding="utf-8").strip() != current
+    except OSError:
+        return True
+
+
+def _record_npm_lockfile_hash(ruslan_root: Path) -> None:
+    digest = _npm_manifests_digest()
+    if digest is None:
+        return
+    try:
+        cache_key = hashlib.sha256(str(PROJECT_ROOT).encode()).hexdigest()[:12]
+        cache_file = ruslan_root / f".npm_lock_hash_{cache_key}"
+        cache_file.write_text(digest, encoding="utf-8")
+    except OSError:
+        logger.debug("Could not write npm lockfile hash cache")
+
+
+def _is_windows_npm_path(npm_path: str) -> bool:
+    """Return True if ``npm_path`` points at a Windows npm shim.
+
+    On WSL the Windows install dir is exposed through the ``/mnt/c`` drive
+    mount and PATH interop, so ``shutil.which("npm")`` can hand back
+    ``/mnt/c/Program Files/nodejs/npm`` (or the ``npm.cmd`` / ``npm.exe``
+    shim). Those are detected here by their ``.exe``/``.cmd``/``.bat``
+    suffix, a ``/mnt/`` drive-mount prefix, or an embedded backslash (a UNC
+    path). Callers use this only on a POSIX host — on native Windows an
+    ``npm.cmd`` shim is the correct executable.
+    """
+    low = npm_path.lower()
+    return (
+        low.endswith((".exe", ".cmd", ".bat"))
+        or low.startswith("/mnt/")
+        or "\\" in npm_path
+    )
+
+
+def _resolve_node_runtime_npm() -> str | None:
+    """Resolve an npm executable that belongs to the host's Node runtime.
+
+    On WSL/Linux ``shutil.which("npm")`` may resolve a Windows npm exposed
+    through PATH interop. Running that Windows npm against the Linux checkout
+    operates over ``\\wsl.localhost\\...`` UNC paths and fails with EISDIR /
+    symlink errors in symlink-heavy trees like ``ui-tui`` (#30271). Refuse a
+    Windows npm on a POSIX host and re-scan PATH (skipping ``/mnt/*`` interop
+    entries) for a Linux-native npm. Returns the npm path, or ``None`` when
+    no suitable npm is reachable.
+    """
+    from ruslan_constants import find_node_executable
 
     npm = find_node_executable("npm")
-    if not npm:
-        return
 
+    # On native Windows the platform npm (``npm.cmd``) is exactly what we
+    # want — only reject Windows shims when we're a POSIX/WSL process.
+    if _is_windows():
+        return npm
+
+    if not npm:
+        return None
+
+    if not _is_windows_npm_path(npm):
+        return npm
+
+    # The first resolution was a Windows npm. Re-scan PATH skipping the
+    # ``/mnt/*`` Windows drive mounts WSL injects, so a Linux-native npm that
+    # came later on PATH is still found.
+    for directory in os.environ.get("PATH", "").split(os.pathsep):
+        if not directory or directory.lower().startswith("/mnt/"):
+            continue
+        candidate = shutil.which("npm", path=directory)
+        if candidate and not _is_windows_npm_path(candidate):
+            return candidate
+    return None
+
+
+def _update_node_dependencies() -> list[str]:
+    """Refresh Node deps in the repo root and update workspaces.
+
+    Returns the list of labels whose npm install failed (empty on success),
+    so the caller can treat a Node refresh failure as a partial update rather
+    than silently reporting ``Update complete!`` (#30271).
+    """
     if not (PROJECT_ROOT / "package.json").exists():
-        return
+        return []
+
+    npm = _resolve_node_runtime_npm()
+    if not npm:
+        # If the only npm reachable inside this WSL shell is the Windows one,
+        # flag it loudly: silently skipping leaves ui-tui deps stale while the
+        # rest of the update proceeds, and running it would corrupt the tree.
+        from ruslan_constants import is_wsl
+
+        path_npm = shutil.which("npm")
+        if is_wsl() and path_npm and _is_windows_npm_path(path_npm):
+            print("→ Updating Node.js dependencies...")
+            print("  ⚠ Skipped: only a Windows npm is reachable from this WSL shell.")
+            print("    Install Node.js inside the WSL distro (nvm, or your distro's")
+            print("    package manager), then re-run `ruslan update`.")
+            failed = ["repo root"]
+            if any(
+                (PROJECT_ROOT / workspace / "package.json").exists()
+                for workspace in ("ui-tui", "web")
+            ):
+                failed.append("ui-tui, web workspaces")
+            return failed
+        return []
+
+    from ruslan_constants import get_default_ruslan_root
+
+    # This cache describes PROJECT_ROOT/node_modules, which is shared by every
+    # Ruslan profile using this checkout. Keep one per-checkout cache under the
+    # shared Ruslan root rather than rerunning npm once per named profile.
+    shared_ruslan_root = get_default_ruslan_root()
+    if not _npm_lockfile_changed(shared_ruslan_root):
+        logger.info("npm lockfile unchanged, skipping npm install")
+        return []
 
     # With a single workspace lockfile the root install would cover ALL
     # workspaces — but apps/desktop pulls in Electron as a devDependency,
@@ -7761,12 +8331,27 @@ def _update_node_dependencies() -> None:
     # then add just the workspaces the CLI/TUI/web build actually requires.
     # Desktop deps are installed on demand by the desktop launcher
     # (see _desktop_build_needed).
-    print("→ Обновление зависимостей Node.js...")
+    print("→ Updating Node.js dependencies...")
+
+    def _partial_update_failure(*labels: str) -> list[str]:
+        print()
+        print("  ⚠ Node.js dependency refresh did not complete cleanly; the")
+        print("    installation may be in a mixed state (updated code, stale Node")
+        print("    deps). Fix npm and re-run `ruslan update`.")
+        return list(labels)
+
     extra_args = ["--no-fund", "--no-audit", "--progress=false"]
+
+    from ruslan_constants import with_ruslan_node_path
 
     nixos_env = with_ruslan_node_path(_nixos_build_env())
 
     # Step 1: root install (no workspace recursion).
+    # NOTE: capture_output=False here is deliberate (#18840) — optional
+    # postinstall scripts (e.g. @askjo/camofox-browser's browser-binary fetch)
+    # print download progress, and capturing it makes a long download look
+    # hung. The chatty npm-deprecation noise during `ruslan update` comes from
+    # the *desktop* build, not this step; that one is captured to update.log.
     root_args = [*extra_args, "--workspaces=false"]
     root_result = _run_npm_install_deterministic(
         npm,
@@ -7776,11 +8361,11 @@ def _update_node_dependencies() -> None:
         env=nixos_env,
     )
     if root_result.returncode != 0:
-        print("⚠ npm install не выполнен в корне репозитория")
+        print("  ⚠ npm install failed in repo root")
         stderr = (root_result.stderr or "").strip() if root_result.stderr else ""
         if stderr:
             print(f"    {stderr.splitlines()[-1]}")
-        return
+        return _partial_update_failure("repo root")
 
     # Step 2: install only the workspaces update needs (ui-tui, web).
     # --workspace selects specific workspaces; the rest (desktop) are skipped.
@@ -7793,12 +8378,15 @@ def _update_node_dependencies() -> None:
         env=nixos_env,
     )
     if ws_result.returncode == 0:
-        print("✓ корень репозитория + ui-tui, web workspaces (desktop пропущен)")
-    else:
-        print("⚠ установка npm workspace не выполнена")
-        stderr = (ws_result.stderr or "").strip() if ws_result.stderr else ""
-        if stderr:
-            print(f"    {stderr.splitlines()[-1]}")
+        _record_npm_lockfile_hash(shared_ruslan_root)
+        print("  ✓ repo root + ui-tui, web workspaces (desktop skipped)")
+        return []
+
+    print("  ⚠ npm workspace install failed")
+    stderr = (ws_result.stderr or "").strip() if ws_result.stderr else ""
+    if stderr:
+        print(f"    {stderr.splitlines()[-1]}")
+    return _partial_update_failure("ui-tui, web workspaces")
 
 
 class _UpdateOutputStream:
@@ -7955,6 +8543,50 @@ def _install_hangup_protection(gateway_mode: bool = False):
     return state
 
 
+def _log_only_write(text: str) -> None:
+    """Write ``text`` to ``~/.ruslan/logs/update.log`` only, never the terminal.
+
+    During ``ruslan update`` ``sys.stdout`` is an ``_UpdateOutputStream`` that
+    mirrors to both the terminal and ``update.log``. Loud, low-signal
+    subprocess output (npm installs, the Electron/vite build, the cua-driver
+    installer's "Next steps" wall) should be captured and tucked into the log
+    so failures stay debuggable, without flooding the user's terminal. This
+    reaches past the mirroring stream straight to the underlying log handle.
+    """
+    if not text:
+        return
+    stream = sys.stdout
+    log_file = getattr(stream, "_log", None)
+    if log_file is None:
+        return
+    try:
+        log_file.write(text if text.endswith("\n") else text + "\n")
+        log_file.flush()
+    except Exception:
+        pass
+
+
+def _run_logged_subprocess(cmd, *, cwd=None, env=None):
+    """Run ``cmd`` capturing combined output into update.log (not the terminal).
+
+    Returns the ``CompletedProcess`` (with ``stdout`` populated) so the caller
+    can decide whether to surface the captured output on failure.
+    """
+    result = subprocess.run(
+        cmd,
+        cwd=cwd,
+        env=env,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    _log_only_write(result.stdout or "")
+    return result
+
+
 def _finalize_update_output(state):
     """Restore stdio and close the update.log handle opened by ``_install_hangup_protection``."""
     if not state:
@@ -7985,13 +8617,14 @@ def _resolve_update_branch(args) -> str:
     ``--branch`` (check path, git-update path, ZIP-fallback path) agrees on
     the same answer.
     """
-    return (getattr(args, "branch", None) or "master").strip() or "master"
+    return (getattr(args, "branch", None) or "main").strip() or "main"
 
-def _cmd_update_check(branch: str = "master", *, branch_explicit: bool = False):
+
+def _cmd_update_check(branch: str = "main", *, branch_explicit: bool = False):
     """Implement ``ruslan update --check``: fetch and report without installing.
 
     ``branch`` selects which branch the check compares against. Default is
-    "master"; callers can pass another branch to ask "are there new commits
+    "main"; callers can pass another branch to ask "are there new commits
     on origin/<branch>?" without performing the update.
 
     ``branch_explicit`` is True iff the caller passed --branch on the CLI.
@@ -7999,8 +8632,14 @@ def _cmd_update_check(branch: str = "master", *, branch_explicit: bool = False):
     on a PyPI install we surface a one-line notice instead of silently
     dropping the flag.
     """
-    from ruslan_cli.config import detect_install_method
+    from ruslan_cli.config import (
+        detect_install_method,
+        format_unsupported_install_warning,
+        is_unsupported_install_method,
+    )
     method = detect_install_method(PROJECT_ROOT)
+    if is_unsupported_install_method(method):
+        print(f"⚠ {format_unsupported_install_warning(method)}")
     if method == "docker":
         # Docker can't ``git fetch`` from within the container.  Surface the
         # same long-form ``docker pull`` guidance ``ruslan update`` (apply
@@ -8012,22 +8651,22 @@ def _cmd_update_check(branch: str = "master", *, branch_explicit: bool = False):
     if method == "pip":
         from ruslan_cli.config import recommended_update_command
         from ruslan_cli.banner import check_via_pypi
-        if branch_explicit and branch != "master":
+        if branch_explicit and branch != "main":
             print(f"⚠ --branch is ignored for PyPI installs (would have checked '{branch}').")
         result = check_via_pypi()
         if result is None:
-            print("✗ Не удалось связаться с PyPI для проверки обновлений.")
+            print("✗ Could not reach PyPI to check for updates.")
             sys.exit(1)
         elif result == 0:
-            print("✓ Уже актуально.")
+            print("✓ Already up to date.")
         else:
-            print("🛡️ Доступно обновление на PyPI.")
+            print("⚕ Update available on PyPI.")
             print(f"  Run '{recommended_update_command()}' to install.")
         return
 
     git_dir = PROJECT_ROOT / ".git"
     if not git_dir.exists():
-        print("✗ Не является git-репозиторием — невозможно проверить обновления.")
+        print("✗ Not a git repository — cannot check for updates.")
         sys.exit(1)
 
     git_cmd = ["git"]
@@ -8056,8 +8695,8 @@ def _cmd_update_check(branch: str = "master", *, branch_explicit: bool = False):
     )
     depth_args = ["--depth", "1"] if is_shallow else []
 
-    if branch == "master":
-        print("→ Получение из upstream...")
+    if branch == "main":
+        print("→ Fetching from upstream...")
         fetch_result = subprocess.run(
             git_cmd + ["fetch"] + depth_args + ["upstream", branch],
             cwd=PROJECT_ROOT,
@@ -8066,7 +8705,7 @@ def _cmd_update_check(branch: str = "master", *, branch_explicit: bool = False):
         )
         if fetch_result.returncode != 0:
             # Fallback to origin if upstream doesn't exist
-            print("→ Получение из origin...")
+            print("→ Fetching from origin...")
             fetch_result = subprocess.run(
                 git_cmd + ["fetch"] + depth_args + ["origin", branch],
                 cwd=PROJECT_ROOT,
@@ -8080,7 +8719,7 @@ def _cmd_update_check(branch: str = "master", *, branch_explicit: bool = False):
             compare_branch = f"upstream/{branch}"
     else:
         # Non-default branch: compare against origin/<branch> directly.
-        print("→ Получение из origin...")
+        print("→ Fetching from origin...")
         fetch_result = subprocess.run(
             git_cmd + ["fetch"] + depth_args + ["origin", branch],
             cwd=PROJECT_ROOT,
@@ -8093,11 +8732,11 @@ def _cmd_update_check(branch: str = "master", *, branch_explicit: bool = False):
     if fetch_result.returncode != 0:
         stderr = fetch_result.stderr.strip()
         if "Could not resolve host" in stderr or "unable to access" in stderr:
-            print("✗ Сетевая ошибка — невозможно подключиться к удалённому репозиторию.")
+            print("✗ Network error — cannot reach the remote repository.")
         elif "Authentication failed" in stderr or "could not read Username" in stderr:
-            print("✗ Ошибка аутентификации — проверьте ваши git-учётные данные или SSH-ключ.")
+            print("✗ Authentication failed — check your git credentials or SSH key.")
         else:
-            print("✗ Не удалось получить данные.")
+            print("✗ Failed to fetch.")
             if stderr:
                 print(f"  {stderr.splitlines()[0]}")
         sys.exit(1)
@@ -8128,9 +8767,9 @@ def _cmd_update_check(branch: str = "master", *, branch_explicit: bool = False):
             cwd=PROJECT_ROOT, capture_output=True, text=True,
         ).stdout.strip()
         if head_sha and target_sha and head_sha == target_sha:
-            print("✓ Уже актуально.")
+            print("✓ Already up to date.")
         else:
-            print(f"🛡️ Update available (behind {compare_branch}).")
+            print(f"⚕ Update available (behind {compare_branch}).")
             from ruslan_cli.config import recommended_update_command
 
             print(f"  Run '{recommended_update_command()}' to install.")
@@ -8146,10 +8785,10 @@ def _cmd_update_check(branch: str = "master", *, branch_explicit: bool = False):
     behind = int(rev_result.stdout.strip())
 
     if behind == 0:
-        print("✓ Уже актуально.")
+        print("✓ Already up to date.")
     else:
         commits_word = "commit" if behind == 1 else "commits"
-        print(f"🛡️ Update available: {behind} {commits_word} behind {compare_branch}.")
+        print(f"⚕ Update available: {behind} {commits_word} behind {compare_branch}.")
         from ruslan_cli.config import recommended_update_command
 
         print(f"  Run '{recommended_update_command()}' to install.")
@@ -8241,7 +8880,7 @@ def _ensure_fhs_path_guard() -> None:
         print(f"  ✓ Added /usr/local/bin to PATH in {cfg}")
         wrote_any = True
     if wrote_any:
-        print("(перезагрузите оболочку или выполните 'source ~/.bashrc', чтобы применить изменения)")
+        print("    (reload your shell or run 'source ~/.bashrc' to pick it up)")
 
 
 def _run_pre_update_backup(args) -> None:
@@ -8256,7 +8895,7 @@ def _run_pre_update_backup(args) -> None:
     """
     # CLI flags win over config.  --no-backup beats --backup if both are set.
     if getattr(args, "no_backup", False):
-        print("◆ Резервное копирование перед обновлением: пропущено (--no-backup)")
+        print("◆ Pre-update backup: skipped (--no-backup)")
         print()
         return
 
@@ -8273,13 +8912,12 @@ def _run_pre_update_backup(args) -> None:
         cfg = {}
 
     updates_cfg = cfg.get("updates", {}) if isinstance(cfg, dict) else {}
-    # The default config ships with ``pre_update_backup: true`` (see
-    # ``ruslan_cli/config.py``). Fall back to true if the key is missing
-    # (e.g. a user has an older custom config without the field). The
-    # ``False`` default from before #48200 caused silent data loss when
-    # an update step computed a wrong path — the cost of a few minutes
-    # of zip time per update is negligible compared to the alternative.
-    enabled = updates_cfg.get("pre_update_backup", True)
+    # The default config ships with ``pre_update_backup: false`` (see
+    # ``ruslan_cli/config.py``). Fall back to false if the key is missing
+    # so the default behaviour matches the shipped config: zipping a large
+    # RUSLAN_HOME can add minutes to every update. Users who want the
+    # #48200 safety net opt in via the config knob or ``--backup``.
+    enabled = updates_cfg.get("pre_update_backup", False)
     keep = updates_cfg.get("backup_keep", 5)
 
     if not enabled and not force_backup:
@@ -8297,20 +8935,20 @@ def _run_pre_update_backup(args) -> None:
         print()
         return
 
-    print("◆ Создание резервной копии перед обновлением...")
+    print("◆ Creating pre-update backup...")
     t0 = _time.monotonic()
     try:
         out_path = create_pre_update_backup(keep=int(keep))
     except Exception as exc:  # defensive — helper already swallows, but just in case
         print(f"  ⚠ Backup failed: {exc}")
-        print("Продолжение обновления.")
+        print("  Continuing with update.")
         print()
         return
 
     elapsed = _time.monotonic() - t0
 
     if out_path is None:
-        print("⚠ Резервное копирование пропущено (файлы не найдены или запись не удалась); продолжение обновления.")
+        print("  ⚠ Backup skipped (no files found or write failed); continuing update.")
         print()
         return
 
@@ -8341,8 +8979,8 @@ def _run_pre_update_backup(args) -> None:
 
     print(f"  Saved:    {display_path} ({size_str}, {elapsed:.1f}s)")
     print(f"  Restore:  ruslan import {out_path}")
-    print(f"  Disable:  omit --backup (backups are off by default)")
-    print(f"            set updates.pre_update_backup: false in config.yaml")
+    print("  Disable:  omit --backup (backups are off by default)")
+    print("            set updates.pre_update_backup: false in config.yaml")
     print()
 
 
@@ -8400,6 +9038,193 @@ def _wait_for_windows_update_gateway_exit(
         except Exception:
             pass
     return survivors
+
+
+def _venv_core_imports_healthy() -> tuple[bool, str]:
+    """Probe the project venv for the core imports the backend needs to boot.
+
+    Runs a tiny import check inside the venv interpreter (NOT this process —
+    ``ruslan update`` may be driven by a different Python). Catches the
+    half-updated-venv state: git checkout current but a dependency sync that
+    failed or was killed partway (e.g. Windows access-denied on a loaded
+    .pyd), leaving imports like ``fastapi``'s new transitive deps missing.
+    Without this probe, ``ruslan update`` on a current checkout prints
+    "Already up to date!" and returns without ever re-syncing dependencies —
+    the user's install stays broken no matter how many times they update
+    (ryanc's incident, July 2026).
+
+    Returns ``(healthy, detail)``. Never raises; unknown states report
+    healthy so a probe failure can't force needless reinstalls.
+    """
+    venv_dir = PROJECT_ROOT / "venv"
+    python_name = "python.exe" if _is_windows() else "python"
+    bin_dir = "Scripts" if _is_windows() else "bin"
+    venv_python = venv_dir / bin_dir / python_name
+    if not venv_python.exists():
+        # No venv interpreter at all. In a dev checkout that's normal (the
+        # dev may run ruslan from any interpreter), so report healthy to
+        # avoid forcing reinstalls. But on a MANAGED install (the Windows
+        # installer / desktop bootstrap stamps `.ruslan-bootstrap-complete`,
+        # and an interrupted update leaves `.update-incomplete`), the venv
+        # IS the install — its absence means a repair got interrupted after
+        # the old venv was moved aside, and "Already up to date!" would
+        # gaslight the user while nothing can run.
+        managed_markers = (
+            PROJECT_ROOT / ".ruslan-bootstrap-complete",
+            _update_marker_path(),
+        )
+        if any(m.exists() for m in managed_markers):
+            return False, f"venv python missing ({venv_python})"
+        return True, ""
+
+    # Core web/serve imports plus their newest transitive deps. Import (not
+    # just metadata) — a package can have intact dist-info but a missing
+    # module after an interrupted uninstall/install cycle.
+    check = (
+        "import importlib\n"
+        "mods = ['fastapi', 'uvicorn', 'pydantic', 'openai', 'yaml']\n"
+        "missing = []\n"
+        "for m in mods:\n"
+        "    try: importlib.import_module(m)\n"
+        "    except Exception as e: missing.append(f'{m}: {e}')\n"
+        "print('\\n'.join(missing))\n"
+    )
+    try:
+        result = subprocess.run(
+            [str(venv_python), "-c", check],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            cwd=PROJECT_ROOT,
+        )
+    except Exception as exc:
+        logger.debug("venv health probe failed to run: %s", exc)
+        return True, ""
+
+    missing = [line.strip() for line in (result.stdout or "").splitlines() if line.strip()]
+    if result.returncode != 0 and not missing:
+        # Interpreter itself is broken (e.g. deleted stdlib) — that IS unhealthy.
+        detail = (result.stderr or "").strip().splitlines()
+        return False, detail[0] if detail else "venv python failed to run"
+    if missing:
+        return False, "; ".join(missing[:4])
+    return True, ""
+
+
+def _detect_venv_python_processes(
+    *, exclude_pids: set[int] | None = None
+) -> list[tuple[int, str, str]]:
+    """Find live processes running from the project venv's interpreter.
+
+    The ruslan.exe shim guard misses the biggest lock-holder class on
+    Windows: the Desktop app's backend (``python.exe -m ruslan_cli.main
+    serve``) and anything else running straight off ``venv\\Scripts\\python
+    (w).exe``. Those processes keep native ``.pyd`` extensions mapped, so a
+    dependency sync mid-update dies with access-denied and strands the venv
+    half-updated (ryanc's brotlicffi/_sodium.pyd incidents, July 2026).
+
+    Killing them from here is pointless — the Desktop app supervises its
+    backend and respawns it within seconds — so the caller should refuse and
+    tell the user to close the app instead. Returns ``(pid, name, cmdline)``
+    tuples; empty off-Windows / without psutil / when nothing matches. The
+    calling process and its ancestors are always excluded (a CLI ``ruslan
+    update`` itself runs from the venv python). Never raises.
+    """
+    if not _is_windows():
+        return []
+    try:
+        import psutil
+    except Exception:
+        return []
+
+    venv_dir = PROJECT_ROOT / "venv"
+    try:
+        venv_prefix = str(venv_dir.resolve()).lower().rstrip(os.sep) + os.sep
+    except OSError:
+        venv_prefix = str(venv_dir).lower().rstrip(os.sep) + os.sep
+    try:
+        root_prefix = str(PROJECT_ROOT.resolve()).lower().rstrip(os.sep) + os.sep
+    except OSError:
+        root_prefix = str(PROJECT_ROOT).lower().rstrip(os.sep) + os.sep
+
+    skip: set[int] = set(exclude_pids or set())
+    skip.add(os.getpid())
+    try:
+        for anc in psutil.Process().parents():
+            skip.add(int(anc.pid))
+    except Exception:
+        pass
+
+    matches: list[tuple[int, str, str]] = []
+    try:
+        proc_iter = psutil.process_iter(["pid", "exe", "name", "cmdline", "cwd"])
+    except Exception:
+        return []
+    for proc in proc_iter:
+        try:
+            info = proc.info
+        except Exception:
+            continue
+        pid = info.get("pid")
+        exe = info.get("exe")
+        if not exe or pid is None or int(pid) in skip:
+            continue
+        try:
+            exe_norm = str(Path(exe).resolve()).lower()
+        except (OSError, ValueError):
+            exe_norm = str(exe).lower()
+        cmdline_raw = " ".join(info.get("cmdline") or [])
+        cmdline_low = cmdline_raw.lower()
+        cwd_low = str(info.get("cwd") or "").lower().rstrip(os.sep) + os.sep
+
+        # Primary match: the executable itself lives under this venv
+        # (venv\Scripts\python(w).exe — the desktop backend / gateway case).
+        is_holder = exe_norm.startswith(venv_prefix)
+        # Fallback: uv/base-interpreter trampolines run a python whose exe is
+        # OUTSIDE the venv but which still imports from it and holds its .pyd
+        # files. Catch those by what they're running: a cmdline that references
+        # this venv's path, or a `-m ruslan_cli.main ...` invocation tied to
+        # this install (install root in the cmdline or as the working dir).
+        if not is_holder and venv_prefix in cmdline_low:
+            is_holder = True
+        if not is_holder and "ruslan_cli.main" in cmdline_low:
+            if root_prefix in cmdline_low or cwd_low.startswith(root_prefix):
+                is_holder = True
+        if not is_holder:
+            continue
+        name = info.get("name") or Path(exe).name
+        matches.append((int(pid), str(name), cmdline_raw[:120]))
+    return matches
+
+
+def _format_venv_python_holders_message(matches: list[tuple[int, str, str]]) -> str:
+    """Explain which venv processes block the update and how to clear them."""
+    lines = [
+        "✗ Other Ruslan processes are running from this install's venv:",
+    ]
+    for pid, name, cmdline in matches[:6]:
+        hint = ""
+        low = cmdline.lower()
+        if "serve" in low or "dashboard" in low:
+            hint = "  ← Ruslan Desktop backend (close the desktop app)"
+        elif "gateway" in low:
+            hint = "  ← gateway"
+        lines.append(f"  PID {pid}  {name}  {cmdline}{hint}")
+    if len(matches) > 6:
+        lines.append(f"  ... and {len(matches) - 6} more")
+    lines.append("")
+    lines.append(
+        "  On Windows these keep native extension files (.pyd) locked, so the"
+    )
+    lines.append(
+        "  dependency update would fail partway and leave a broken install."
+    )
+    lines.append(
+        "  Close the Ruslan desktop app / other Ruslan terminals, then re-run:"
+    )
+    lines.append("    ruslan update")
+    lines.append("  (or use `ruslan update --force-venv` to proceed anyway at your own risk)")
+    return "\n".join(lines)
 
 
 def _pause_windows_gateways_for_update() -> dict | None:
@@ -8476,7 +9301,7 @@ def _pause_windows_gateways_for_update() -> dict | None:
         mapped_pids.append(int(pid))
         _write_update_planned_stop_marker(Path(proc.path), int(pid))
 
-    print("→ Остановка процессов шлюза Windows перед обновлением Ruslan...")
+    print("→ Stopping Windows gateway process(es) before updating Ruslan...")
     try:
         drain_timeout = max(float(_get_restart_drain_timeout()), 1.0)
     except Exception:
@@ -8523,7 +9348,7 @@ def _pause_windows_gateways_for_update() -> dict | None:
         if respawnable < len(unmapped_pids):
             # Some had no recoverable command line (psutil missing, access
             # denied, already gone): those still need a manual restart.
-            print("Перезапустите вручную после обновления: ruslan gateway run")
+            print("    Restart manually after update: ruslan gateway run")
 
     return {
         "resume_needed": True,
@@ -8697,9 +9522,20 @@ def cmd_update(args):
     from ruslan_cli.config import (
         detect_install_method,
         format_docker_update_message,
+        format_unsupported_install_warning,
         is_managed,
+        is_unsupported_install_method,
         managed_error,
     )
+
+    # Deprecation notice for pip/Homebrew installs — printed before the
+    # managed-mode early-return below so Homebrew users (who are blocked from
+    # applying the update here) still see it. Warn, don't block: the update
+    # itself still proceeds (except Homebrew, which is managed-mode blocked
+    # for an unrelated reason — brew owns its own upgrade path).
+    _install_method_for_warning = detect_install_method(PROJECT_ROOT)
+    if is_unsupported_install_method(_install_method_for_warning):
+        print(f"⚠ {format_unsupported_install_warning(_install_method_for_warning)}")
 
     if is_managed():
         managed_error("update Ruslan Agent")
@@ -8743,7 +9579,7 @@ def _cmd_update_pip(args):
     from ruslan_cli.config import is_uv_tool_install
 
     print(f"→ Current version: {__version__}")
-    print("→ Проверка PyPI на наличие обновлений...")
+    print("→ Checking PyPI for updates...")
 
     from ruslan_cli.managed_uv import ensure_uv, update_managed_uv
 
@@ -8765,8 +9601,8 @@ def _cmd_update_pip(args):
 
     if is_uv_tool_install():
         if not uv:
-            print("✗ Обнаружена установка uv-tool, но управляемая установка uv не удалась.")
-            print("Установите uv вручную: https://docs.astral.sh/uv/getting-started/installation/")
+            print("✗ Detected a uv-tool install but managed uv install failed.")
+            print("  Install uv manually: https://docs.astral.sh/uv/getting-started/installation/")
             sys.exit(1)
         cmd = [uv, "tool", "upgrade", "ruslan-agent"]
     elif pipx_managed and pipx:
@@ -8792,10 +9628,10 @@ def _cmd_update_pip(args):
         run_kwargs["env"] = {**os.environ, "VIRTUAL_ENV": sys.prefix}
     result = subprocess.run(cmd, **run_kwargs)
     if result.returncode != 0:
-        print("✗ Обновление не удалось")
+        print("✗ Update failed")
         sys.exit(1)
 
-    print("✓ Обновление завершено! Перезапустите ruslan, чтобы использовать новую версию.")
+    print("✓ Update complete! Restart ruslan to use the new version.")
 
 
 def _cmd_update_impl(args, gateway_mode: bool):
@@ -8833,7 +9669,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             logger.debug("Could not read updates.non_interactive_local_changes: %s", exc)
             discard_local_changes = False
 
-    print("🛡️ Обновление агента Ruslan...")
+    print("⚕ Updating Ruslan Agent...")
     print()
 
     # On Windows, abort early if another ruslan.exe is holding the venv shim
@@ -8861,6 +9697,23 @@ def _cmd_update_impl(args, gateway_mode: bool):
             _windows_gateway_resume,
         )
 
+    # With gateways paused, anything still running from the venv interpreter
+    # (most commonly the Desktop app's `ruslan serve` backend) will keep .pyd
+    # files locked and corrupt the dependency sync below. Refuse rather than
+    # race: killing the desktop backend is futile (the app supervises and
+    # respawns it), so the user must close the app. Deliberately NOT bypassed
+    # by plain --force: the desktop bootstrap updater passes --force to skip
+    # the ruslan.exe shim guard above, but its lock probe only checks the shim
+    # and app.asar — a non-desktop venv python holding a .pyd would sail
+    # through and corrupt the sync (the exact failure this guard exists for).
+    # --force-venv is the explicit escape hatch.
+    if _is_windows() and not getattr(args, "force_venv", False):
+        _venv_holders = _detect_venv_python_processes()
+        if _venv_holders:
+            print(_format_venv_python_holders_message(_venv_holders))
+            _resume_windows_gateways_after_update(_windows_gateway_resume)
+            sys.exit(2)
+
     # Try git-based update first, fall back to ZIP download on Windows
     # when git file I/O is broken (antivirus, NTFS filter drivers, etc.)
     use_zip_update = False
@@ -8875,9 +9728,9 @@ def _cmd_update_impl(args, gateway_mode: bool):
             if method == "pip":
                 _cmd_update_pip(args)
                 return
-            print("✗ Не является git-репозиторием. Пожалуйста, переустановите:")
+            print("✗ Not a git repository. Please reinstall:")
             print(
-                "curl -fsSL https://ruslan.team/install.sh | bash"
+                "  curl -fsSL https://ruslan-agent.nousresearch.com/install.sh | bash"
             )
             sys.exit(1)
 
@@ -8917,7 +9770,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
     is_fork = _is_fork(origin_url)
 
     if is_fork:
-        print("⚠ Обновление из форка:")
+        print("⚠ Updating from fork:")
         print(f"  {origin_url}")
         print()
 
@@ -8939,7 +9792,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
         # against.
         branch = _resolve_update_branch(args)
 
-        print("→ Получение обновлений...")
+        print("→ Fetching updates...")
         fetch_result = subprocess.run(
             git_cmd + ["fetch", "origin", branch],
             cwd=PROJECT_ROOT,
@@ -8949,16 +9802,16 @@ def _cmd_update_impl(args, gateway_mode: bool):
         if fetch_result.returncode != 0:
             stderr = fetch_result.stderr.strip()
             if "Could not resolve host" in stderr or "unable to access" in stderr:
-                print("✗ Сетевая ошибка — невозможно подключиться к удалённому репозиторию.")
+                print("✗ Network error — cannot reach the remote repository.")
                 print(f"  {stderr.splitlines()[0]}" if stderr else "")
             elif (
                 "Authentication failed" in stderr or "could not read Username" in stderr
             ):
                 print(
-                    "✗ Ошибка аутентификации — проверьте ваши git-учётные данные или SSH-ключ."
+                    "✗ Authentication failed — check your git credentials or SSH key."
                 )
             else:
-                print(f"✗ Failed to fetch updates from origin.")
+                print("✗ Failed to fetch updates from origin.")
                 if stderr:
                     print(f"  {stderr.splitlines()[0]}")
             sys.exit(1)
@@ -9042,7 +9895,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             _invalidate_update_cache()
 
             # Even if origin is up to date, the fork may be behind upstream
-            if is_fork and branch == "master":
+            if is_fork and branch == "main":
                 _sync_with_upstream_if_needed(git_cmd, PROJECT_ROOT)
 
             # Restore stash and switch back to original branch if we moved
@@ -9062,7 +9915,57 @@ def _cmd_update_impl(args, gateway_mode: bool):
                     text=True,
                     check=False,
                 )
-            print("✓ Уже обновлено!")
+
+            # A current checkout does NOT imply a healthy install: a previous
+            # dependency sync may have failed partway (classic on Windows,
+            # where a running gateway/desktop backend keeps .pyd files locked
+            # and uv/pip dies with access-denied, stranding the venv between
+            # versions). Probe the venv's core imports and repair if broken —
+            # otherwise "Already up to date!" gaslights the user while their
+            # install stays bricked.
+            healthy, detail = _venv_core_imports_healthy()
+            if not healthy:
+                print("⚠ Checkout is current, but the venv is unhealthy:")
+                print(f"  {detail}")
+                print("→ Repairing Python dependencies...")
+                _write_update_incomplete_marker()
+                from ruslan_cli.managed_uv import ensure_uv
+
+                repair_uv = ensure_uv()
+                # A managed install whose venv is gone entirely (interrupted
+                # repair after the old venv was moved aside) needs the venv
+                # recreated before dependencies can be installed into it.
+                venv_python_missing = not (
+                    PROJECT_ROOT
+                    / "venv"
+                    / ("Scripts" if _is_windows() else "bin")
+                    / ("python.exe" if _is_windows() else "python")
+                ).exists()
+                if venv_python_missing and repair_uv:
+                    print("→ Recreating virtual environment...")
+                    subprocess.run(
+                        [repair_uv, "venv", "venv"],
+                        cwd=PROJECT_ROOT,
+                        check=False,
+                    )
+                if repair_uv:
+                    repair_env = {**os.environ, "VIRTUAL_ENV": str(PROJECT_ROOT / "venv")}
+                    _install_python_dependencies_with_optional_fallback(
+                        [repair_uv, "pip"], env=repair_env, group="all"
+                    )
+                else:
+                    _install_python_dependencies_with_optional_fallback(
+                        [sys.executable, "-m", "pip"], group="all"
+                    )
+                _clear_update_incomplete_marker()
+                healthy_after, detail_after = _venv_core_imports_healthy()
+                if healthy_after:
+                    print("✓ Dependencies repaired!")
+                else:
+                    print(f"⚠ Venv still unhealthy after repair: {detail_after}")
+                    print("  Close all Ruslan windows/gateways and re-run: ruslan update")
+            else:
+                print("✓ Already up to date!")
             _resume_windows_gateways_after_update(_windows_gateway_resume)
             return
 
@@ -9085,7 +9988,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             # Never let a snapshot failure block an update.
             logger.debug("Pre-update snapshot failed: %s", exc)
 
-        print("→ Загрузка обновлений...")
+        print("→ Pulling updates...")
         update_succeeded = False
         # Capture the pre-pull SHA so we can auto-roll-back if the new code
         # has a syntax error in a critical-path file (PR #28452 incident:
@@ -9105,7 +10008,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                 # force-pushed or rebase).  Since local changes are already
                 # stashed, reset to match the remote exactly.
                 print(
-                    "⚠ Перемотка вперед невозможна (история разошлась), выполняется сброс для соответствия удаленному репозиторию..."
+                    "  ⚠ Fast-forward not possible (history diverged), resetting to match remote..."
                 )
                 reset_result = subprocess.run(
                     git_cmd + ["reset", "--hard", f"origin/{branch}"],
@@ -9133,7 +10036,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             )
             if not syntax_ok:
                 print()
-                print("✗ В полученном коде есть синтаксическая ошибка в критическом файле:")
+                print("✗ Pulled code has a syntax error in a critical file:")
                 print(f"  {failing_path}")
                 if syntax_error:
                     # py_compile errors can be multi-line; show the first
@@ -9150,16 +10053,16 @@ def _cmd_update_impl(args, gateway_mode: bool):
                         text=True,
                     )
                     if rollback_result.returncode == 0:
-                        print("✓ Откат завершен — ваша установка не изменена.")
-                        print("Попробуйте ``ruslan update`` позже, когда выйдет исправление.")
+                        print("  ✓ Rollback complete — your install is unchanged.")
+                        print("  Try ``ruslan update`` again later once a fix lands.")
                     else:
-                        print("✗ Откат не удался. Восстановите вручную с помощью:")
+                        print("  ✗ Rollback failed. Recover manually with:")
                         print(f"    cd {PROJECT_ROOT} && git reset --hard {pre_pull_sha}")
                         if rollback_result.stderr.strip():
                             print(f"    ({rollback_result.stderr.strip().splitlines()[0]})")
                 else:
                     print()
-                    print("Не удалось захватить SHA до загрузки — восстановите вручную с помощью:")
+                    print("  Could not capture pre-pull SHA — recover manually with:")
                     print(f"    cd {PROJECT_ROOT} && git reflog && git reset --hard <prev-sha>")
                 sys.exit(1)
 
@@ -9172,7 +10075,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                     print(
                         f"  ℹ️  Local changes preserved in stash (ref: {auto_stash_ref})"
                     )
-                    print(f"  Restore manually with: git stash apply")
+                    print("  Restore manually with: git stash apply")
                 elif discard_local_changes:
                     # Non-interactive update + user opted into discarding local
                     # source edits (updates.non_interactive_local_changes:
@@ -9203,7 +10106,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             )
 
         # Fork upstream sync logic (only for main branch on forks)
-        if is_fork and branch == "master":
+        if is_fork and branch == "main":
             _sync_with_upstream_if_needed(git_cmd, PROJECT_ROOT)
 
         # Reinstall Python dependencies. Prefer .[all], but if one optional extra
@@ -9216,7 +10119,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
         # install via ``_recover_from_interrupted_install``. Cleared only after
         # the install + core-dependency verification completes below.
         _write_update_incomplete_marker()
-        print("→ Обновление зависимостей Python...")
+        print("→ Updating Python dependencies...")
         from ruslan_cli.managed_uv import ensure_uv, update_managed_uv
 
         # Keep managed uv current — runs `uv self update` if we already have one.
@@ -9235,9 +10138,9 @@ def _cmd_update_impl(args, gateway_mode: bool):
                 uv_env.pop("PYTHONPATH", None)
                 uv_env.pop("PYTHONHOME", None)
                 install_group = "termux-all"
-                print("→ Обнаружен Termux: используется uv + выверенный дополнительный профиль termux-all...")
+                print("  → Termux detected: using uv + curated termux-all optional profile...")
             if _is_termux_env(uv_env) and _is_android_python():
-                print("→ Обнаружен Termux/Android: предварительная сборка psutil с совместимостью путей исходников Linux...")
+                print("  → Termux/Android detected: prebuilding psutil with Linux source path compatibility...")
                 _install_psutil_android_compat([uv_bin, "pip"], env=uv_env)
             _install_python_dependencies_with_optional_fallback(
                 [uv_bin, "pip"], env=uv_env, group=install_group
@@ -9263,9 +10166,9 @@ def _cmd_update_impl(args, gateway_mode: bool):
                 )
             if _is_termux_env():
                 install_group = "termux-all"
-                print("→ Обнаружен Termux: используется выверенный дополнительный профиль termux-all...")
+                print("  → Termux detected: using curated termux-all optional profile...")
             if _is_termux_env() and _is_android_python():
-                print("→ Обнаружен Termux/Android: предварительная сборка psutil с совместимостью путей исходников Linux...")
+                print("  → Termux/Android detected: prebuilding psutil with Linux source path compatibility...")
                 _install_psutil_android_compat(pip_cmd)
             _install_python_dependencies_with_optional_fallback(pip_cmd, group=install_group)
 
@@ -9277,7 +10180,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
 
         _refresh_active_lazy_features()
 
-        _update_node_dependencies()
+        node_failures = _update_node_dependencies()
         _build_web_ui(PROJECT_ROOT / "web")
 
         # Rebuild the desktop app if the source tree changed since the last
@@ -9289,23 +10192,30 @@ def _cmd_update_impl(args, gateway_mode: bool):
         # Electron build by ``ruslan update``.
         desktop_dir = PROJECT_ROOT / "apps" / "desktop"
         has_desktop_app = _desktop_packaged_executable(desktop_dir) is not None or _desktop_dist_exists(desktop_dir)
-        from ruslan_constants import find_node_executable
-
-        if (desktop_dir / "package.json").exists() and find_node_executable("npm") and has_desktop_app:
-            print("→ Проверка необходимости пересборки десктопного приложения...")
+        if (desktop_dir / "package.json").exists() and _resolve_node_runtime_npm() and has_desktop_app:
+            print("→ Checking if desktop app needs rebuilding...")
             _desktop_build_cmd = [sys.executable, "-m", "ruslan_cli.main", "desktop", "--build-only"]
-            # Stream the build output live (long Electron builds otherwise
-            # look hung). On the rare nonzero exit, retry once after waiting
-            # again for the venv — this covers a still-settling rebuild window
-            # the first wait didn't fully catch.
-            build_result = subprocess.run(_desktop_build_cmd, cwd=PROJECT_ROOT, check=False)
+            # Capture the (very loud) Electron/vite build output into
+            # update.log instead of streaming it to the terminal. On the rare
+            # nonzero exit, retry once after waiting again for the venv — this
+            # covers a still-settling rebuild window the first wait didn't fully
+            # catch — then surface the captured tail so the failure is
+            # debuggable.
+            build_result = _run_logged_subprocess(_desktop_build_cmd, cwd=PROJECT_ROOT)
             if build_result.returncode != 0:
-                build_result = subprocess.run(_desktop_build_cmd, cwd=PROJECT_ROOT, check=False)
+                build_result = _run_logged_subprocess(_desktop_build_cmd, cwd=PROJECT_ROOT)
             if build_result.returncode != 0:
-                print("⚠ Сборка рабочей среды не удалась (не критично; выполните `ruslan desktop` для повторной попытки)")
+                print("  ⚠ Desktop build failed (non-fatal; run `ruslan desktop` to retry)")
+                tail = "\n".join((build_result.stdout or "").strip().splitlines()[-15:])
+                if tail:
+                    print(tail)
+                from ruslan_constants import display_ruslan_home as _dhh
+                print(f"  Full build log: {_dhh()}/logs/update.log")
+            else:
+                print("  ✓ Desktop app up to date")
 
         print()
-        print("✓ Код обновлен!")
+        print("✓ Code updated!")
 
         # Seed the model-catalog disk cache from the freshly-pulled checkout.
         # The repo ships the canonical catalog at
@@ -9319,7 +10229,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             from ruslan_cli.model_catalog import seed_cache_from_checkout
 
             if seed_cache_from_checkout(PROJECT_ROOT):
-                print("✓ Кеш каталога моделей обновлен из репозитория")
+                print("  ✓ Model catalog cache refreshed from checkout")
         except Exception as e:
             logger.debug("Model catalog seed during update failed: %s", e)
 
@@ -9340,7 +10250,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             from tools.skills_sync import sync_skills
 
             print()
-            print("→ Синхронизация встроенных навыков...")
+            print("→ Syncing bundled skills...")
             result = sync_skills(quiet=True)
             if result["copied"]:
                 print(f"  + {len(result['copied'])} new: {', '.join(result['copied'])}")
@@ -9357,7 +10267,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             if result.get("cleaned"):
                 print(f"  − {len(result['cleaned'])} removed from manifest")
             if not result["copied"] and not result.get("updated"):
-                print("✓ Навыки актуальны")
+                print("  ✓ Skills are up to date")
         except Exception as e:
             logger.debug("Skills sync during update failed: %s", e)
 
@@ -9375,7 +10285,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             all_profiles = list_profiles()
             if all_profiles:
                 print()
-                print("→ Синхронизация встроенных навыков со всеми профилями...")
+                print("→ Syncing bundled skills to all profiles...")
                 for p in all_profiles:
                     try:
                         r = seed_profile_skills(p.path, quiet=True)
@@ -9429,7 +10339,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
 
         # Check for config migrations
         print()
-        print("→ Проверка конфигурации на новые опции...")
+        print("→ Checking configuration for new options...")
 
         from ruslan_cli.config import (
             get_missing_env_vars,
@@ -9460,10 +10370,10 @@ def _cmd_update_impl(args, gateway_mode: bool):
             )
             try:
                 migrate_config(interactive=False, quiet=True)
-                print("✓ Формат конфигурации обновлен (нет новых параметров для настройки)")
+                print("  ✓ Config format updated (no new settings to configure)")
             except Exception as _mig_err:
                 print(f"  ⚠️  Config format update failed: {_mig_err}")
-                print("Запустите 'ruslan config migrate' для повторной попытки.")
+                print("     Run 'ruslan config migrate' to retry.")
         elif needs_migration:
             print()
             # Show WHAT changed, not just a count, so the user can make an
@@ -9501,7 +10411,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             print()
             if assume_yes:
                 print(
-                    "ℹ --yes: автоматическое применение миграции конфигурации (пропуск запросов API-ключа)."
+                    "  ℹ --yes: auto-applying config migration (skipping API-key prompts)."
                 )
                 response = "y"
             elif gateway_mode:
@@ -9513,12 +10423,12 @@ def _cmd_update_impl(args, gateway_mode: bool):
                     .lower()
                 )
             elif not (sys.stdin.isatty() and sys.stdout.isatty()):
-                print("ℹ Неинтерактивный сеанс — применяются безопасные миграции конфигурации.")
+                print("  ℹ Non-interactive session — applying safe config migrations.")
                 response = "auto"
             else:
                 try:
                     response = (
-                        input("Хотите настроить их сейчас? [Y/n]:")
+                        input("Would you like to configure them now? [Y/n]: ")
                         .strip()
                         .lower()
                     )
@@ -9539,19 +10449,21 @@ def _cmd_update_impl(args, gateway_mode: bool):
 
                 if results["env_added"] or results["config_added"]:
                     print()
-                    print("✓ Конфигурация обновлена!")
+                    print("✓ Configuration updated!")
                 if (gateway_mode or assume_yes or response == "auto") and missing_env:
-                    print("ℹ Ключи API требуют ручного ввода: ruslan config migrate")
+                    print("  ℹ API keys require manual entry: ruslan config migrate")
             else:
                 print()
-                print("Пропущено. Запустите 'ruslan config migrate' позже для настройки.")
+                print("Skipped. Run 'ruslan config migrate' later to configure.")
         else:
-            print("✓ Конфигурация актуальна")
+            print("  ✓ Configuration is up to date")
 
         # Safety net: config-version migrations have been observed to leave
         # cron/jobs.json valid-but-empty, silently dropping every scheduled
-        # job (issue #34600). If the live file is now empty while the
-        # pre-update snapshot held jobs, restore it and warn loudly.
+        # job (issue #34600). The desktop scheduler can also overwrite with
+        # its own small set, causing partial loss (issue #52144). If the
+        # live file now has fewer jobs than the pre-update snapshot, restore
+        # it and warn loudly.
         try:
             from ruslan_cli.backup import restore_cron_jobs_if_emptied
 
@@ -9559,7 +10471,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             if cron_restore:
                 print()
                 print(
-                    "  ⚠️  cron/jobs.json was emptied during this update — "
+                    "  ⚠️  cron/jobs.json lost jobs during this update — "
                     f"restored {cron_restore['job_count']} job(s) from "
                     f"pre-update snapshot {cron_restore['snapshot_id']}."
                 )
@@ -9568,7 +10480,15 @@ def _cmd_update_impl(args, gateway_mode: bool):
             logger.debug("Cron jobs auto-restore check failed: %s", exc)
 
         print()
-        print("✓ Обновление завершено!")
+        if node_failures:
+            print(
+                "⚠ Update partially complete — Node.js dependencies for "
+                f"{', '.join(node_failures)} did not refresh."
+            )
+            print("  Code and Python deps are updated, but the dashboard/TUI may")
+            print("  be in a mixed state until the Node deps are rebuilt.")
+        else:
+            print("✓ Update complete!")
 
         # Curator first-run heads-up. Only prints when curator is enabled AND
         # has never run — i.e. the window where the ticker would otherwise
@@ -9603,11 +10523,27 @@ def _cmd_update_impl(args, gateway_mode: bool):
         # predictable cadence (matches when they pull new agent code) without
         # adding startup latency or a per-launch GitHub API call.
         try:
-            if sys.platform in ("darwin", "win32", "linux") and shutil.which("cua-driver"):
+            refresh_cua_driver = True
+            try:
+                from ruslan_cli.config import load_config
+
+                _update_cfg = (load_config() or {}).get("updates", {})
+                if isinstance(_update_cfg, dict):
+                    refresh_cua_driver = bool(
+                        _update_cfg.get("refresh_cua_driver", True)
+                    )
+            except Exception as cfg_exc:
+                logger.debug("Could not read updates.refresh_cua_driver: %s", cfg_exc)
+
+            if (
+                refresh_cua_driver
+                and sys.platform in ("darwin", "win32", "linux")
+                and shutil.which("cua-driver")
+            ):
                 from ruslan_cli.tools_config import install_cua_driver
 
                 print()
-                print("→ Обновление драйвера cua (Computer Use)...")
+                print("→ Refreshing cua-driver (Computer Use)...")
                 install_cua_driver(upgrade=True)
         except Exception as e:
             logger.debug("cua-driver refresh failed: %s", e)
@@ -9645,7 +10581,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                 _ensure_user_systemd_env,
                 find_gateway_pids,
                 find_profile_gateway_processes,
-                launch_detached_profile_gateway_restart,
+                _prepare_profile_gateway_update_restart,
                 _get_service_pids,
                 _graceful_restart_via_sigusr1,
                 _wait_for_gateway_exit,
@@ -9827,6 +10763,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             restarted_services = []
             killed_pids = set()
             relaunched_profiles = []
+            externally_supervised_profiles = []
 
             # --- Systemd services (Linux) ---
             # Discover all ruslan-gateway* units (default + profiles)
@@ -10158,13 +11095,24 @@ def _cmd_update_impl(args, gateway_mode: bool):
                 if proc.pid in manual_pids
             }
             for pid, proc in profile_processes.items():
-                if not launch_detached_profile_gateway_restart(proc.profile, pid):
+                restart_mode = _prepare_profile_gateway_update_restart(
+                    proc.profile, pid
+                )
+                if restart_mode is None:
                     continue
                 # Prefer a graceful SIGUSR1 drain so in-flight agent runs
                 # finish before the watcher respawns the gateway.  If the
                 # gateway doesn't support SIGUSR1 or doesn't exit within
                 # the drain budget, fall back to SIGTERM — the watcher
                 # still sees the exit and relaunches either way.
+                # Announce the drain first: this wait can hold for the full
+                # budget per gateway with no other output, and on surfaces
+                # that stream update progress (the desktop updater most of
+                # all) the silence reads as a hung update (#44515).
+                print(
+                    f"  → {proc.profile}: draining gateway PID {pid} "
+                    f"(up to {int(_drain_budget)}s)..."
+                )
                 drained = _graceful_restart_via_sigusr1(
                     pid,
                     drain_timeout=_drain_budget,
@@ -10190,7 +11138,10 @@ def _cmd_update_impl(args, gateway_mode: bool):
                 # live when the new gateway polls.
                 _wait_for_gateway_exit(timeout=5.0, force_after=None)
                 killed_pids.add(pid)
-                relaunched_profiles.append(proc.profile)
+                if restart_mode == "external-supervisor":
+                    externally_supervised_profiles.append(proc.profile)
+                else:
+                    relaunched_profiles.append(proc.profile)
 
             for pid in manual_pids:
                 if pid in profile_processes:
@@ -10208,13 +11159,23 @@ def _cmd_update_impl(args, gateway_mode: bool):
                 if relaunched_profiles:
                     names = ", ".join(relaunched_profiles)
                     print(f"  ✓ Restarting manual gateway profile(s): {names}")
-                unmapped_count = len(killed_pids) - len(relaunched_profiles)
+                if externally_supervised_profiles:
+                    names = ", ".join(externally_supervised_profiles)
+                    print(
+                        "  ✓ Handed gateway profile(s) back to their external "
+                        f"supervisor: {names}"
+                    )
+                unmapped_count = (
+                    len(killed_pids)
+                    - len(relaunched_profiles)
+                    - len(externally_supervised_profiles)
+                )
                 if unmapped_count:
                     print(f"  → Stopped {unmapped_count} manual gateway process(es)")
-                    print("Перезапустите вручную: ruslan gateway run")
+                    print("    Restart manually: ruslan gateway run")
                     if unmapped_count > 1:
                         print(
-                            "(или: ruslan -p <profile> gateway run  для каждого профиля)"
+                            "    (or: ruslan -p <profile> gateway run  for each profile)"
                         )
 
             if not restarted_services and not killed_pids:
@@ -10282,18 +11243,18 @@ def _cmd_update_impl(args, gateway_mode: bool):
 
             if supports_systemd_services() and has_legacy_ruslan_units():
                 print()
-                print("⚠ Обнаружен(ы) устаревший(ие) блок(и) шлюза Ruslan:")
+                print("⚠ Legacy Ruslan gateway unit(s) detected:")
                 for name, path, is_sys in _find_legacy_ruslan_units():
                     scope = "system" if is_sys else "user"
                     print(f"    {path}  ({scope} scope)")
                 print()
-                print("Эти блоки (ruslan.service) до переименования конфликтуют с текущим")
-                print("ruslan-gateway.service за токен бота и вызывают SIGTERM")
-                print("циклы сбоев. Удалите их с помощью:")
+                print("  These pre-rename units (ruslan.service) fight the current")
+                print("  ruslan-gateway.service for the bot token and cause SIGTERM")
+                print("  flap loops. Remove them with:")
                 print()
-                print("ruslan gateway migrate-legacy")
+                print("    ruslan gateway migrate-legacy")
                 print()
-                print("(добавьте `sudo`, если какие-то находятся в системной области)")
+                print("  (add `sudo` if any are in system scope)")
         except Exception as e:
             logger.debug("Legacy unit check during update failed: %s", e)
 
@@ -10302,16 +11263,26 @@ def _cmd_update_impl(args, gateway_mode: bool):
         # silent frontend/backend mismatch.  We can't auto-restart it
         # (no saved launch args) but we can stop it, and a hint is
         # printed for the user to re-launch.
-        _kill_stale_dashboard_processes()
+        #
+        # Exception: if the Node dependency refresh failed, the rebuilt
+        # frontend the new backend expects may not exist, so stopping a
+        # working dashboard would leave the user with nothing running
+        # rather than a usable (if mixed) state (#30271). Leave it alone.
+        if node_failures:
+            print()
+            print("  ℹ Leaving running dashboard process(es) untouched because the")
+            print("    Node.js dependency refresh did not complete.")
+        else:
+            _kill_stale_dashboard_processes()
 
         print()
-        print("Совет: Теперь вы можете выбрать провайдера и модель:")
-        print("ruslan model              # Выбрать провайдера и модель")
+        print("Tip: You can now select a provider and model:")
+        print("  ruslan model              # Select provider and model")
 
     except subprocess.CalledProcessError as e:
         if sys.platform == "win32":
             print(f"⚠ Git update failed: {e}")
-            print("→ Запасной вариант: загрузка ZIP...")
+            print("→ Falling back to ZIP download...")
             print()
             _update_via_zip(args)
         else:
@@ -10355,6 +11326,7 @@ def _coalesce_session_name_args(argv: list) -> list:
         "uninstall",
         "profile",
         "dashboard",
+        "serve",
         "desktop",
         "gui",
         "honcho",
@@ -10447,7 +11419,7 @@ def cmd_profile(args):
         active = get_active_profile_name()
 
         if not profiles:
-            print("Профили не найдены.")
+            print("No profiles found.")
             return
 
         # Header
@@ -10485,7 +11457,7 @@ def cmd_profile(args):
         try:
             set_active_profile(name)
             if name == "default":
-                print(f"Switched to: default (~/.ruslan)")
+                print("Switched to: default (~/.ruslan)")
             else:
                 print(f"Switched to: {name}")
         except (ValueError, FileNotFoundError) as e:
@@ -10574,9 +11546,9 @@ def cmd_profile(args):
                         if not _is_wrapper_dir_in_path():
                             print(f"\n⚠ {_get_wrapper_dir()} is not in your PATH.")
                             print(
-                                f"  Add to your shell config (~/.bashrc or ~/.zshrc):"
+                                "  Add to your shell config (~/.bashrc or ~/.zshrc):"
                             )
-                            print(f'    export PATH="$HOME/.local/bin:$PATH"')
+                            print('    export PATH="$HOME/.local/bin:$PATH"')
 
             # Profile dir for display
             try:
@@ -10585,7 +11557,7 @@ def cmd_profile(args):
                 profile_dir_display = str(profile_dir)
 
             # Next steps
-            print(f"\nNext steps:")
+            print("\nNext steps:")
             print(f"  {name} setup              Configure API keys and model")
             print(f"  {name} chat               Start chatting")
             print(f"  {name} gateway start      Start the messaging gateway")
@@ -10596,7 +11568,7 @@ def cmd_profile(args):
                 print(
                     f"\n  ⚠ This profile has no API keys yet. Run '{name} setup' first,"
                 )
-                print(f"    or it will inherit keys from your shell environment.")
+                print("    or it will inherit keys from your shell environment.")
                 print(f"  Edit {profile_dir_display}/SOUL.md to customize personality")
             print()
 
@@ -10626,20 +11598,20 @@ def cmd_profile(args):
         name = getattr(args, "profile_name", None)
 
         if all_flag and not auto_flag:
-            print("profile describe: --all требует --auto", file=sys.stderr)
+            print("profile describe: --all requires --auto", file=sys.stderr)
             sys.exit(2)
         if all_flag and (text_value or name):
             print(
-                "profile describe: --all является взаимоисключающим с именем профиля / --text",
+                "profile describe: --all is mutually exclusive with a profile name / --text",
                 file=sys.stderr,
             )
             sys.exit(2)
         if not all_flag and not name:
-            print("profile describe: требуется имя профиля (или --all --auto)", file=sys.stderr)
+            print("profile describe: profile name is required (or --all --auto)", file=sys.stderr)
             sys.exit(2)
         if text_value and auto_flag:
             print(
-                "profile describe: --text является взаимоисключающим с --auto",
+                "profile describe: --text is mutually exclusive with --auto",
                 file=sys.stderr,
             )
             sys.exit(2)
@@ -10692,7 +11664,7 @@ def cmd_profile(args):
         if all_flag:
             targets = _pd.list_describable_profiles(missing_only=True)
             if not targets:
-                print("Все профили уже имеют описания.")
+                print("All profiles already have descriptions.")
                 sys.exit(0)
         else:
             targets = [name]
@@ -10765,13 +11737,19 @@ def cmd_profile(args):
         remove = getattr(args, "remove", False)
         custom_name = getattr(args, "alias_name", None)
 
-        from ruslan_cli.profiles import profile_exists
+        from ruslan_cli.profiles import profile_exists, validate_alias_name
 
         if not profile_exists(name):
             print(f"Error: Profile '{name}' does not exist.")
             sys.exit(1)
 
         alias_name = custom_name or name
+
+        try:
+            validate_alias_name(alias_name)
+        except ValueError as exc:
+            print(f"Error: {exc}")
+            sys.exit(1)
 
         if remove:
             if remove_wrapper_script(alias_name):
@@ -10861,7 +11839,7 @@ def cmd_profile(args):
                     except (EOFError, KeyboardInterrupt):
                         answer = ""
                     if answer not in {"y", "yes"}:
-                        print("Установка отменена.")
+                        print("Install cancelled.")
                         return
 
             plan = install_distribution(
@@ -10911,16 +11889,16 @@ def cmd_profile(args):
                 print(f"\nUpdate '{canon}' from: {current.source or '(no source)'}")
                 print(f"  Currently at version {current.version}")
                 if force_config:
-                    print("--force-config установлен: config.yaml БУДЕТ перезаписан.")
+                    print("  --force-config set: config.yaml WILL be overwritten.")
                 else:
-                    print("config.yaml будет сохранён (передайте --force-config для перезаписи).")
-                print("Данные пользователя (memories, sessions, auth, .env) НЕ будут затронуты.")
+                    print("  config.yaml will be preserved (pass --force-config to overwrite).")
+                print("  User data (memories, sessions, auth, .env) will NOT be touched.")
                 try:
                     answer = input("\nProceed? [y/N] ").strip().lower()
                 except (EOFError, KeyboardInterrupt):
                     answer = ""
                 if answer not in {"y", "yes"}:
-                    print("Обновление отменено.")
+                    print("Update cancelled.")
                     return
 
             plan = update_distribution(canon, force_config=force_config)
@@ -10997,7 +11975,7 @@ def _render_distribution_plan(plan) -> None:
         # the profile manually).
         existing_is_distribution = (plan.target_dir / MANIFEST_FILENAME).is_file()
         if existing_is_distribution:
-            print("(профиль существует — будут перезаписаны только файлы, принадлежащие дистрибутиву)")
+            print("  (profile exists — will overwrite distribution-owned files only)")
         else:
             print(
                 "  ⚠ Profile exists but is NOT a distribution.  Installing here will\n"
@@ -11048,7 +12026,7 @@ def _report_dashboard_status() -> int:
     """
     pids = _find_stale_dashboard_pids()
     if not pids:
-        print("Нет запущенных процессов панели управления ruslan.")
+        print("No ruslan dashboard processes running.")
         return 0
 
     print(f"{len(pids)} ruslan dashboard process(es) running:")
@@ -11138,14 +12116,14 @@ def _maybe_setup_dashboard_auth_interactively(args) -> None:
         "(--insecure no longer bypasses this)."
     )
     print()
-    print("Как вы хотите аутентифицировать панель управления?")
-    print("[1] Имя пользователя и пароль (самый быстрый; для доверенной ЛВС / VPN)")
-    print("[2] OAuth через Nous Portal (выполните `ruslan dashboard register`)")
-    print("[3] Отмена")
+    print("  How do you want to authenticate the dashboard?")
+    print("    [1] Username & password (quickest; for a trusted LAN / VPN)")
+    print("    [2] OAuth via Nous Portal (run `ruslan dashboard register`)")
+    print("    [3] Cancel")
     print()
 
     try:
-        choice = input("Выбор [1]:").strip() or "1"
+        choice = input("  Choice [1]: ").strip() or "1"
     except (EOFError, KeyboardInterrupt):
         print("\n  Cancelled.")
         sys.exit(1)
@@ -11158,13 +12136,13 @@ def _maybe_setup_dashboard_auth_interactively(args) -> None:
             "    ruslan dashboard register\n"
             "  It provisions a Nous Portal OAuth client and writes "
             "RUSLAN_DASHBOARD_OAUTH_CLIENT_ID into ~/.ruslan/.env for you.\n"
-            "  Docs: https://ruslan.team/docs/"
+            "  Docs: https://ruslan-agent.nousresearch.com/docs/"
             "user-guide/features/web-dashboard#authentication-gated-mode"
         )
         sys.exit(0)
 
     if choice not in ("1",):
-        print("Отменено.")
+        print("  Cancelled.")
         sys.exit(1)
 
     # ── Username/password setup ──────────────────────────────────────────
@@ -11173,7 +12151,7 @@ def _maybe_setup_dashboard_auth_interactively(args) -> None:
 
     print()
     try:
-        username = input("Имя пользователя [admin]:").strip() or "admin"
+        username = input("  Username [admin]: ").strip() or "admin"
         password = getpass.getpass("  Password: ")
         confirm = getpass.getpass("  Confirm password: ")
     except (EOFError, KeyboardInterrupt):
@@ -11181,10 +12159,10 @@ def _maybe_setup_dashboard_auth_interactively(args) -> None:
         sys.exit(1)
 
     if not password:
-        print("✗ Пустой пароль — прерывание.")
+        print("  ✗ Empty password — aborting.")
         sys.exit(1)
     if password != confirm:
-        print("✗ Пароли не совпадают — прерывание.")
+        print("  ✗ Passwords don't match — aborting.")
         sys.exit(1)
 
     try:
@@ -11226,8 +12204,8 @@ def _maybe_setup_dashboard_auth_interactively(args) -> None:
 
     print()
     print(f"  ✓ Username/password auth configured (user: {username}).")
-    print("Сохранено в config.yaml в разделе dashboard.basic_auth.")
-    print("Войдите в панель управления с этими учетными данными.")
+    print("    Saved to config.yaml under dashboard.basic_auth.")
+    print("    Sign in at the dashboard with these credentials.")
     print()
 
 
@@ -11242,7 +12220,7 @@ def cmd_dashboard(args):
     if getattr(args, "stop", False):
         pids = _find_stale_dashboard_pids()
         if not pids:
-            print("Нет запущенных процессов панели управления ruslan.")
+            print("No ruslan dashboard processes running.")
             sys.exit(0)
         # Reuse the same SIGTERM-grace-SIGKILL path used after `ruslan update`.
         _kill_stale_dashboard_processes(reason="requested via --stop")
@@ -11250,6 +12228,11 @@ def cmd_dashboard(args):
         # we killed at least one, 1 if they were all unkillable.
         remaining = _find_stale_dashboard_pids()
         sys.exit(1 if remaining else 0)
+
+    # `serve` is the headless backend: no UI build, no SPA mount, neutral
+    # ready sentinel. Resolved once and threaded through the re-exec, the
+    # build gate, and start_server.
+    _headless_backend = getattr(args, "headless_backend", False)
 
     # ── Unified profile launch routing ────────────────────────────────
     # The dashboard is a MACHINE management surface: it can read/write any
@@ -11296,7 +12279,9 @@ def cmd_dashboard(args):
         reexec_argv = [
             sys.executable, "-m", "ruslan_cli.main",
             "-p", "default",
-            "dashboard",
+            # Preserve the lean serve path across the re-exec so a named-profile
+            # `serve` doesn't silently rebuild the UI as `dashboard`.
+            "serve" if _headless_backend else "dashboard",
             "--port", str(args.port),
             "--host", args.host,
             "--open-profile", _launch_profile,
@@ -11349,7 +12334,7 @@ def cmd_dashboard(args):
         import fastapi  # noqa: F401
         import uvicorn  # noqa: F401
     except ImportError as e:
-        print("Зависимости веб-интерфейса не установлены (требуются fastapi + uvicorn).")
+        print("Web UI dependencies not installed (need fastapi + uvicorn).")
         print(
             f"Re-install the package into this interpreter so metadata updates apply:\n"
             f"  cd {PROJECT_ROOT}\n"
@@ -11365,7 +12350,11 @@ def cmd_dashboard(args):
     # backend is the desktop's primary entrypoint and needs the same.
     _sync_bundled_skills_quietly()
 
-    if "RUSLAN_WEB_DIST" not in os.environ and not getattr(args, "skip_build", False):
+    if _headless_backend:
+        # Don't build the SPA, and tell mount_spa() (read at web_server import
+        # below) to disable it even if a stray dist exists. Set it first.
+        os.environ["RUSLAN_SERVE_HEADLESS"] = "1"
+    elif "RUSLAN_WEB_DIST" not in os.environ and not getattr(args, "skip_build", False):
         if not _build_web_ui(PROJECT_ROOT / "web", fatal=True):
             sys.exit(1)
     elif getattr(args, "skip_build", False):
@@ -11379,10 +12368,27 @@ def cmd_dashboard(args):
         )
         if not (_dist_root / "index.html").exists():
             print(f"✗ --skip-build was passed but no web dist found at: {_dist_root}")
-            print("Сначала выполните предварительную сборку: npm install --workspace web && npm run build -w web")
-            print("Или используйте --skip-build для автоматической сборки.")
+            print("  Pre-build first:  npm install --workspace web && npm run build -w web")
+            print("  Or drop --skip-build to build automatically.")
             sys.exit(1)
         print(f"→ Skipping web UI build (--skip-build); using dist at {_dist_root}")
+    else:
+        # RUSLAN_WEB_DIST is set without --skip-build: the build is skipped
+        # (the env var points at a caller-managed dist), so validate it the
+        # same way the --skip-build branch does — otherwise the server starts
+        # and serves 404s with no obvious cause (same failure mode as #23817,
+        # via the env-var path).
+        _dist_root = Path(os.environ["RUSLAN_WEB_DIST"]).expanduser()
+        if not (_dist_root / "index.html").exists():
+            print(f"✗ RUSLAN_WEB_DIST is set but no web dist found at: {_dist_root}")
+            print("  Pre-build first:  npm install --workspace web && npm run build -w web")
+            print("  Or unset RUSLAN_WEB_DIST to build and use the default web UI dist.")
+            sys.exit(1)
+        # Write the expanded path back: web_server reads RUSLAN_WEB_DIST raw
+        # at import (no expanduser), so a validated "~/dist" would otherwise
+        # pass here and still 404 there.
+        os.environ["RUSLAN_WEB_DIST"] = str(_dist_root)
+        print(f"→ Using web dist from RUSLAN_WEB_DIST: {_dist_root}")
 
     # Discover and load plugins so any DashboardAuthProvider plugin
     # (e.g. plugins/dashboard_auth/nous) registers BEFORE start_server's
@@ -11438,6 +12444,7 @@ def cmd_dashboard(args):
         open_browser=not args.no_open,
         allow_public=getattr(args, "insecure", False),
         initial_profile=getattr(args, "open_profile", "") or "",
+        headless=_headless_backend,
     )
 
 
@@ -11496,6 +12503,13 @@ def cmd_logs(args):
     )
 
 
+def cmd_console(args):
+    """Open the safe Ruslan command console."""
+    from ruslan_cli.console_engine import run_console_repl
+
+    return run_console_repl()
+
+
 def _build_provider_choices() -> list[str]:
     """Build the --provider choices list from CANONICAL_PROVIDERS + 'auto'."""
     try:
@@ -11505,7 +12519,7 @@ def _build_provider_choices() -> list[str]:
         # Fallback: static list guarantees the CLI always works
         return [
             "auto", "openrouter", "nous", "openai-codex", "xai-oauth", "copilot-acp", "copilot",
-            "anthropic", "gemini", "xai", "bedrock", "azure-foundry",
+            "anthropic", "gemini", "vertex", "xai", "bedrock", "azure-foundry",
             "ollama-cloud", "huggingface", "zai", "kimi-coding", "kimi-coding-cn",
             "stepfun", "minimax", "minimax-cn", "kilocode", "novita", "xiaomi", "arcee",
             "nvidia", "deepseek", "alibaba", "qwen-oauth", "opencode-zen", "opencode-go",
@@ -11525,10 +12539,12 @@ _BUILTIN_SUBCOMMANDS = frozenset(
     {
         "acp", "auth", "backup", "bundles", "checkpoints", "claw", "completion",
         "computer-use",
-        "config", "cron", "curator", "dashboard", "debug", "doctor",
+        "config", "console", "cron", "curator", "dashboard", "serve", "debug", "doctor",
         "dump", "fallback", "gateway", "hooks", "import", "insights",
-        "gui", "desktop", "kanban", "login", "logout", "logs", "lsp", "mcp", "memory", "migrate",
-        "model", "pairing", "plugins", "portal", "postinstall", "profile", "proxy",
+        "gui", "desktop", "kanban", "login", "logout", "logs", "lsp", "mcp", "memory", "migrate", "moa",
+        "journey", "memory-graph", "learning",
+        "model", "pairing", "pets", "plugins", "portal", "postinstall", "profile",
+        "project", "proxy",
         "prompt-size",
         "send", "sessions", "setup",
         "skills", "slack", "status", "tools", "uninstall", "update",
@@ -11557,6 +12573,7 @@ _TOP_LEVEL_VALUE_FLAGS = frozenset(
         "-t", "--toolsets",
         "-r", "--resume",
         "-s", "--skills",
+        "--usage-file",
         # ``-c / --continue`` is nargs='?' (optional value). Treat it as
         # value-taking: if the next token is a subcommand-looking word
         # the user almost certainly meant it as the session name, and
@@ -11652,6 +12669,17 @@ def _should_background_mcp_startup(args) -> bool:
 
 def _prepare_agent_startup(args) -> None:
     """Discover plugins/MCP/hooks for commands that can run an agent turn."""
+    # --yolo: chokepoint guarantee that RUSLAN_YOLO_MODE is set before ANY
+    # plugin/tool discovery below imports tools.approval, which freezes
+    # _YOLO_MODE_FROZEN at import time (PR #7994 security design).  main()'s
+    # dispatch path also sets this earlier, but _prepare_agent_startup() is
+    # reachable from other launchers too (e.g. the Termux fast-CLI path),
+    # so the guarantee lives here where the import is actually triggered
+    # (#60328).
+    if getattr(args, "yolo", False):
+        os.environ["RUSLAN_YOLO_MODE"] = "1"
+    _apply_safe_mode(args)
+
     _sub_attr, _sub_set = _AGENT_SUBCOMMANDS.get(args.command, (None, None))
     if not (
         args.command in _AGENT_COMMANDS
@@ -11666,7 +12694,7 @@ def _prepare_agent_startup(args) -> None:
         discover_plugins()
     except Exception:
         logger.warning(
-            "обнаружение плагинов не удалось при запуске CLI",
+            "plugin discovery failed at CLI startup",
             exc_info=True,
         )
     _run_inline_mcp_discovery = True
@@ -11715,6 +12743,14 @@ def _prepare_agent_startup(args) -> None:
             "shell-hook registration failed at CLI startup",
             exc_info=True,
         )
+
+
+def _apply_safe_mode(args) -> None:
+    if not getattr(args, "safe_mode", False):
+        return
+    os.environ["RUSLAN_SAFE_MODE"] = "1"
+    os.environ["RUSLAN_IGNORE_USER_CONFIG"] = "1"
+    os.environ["RUSLAN_IGNORE_RULES"] = "1"
 
 
 def _set_chat_arg_defaults(args) -> None:
@@ -11780,6 +12816,7 @@ def _try_termux_fast_cli_launch() -> bool:
                 model=getattr(args, "model", None),
                 provider=getattr(args, "provider", None),
                 toolsets=getattr(args, "toolsets", None),
+                usage_file=getattr(args, "usage_file", None),
             )
         )
 
@@ -11879,7 +12916,7 @@ def cmd_memory(args):
             )
             return
 
-        print(f"\n  This will permanently erase the following memory files:")
+        print("\n  This will permanently erase the following memory files:")
         for f, desc in existing:
             path = mem_dir / f
             size = path.stat().st_size
@@ -11900,7 +12937,7 @@ def cmd_memory(args):
             print(f"  ✓ Deleted {f} ({desc})")
 
         print(
-            f"\n  Memory reset complete. New sessions will start with a blank slate."
+            "\n  Memory reset complete. New sessions will start with a blank slate."
         )
         print(f"  Files were in: {display_ruslan_home()}/memories/\n")
     else:
@@ -11927,8 +12964,8 @@ def cmd_acp(args):
             acp_argv.append("--yes")
         acp_main(acp_argv)
     except ImportError:
-        print("Зависимости ACP не установлены.", file=sys.stderr)
-        print("Установите их с помощью:  pip install -e '.[acp]'", file=sys.stderr)
+        print("ACP dependencies not installed.", file=sys.stderr)
+        print("Install them with:  pip install -e '.[acp]'", file=sys.stderr)
         sys.exit(1)
 
 
@@ -12006,11 +13043,6 @@ def main():
     # in ps/top/htop.  Non-fatal — just a nicer UX.
     _set_process_title()
 
-    # When called as `ruslan-setup`, automatically route to `ruslan setup`
-    _script_name = os.path.basename(sys.argv[0])
-    if _script_name in ("ruslan-setup", "ruslan-setup.exe", "ruslan_setup"):
-        sys.argv = [sys.argv[0], "setup", "--quick"] + sys.argv[1:]
-
     # Force UTF-8 stdio on Windows before anything prints.  No-op elsewhere.
     try:
         from ruslan_cli.stdio import configure_windows_stdio
@@ -12057,6 +13089,21 @@ def main():
     # =========================================================================
     build_model_parser(subparsers, cmd_model=cmd_model)
 
+    from ruslan_cli.moa_cmd import cmd_moa
+
+    moa_parser = subparsers.add_parser(
+        "moa",
+        help="Configure Mixture of Agents provider/model slots",
+        description="Configure the provider/model set used by /moa <prompt>.",
+    )
+    moa_subparsers = moa_parser.add_subparsers(dest="moa_command")
+    moa_subparsers.add_parser("list", aliases=["ls"], help="Show current MoA model slots")
+    moa_configure = moa_subparsers.add_parser("configure", aliases=["config"], help="Interactively pick MoA models")
+    moa_configure.add_argument("name", nargs="?", help="Preset name to create or update")
+    moa_delete = moa_subparsers.add_parser("delete", aliases=["rm"], help="Delete a MoA preset")
+    moa_delete.add_argument("name", help="Preset name to delete")
+    moa_parser.set_defaults(func=cmd_moa)
+
     # =========================================================================
     # fallback command — manage the fallback provider chain
     # =========================================================================
@@ -12069,7 +13116,7 @@ def main():
             "Manage the fallback provider chain.  Fallback providers are tried "
             "in order when the primary model fails with rate-limit, overload, or "
             "connection errors.  See: "
-            "https://ruslan.team/docs/user-guide/features/fallback-providers"
+            "https://ruslan-agent.nousresearch.com/docs/user-guide/features/fallback-providers"
         ),
     )
     fallback_subparsers = fallback_parser.add_subparsers(dest="fallback_command")
@@ -12094,16 +13141,16 @@ def main():
     fallback_parser.set_defaults(func=cmd_fallback)
 
     # =========================================================================
-    # secrets command — external secret managers (currently: Bitwarden)
+    # secrets command — external secret managers (Bitwarden, 1Password)
     # =========================================================================
     secrets_parser = subparsers.add_parser(
         "secrets",
-        help="Manage external secret sources (Bitwarden Secrets Manager)",
+        help="Manage external secret sources (Bitwarden, 1Password)",
         description=(
             "Pull API keys from an external secret manager at process startup "
-            "instead of storing them in ~/.ruslan/.env.  Currently supports "
-            "Bitwarden Secrets Manager.  See: "
-            "https://ruslan.team/docs/user-guide/secrets/bitwarden"
+            "instead of storing them in ~/.ruslan/.env.  Supports Bitwarden "
+            "Secrets Manager and 1Password.  See: "
+            "https://ruslan-agent.nousresearch.com/docs/user-guide/secrets/"
         ),
     )
     secrets_subparsers = secrets_parser.add_subparsers(dest="secrets_command")
@@ -12114,15 +13161,26 @@ def main():
         help="Bitwarden Secrets Manager integration",
     )
 
+    secrets_op = secrets_subparsers.add_parser(
+        "onepassword",
+        aliases=["op", "1password"],
+        help="1Password (op:// references) integration",
+    )
+
     # Lazy import — only pays for itself when this subcommand is actually used.
     from ruslan_cli import secrets_cli as _secrets_cli
+    from ruslan_cli import onepassword_secrets_cli as _op_secrets_cli
 
     _secrets_cli.register_cli(secrets_bw)
+    _op_secrets_cli.register_cli(secrets_op)
 
     def _dispatch_secrets(args):  # noqa: ANN001
         sub = getattr(args, "secrets_command", None)
         bw_sub = getattr(args, "secrets_bw_command", None)
+        op_sub = getattr(args, "secrets_op_command", None)
         if sub in ("bitwarden", "bw") and bw_sub is not None:
+            return args.func(args)
+        if sub in ("onepassword", "op", "1password") and op_sub is not None:
             return args.func(args)
         secrets_parser.print_help()
         return 0
@@ -12271,6 +13329,14 @@ def main():
     kanban_parser.set_defaults(func=cmd_kanban)
 
     # =========================================================================
+    # project command — named, multi-folder workspaces
+    # =========================================================================
+    from ruslan_cli.projects_cmd import build_parser as _build_project_parser
+
+    project_parser = _build_project_parser(subparsers)
+    project_parser.set_defaults(func=cmd_project)
+
+    # =========================================================================
     # hooks command — shell-hook inspection and management
     # =========================================================================
     # hooks command  (parser built in ruslan_cli/subcommands/hooks.py)
@@ -12327,6 +13393,11 @@ def main():
     # config command  (parser built in ruslan_cli/subcommands/config.py)
     # =========================================================================
     build_config_parser(subparsers, cmd_config=cmd_config)
+
+    # =========================================================================
+    # console command  (parser built in ruslan_cli/subcommands/console.py)
+    # =========================================================================
+    build_console_parser(subparsers, cmd_console=cmd_console)
 
     # =========================================================================
     # pairing command  (parser built in ruslan_cli/subcommands/pairing.py)
@@ -12426,6 +13497,47 @@ def main():
         logging.getLogger(__name__).debug("curator CLI wiring failed: %s", _exc)
 
     # =========================================================================
+    # pets command — petdex animated mascots (CLI / TUI / desktop display)
+    # =========================================================================
+    pets_parser = subparsers.add_parser(
+        "pets",
+        help="Browse, install, and select petdex animated pets",
+        description=(
+            "Petdex (https://github.com/crafter-station/petdex) is a public "
+            "gallery of animated sprite pets for coding agents. Install one "
+            "and Ruslan shows it reacting to agent activity across the CLI, "
+            "TUI, and desktop app."
+        ),
+    )
+    try:
+        from ruslan_cli.pets import register_cli as _register_pets_cli
+
+        _register_pets_cli(pets_parser)
+    except Exception as _exc:
+        logging.getLogger(__name__).debug("pets CLI wiring failed: %s", _exc)
+
+    # =========================================================================
+    # journey command — learned skills + memories over time, in the terminal
+    # =========================================================================
+    journey_parser = subparsers.add_parser(
+        "journey",
+        aliases=["learning", "memory-graph"],
+        help="Timeline of learned skills + memories over time",
+        description=(
+            "A terminal rendition of the desktop Star Map / Memory Graph: a "
+            "timeline bar chart of learned skills and memories over time "
+            "(oldest at top, newest at bottom) plus a playable constellation "
+            "scrubber. Mirrors the TUI `/journey` overlay and the desktop panel."
+        ),
+    )
+    try:
+        from ruslan_cli.journey import register_cli as _register_journey_cli
+
+        _register_journey_cli(journey_parser)
+    except Exception as _exc:
+        logging.getLogger(__name__).debug("journey CLI wiring failed: %s", _exc)
+
+    # =========================================================================
     # memory command  (parser built in ruslan_cli/subcommands/memory.py)
     # =========================================================================
     build_memory_parser(subparsers, cmd_memory=cmd_memory)
@@ -12512,6 +13624,33 @@ def main():
         action="store_true",
         help="Emit the raw structured payload as JSON (same shape as `tools/call`).",
     )
+    computer_use_perms = computer_use_sub.add_parser(
+        "permissions",
+        help="Check or grant macOS Accessibility + Screen Recording (macOS)",
+        description=(
+            "Computer Use drives the Mac through cua-driver, whose TCC grants\n"
+            "attach to cua-driver's own identity (com.trycua.driver) — not the\n"
+            "terminal or the Ruslan app. `status` reports the driver's grant\n"
+            "state; `grant` launches CuaDriver via LaunchServices so the macOS\n"
+            "permission dialog is attributed to the process that does the work."
+        ),
+    )
+    computer_use_perms_sub = computer_use_perms.add_subparsers(
+        dest="computer_use_perms_action"
+    )
+    computer_use_perms_status = computer_use_perms_sub.add_parser(
+        "status",
+        help="Report Accessibility + Screen Recording grant state (read-only)",
+    )
+    computer_use_perms_status.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the normalized permission payload as JSON.",
+    )
+    computer_use_perms_sub.add_parser(
+        "grant",
+        help="Request the grants (opens the dialog attributed to CuaDriver)",
+    )
 
     def cmd_computer_use(args):
         action = getattr(args, "computer_use_action", None)
@@ -12549,17 +13688,17 @@ def main():
                     if st and st.get("update_available"):
                         latest = st.get("latest_version") or "?"
                         print(f"  ⬆ Update available: cua-driver {latest}.")
-                        print("Запустите: ruslan computer-use install --upgrade")
+                        print("    Run: ruslan computer-use install --upgrade")
                     elif st:
-                        print("✓ Актуально.")
+                        print("  ✓ Up to date.")
                     else:
                         # Older driver (no check-update verb) or offline.
-                        print("Обновить до последней версии: ruslan computer-use install --upgrade")
+                        print("  Refresh to latest: ruslan computer-use install --upgrade")
                 except Exception:
-                    print("Обновить до последней версии: ruslan computer-use install --upgrade")
+                    print("  Refresh to latest: ruslan computer-use install --upgrade")
                 return
-            print("cua-driver: не установлен")
-            print("Выполните: ruslan computer-use install")
+            print("cua-driver: not installed")
+            print("  Run: ruslan computer-use install")
             return
         if action == "doctor":
             from tools.computer_use.doctor import run_doctor
@@ -12569,6 +13708,41 @@ def main():
                 json_output=bool(getattr(args, "json", False)),
             )
             sys.exit(code)
+        if action == "permissions":
+            perms_action = getattr(args, "computer_use_perms_action", None)
+            if perms_action == "grant":
+                from tools.computer_use.permissions import request_permissions_grant
+                sys.exit(request_permissions_grant())
+            if perms_action == "status":
+                import json as _json
+                from tools.computer_use.permissions import computer_use_status
+                st = computer_use_status()
+                if bool(getattr(args, "json", False)):
+                    print(_json.dumps(st, indent=2, sort_keys=True))
+                    sys.exit(0 if st["ready"] else 1)
+                if not st["platform_supported"]:
+                    print(f"Computer Use is not supported on {st['platform']}.")
+                    sys.exit(1)
+                if not st["installed"]:
+                    print("cua-driver: not installed. Run: ruslan computer-use install")
+                    sys.exit(1)
+                glyph = lambda v: "✅" if v is True else ("❌" if v is False else "•")  # noqa: E731
+                print(f"cua-driver: {st['version'] or 'installed'} ({st['platform']})")
+                if st["can_grant"]:  # macOS TCC permissions
+                    print(f"  {glyph(st['accessibility'])} Accessibility")
+                    print(f"  {glyph(st['screen_recording'])} Screen Recording")
+                    if not st["ready"]:
+                        print("  Grant: ruslan computer-use permissions grant")
+                else:  # no TCC model — readiness is driver health
+                    print(f"  {glyph(st['ready'])} driver health (no permission toggles on {st['platform']})")
+                for c in st["checks"]:
+                    if c["status"] != "ok":
+                        print(f"  ⚠ {c['label']}: {c['message']}")
+                if st["error"]:
+                    print(f"  ⚠ {st['error']}")
+                sys.exit(0 if st["ready"] else 1)
+            computer_use_perms.print_help()
+            return
         # No subcommand → show help
         computer_use_parser.print_help()
 
@@ -12583,46 +13757,233 @@ def main():
     # =========================================================================
     sessions_parser = subparsers.add_parser(
         "sessions",
-        help="Управление историей сессий (список, переименование, экспорт, очистка, удаление)",
-        description="Просмотр и управление хранилищем сессий SQLite",
+        help="Manage session history (list, rename, export, prune, delete)",
+        description="View and manage the SQLite session store",
     )
     sessions_subparsers = sessions_parser.add_subparsers(dest="sessions_action")
 
-    sessions_list = sessions_subparsers.add_parser("list", help="Список недавних сессий")
+    sessions_list = sessions_subparsers.add_parser("list", help="List recent sessions")
     sessions_list.add_argument(
-        "--source", help="Фильтр по источнику (cli, telegram, discord, и т.д.)"
+        "--source", help="Filter by source (cli, telegram, discord, etc.)"
     )
     sessions_list.add_argument(
-        "--limit", type=int, default=20, help="Макс сессий для показа"
+        "--limit", type=int, default=20, help="Max sessions to show"
     )
+    sessions_list.add_argument(
+        "--workspace",
+        metavar="NEEDLE",
+        help="Only sessions in one workspace: a git repo root or project dir "
+        "(matched by path substring or basename).",
+    )
+
+    def _add_session_filter_args(p, default_older_help):
+        p.add_argument(
+            "--older-than",
+            metavar="AGE",
+            help=default_older_help,
+        )
+        p.add_argument(
+            "--newer-than",
+            metavar="AGE",
+            help="Only match sessions started within the last AGE "
+            "(e.g. '5h', '2d') or after an ISO timestamp",
+        )
+        p.add_argument(
+            "--before",
+            metavar="TIME",
+            help="Only match sessions started before TIME "
+            "(duration ago like '5h', or ISO timestamp like '2026-07-05 14:30')",
+        )
+        p.add_argument(
+            "--after",
+            metavar="TIME",
+            help="Only match sessions started at/after TIME "
+            "(duration ago like '5h', or ISO timestamp)",
+        )
+        p.add_argument("--source", help="Only match sessions from this source")
+        p.add_argument(
+            "--title", help="Only match sessions whose title contains this substring"
+        )
+        p.add_argument(
+            "--end-reason", help="Only match sessions with this end reason"
+        )
+        p.add_argument(
+            "--cwd", help="Only match sessions whose working directory is under this path"
+        )
+        p.add_argument(
+            "--min-messages", type=int, help="Only match sessions with >= N messages"
+        )
+        p.add_argument(
+            "--max-messages", type=int, help="Only match sessions with <= N messages"
+        )
+        p.add_argument(
+            "--model",
+            help="Only match sessions whose model name contains this substring "
+            "(e.g. 'sonnet', 'gpt-5', 'ruslan')",
+        )
+        p.add_argument(
+            "--provider",
+            help="Only match sessions billed through this provider "
+            "(e.g. openrouter, anthropic, nous)",
+        )
+        p.add_argument(
+            "--user", help="Only match sessions from this user ID"
+        )
+        p.add_argument(
+            "--chat-id", help="Only match sessions from this chat/channel ID"
+        )
+        p.add_argument(
+            "--chat-type",
+            help="Only match sessions with this chat type (e.g. dm, group)",
+        )
+        p.add_argument(
+            "--branch",
+            help="Only match sessions whose git branch contains this substring",
+        )
+        p.add_argument(
+            "--min-tokens", type=int,
+            help="Only match sessions with >= N total tokens (input+output)",
+        )
+        p.add_argument(
+            "--max-tokens", type=int,
+            help="Only match sessions with <= N total tokens (input+output)",
+        )
+        p.add_argument(
+            "--min-cost", type=float,
+            help="Only match sessions costing >= N USD (actual or estimated)",
+        )
+        p.add_argument(
+            "--max-cost", type=float,
+            help="Only match sessions costing <= N USD (actual or estimated)",
+        )
+        p.add_argument(
+            "--min-tool-calls", type=int,
+            help="Only match sessions with >= N tool calls",
+        )
+        p.add_argument(
+            "--max-tool-calls", type=int,
+            help="Only match sessions with <= N tool calls",
+        )
+        p.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="List matching sessions without changing anything",
+        )
+        p.add_argument(
+            "--yes", "-y", action="store_true", help="Skip confirmation"
+        )
 
     sessions_export = sessions_subparsers.add_parser(
-        "export", help="Экспорт сессий в JSONL-файл"
+        "export", help="Export sessions to JSONL, Markdown, or QMD"
     )
     sessions_export.add_argument(
-        "output", help="Output JSONL file path (use - for stdout)"
+        "output",
+        nargs="?",
+        help=(
+            "Output path. JSONL: file path (use - for stdout, required). "
+            "md/qmd: output directory (default: <ruslan home>/session-exports)"
+        ),
     )
-    sessions_export.add_argument("--source", help="Filter by source")
-    sessions_export.add_argument("--session-id", help="Фильтр по источнику")
+    sessions_export.add_argument(
+        "--format",
+        choices=["jsonl", "md", "qmd", "html", "trace"],
+        default="jsonl",
+        help=(
+            "Export format (default: jsonl). 'trace' emits Claude Code JSONL "
+            "for the Hugging Face Agent Trace Viewer"
+        ),
+    )
+    sessions_export.add_argument(
+        "--upload",
+        action="store_true",
+        help=(
+            "trace only: upload to your Hugging Face traces dataset instead "
+            "of writing a local file (needs HF_TOKEN)"
+        ),
+    )
+    sessions_export.add_argument(
+        "--public",
+        action="store_true",
+        help="trace --upload only: create/update a public dataset instead of private",
+    )
+    sessions_export.add_argument(
+        "--no-redact",
+        action="store_true",
+        help=(
+            "trace only: skip the forced secret redaction; "
+            "only use after manual review"
+        ),
+    )
+    sessions_export.add_argument(
+        "--only",
+        choices=["user-prompts"],
+        help=(
+            "Export only a filtered view (user-prompts: one prompt record "
+            "per line for jsonl, headed sections for md)"
+        ),
+    )
+    sessions_export.add_argument(
+        "--session-id", help="Session ID or unique prefix to export"
+    )
+    _add_session_filter_args(
+        sessions_export,
+        "Only export sessions older than AGE (duration like '5h'/'2d', "
+        "bare number of days, or an ISO timestamp)",
+    )
+    sessions_export.add_argument(
+        "--redact",
+        action="store_true",
+        help="Redact secrets (API keys, tokens, credentials) from exported content",
+    )
+    sessions_export.add_argument(
+        "--lineage",
+        choices=["single", "logical"],
+        default="single",
+        help="md/qmd only: export one row or its compression lineage",
+    )
+    sessions_export.add_argument(
+        "--delete-after-verified",
+        action="store_true",
+        help="md/qmd only: after verified single-session export, delete that session (needs --yes)",
+    )
+    sessions_export.add_argument(
+        "--force",
+        action="store_true",
+        help="md/qmd only: overwrite an existing export file",
+    )
 
     sessions_delete = sessions_subparsers.add_parser(
-        "delete", help="Удалить конкретную сессию"
+        "delete", help="Delete a specific session"
     )
     sessions_delete.add_argument("session_id", help="Session ID to delete")
     sessions_delete.add_argument(
-        "--yes", "-y", action="store_true", help="Пропустить подтверждение"
+        "--yes", "-y", action="store_true", help="Skip confirmation"
     )
 
-    sessions_prune = sessions_subparsers.add_parser("prune", help="Удалить старые сессии")
-    sessions_prune.add_argument(
-        "--older-than",
-        type=int,
-        default=90,
-        help="Удалить сессии старше N дней (по умолчанию: 90)",
+    sessions_prune = sessions_subparsers.add_parser(
+        "prune",
+        help="Delete old sessions (filterable by time window, source, title, ...)",
     )
-    sessions_prune.add_argument("--source", help="Только сессии из этого источника")
+    _add_session_filter_args(
+        sessions_prune,
+        "Delete sessions older than AGE — days if bare number, or a duration "
+        "like '5h'/'2d'/'1w', or an ISO timestamp (bare prune with no filters "
+        "defaults to 90 days; any filter matches all ages)",
+    )
     sessions_prune.add_argument(
-        "--yes", "-y", action="store_true", help="Пропустить подтверждение"
+        "--include-archived",
+        action="store_true",
+        help="Also delete archived sessions (excluded by default)",
+    )
+
+    sessions_archive = sessions_subparsers.add_parser(
+        "archive",
+        help="Bulk-archive (soft-hide) sessions matching filters — no deletion",
+    )
+    _add_session_filter_args(
+        sessions_archive,
+        "Only archive sessions older than AGE (duration like '5h'/'2d', "
+        "bare number of days, or ISO timestamp)",
     )
 
     sessions_subparsers.add_parser(
@@ -12651,20 +14012,20 @@ def main():
         help="Skip the timestamped backup copy (not recommended)",
     )
 
-    sessions_subparsers.add_parser("stats", help="Показать статистику хранилища сессий")
+    sessions_subparsers.add_parser("stats", help="Show session store statistics")
 
     sessions_rename = sessions_subparsers.add_parser(
-        "rename", help="Установить или изменить заголовок сессии"
+        "rename", help="Set or change a session's title"
     )
     sessions_rename.add_argument("session_id", help="Session ID to rename")
-    sessions_rename.add_argument("title", nargs="+", help="Новый заголовок для сессии")
+    sessions_rename.add_argument("title", nargs="+", help="New title for the session")
 
     sessions_browse = sessions_subparsers.add_parser(
         "browse",
-        help="Интерактивный выбор сессий — просмотр, поиск и возобновление",
+        help="Interactive session picker — browse, search, and resume sessions",
     )
     sessions_browse.add_argument(
-        "--source", help="Фильтр по источнику (cli, telegram, discord, и т.д.)"
+        "--source", help="Filter by source (cli, telegram, discord, etc.)"
     )
     sessions_browse.add_argument(
         "--limit", type=int, default=500, help="Max sessions to load (default: 500)"
@@ -12703,7 +14064,7 @@ def main():
             print(f"✗ {db_path} does not open cleanly: {reason}")
             if getattr(args, "check_only", False):
                 return
-            print("Выполняется восстановление (сначала создаётся резервная копия)…")
+            print("Repairing (a backup copy is made first)…")
             report = repair_state_db_schema(
                 db_path, backup=not getattr(args, "no_backup", False)
             )
@@ -12719,12 +14080,12 @@ def main():
                     ).fetchone()[0]
                     print(f"✓ Repaired — {n} sessions recovered.")
                 except Exception:
-                    print("✓ Исправлено.")
+                    print("✓ Repaired.")
             else:
                 print(f"✗ Repair failed: {report.get('error')}")
                 if report.get("backup_path"):
                     print(f"  A backup is preserved at: {report['backup_path']}")
-                print("Сохраните state.db и резервную копию; не удаляйте их.")
+                print("  Keep state.db and the backup; do not delete them.")
             return
 
         try:
@@ -12740,13 +14101,58 @@ def main():
         _exclude = None if _source else ["tool"]
 
         if action == "list":
+            from ruslan_state import workspace_key as _ws_key
+
             sessions = db.list_sessions_rich(
                 source=args.source, exclude_sources=_exclude, limit=args.limit
             )
+
+            # Workspace filter: match a session by its workspace key (git repo
+            # root, else cwd) — path substring or exact basename.
+            _ws_filter = (getattr(args, "workspace", None) or "").strip()
+            if _ws_filter:
+                _needle = _ws_filter.lower()
+
+                def _in_workspace(s):
+                    key = (_ws_key(s) or "").lower()
+                    return bool(key) and (
+                        _needle in key or _needle == os.path.basename(key.rstrip("/\\"))
+                    )
+
+                sessions = [s for s in sessions if _in_workspace(s)]
+
             if not sessions:
-                print("Сессии не найдены.")
+                print("No sessions found.")
                 return
+
+            # Short workspace label: the repo/dir basename, "—" when unbound. The
+            # Workspace column only appears once at least one session carries one
+            # (or when filtering), so all-unbound listings read as before.
+            def _ws_label(s):
+                key = _ws_key(s)
+                return (os.path.basename(key.rstrip("/\\")) or key) if key else "—"
+
+            has_ws = bool(_ws_filter) or any(_ws_key(s) for s in sessions)
             has_titles = any(s.get("title") for s in sessions)
+
+            if has_ws:
+                if has_titles:
+                    print(f"{'Title':<28} {'Workspace':<18} {'Last Active':<13} {'ID'}")
+                    print("─" * 110)
+                else:
+                    print(f"{'Preview':<38} {'Workspace':<18} {'Last Active':<13} {'Src':<6} {'ID'}")
+                    print("─" * 100)
+                for s in sessions:
+                    last_active = _relative_time(s.get("last_active"))
+                    ws = _ws_label(s)[:16]
+                    if has_titles:
+                        title = (s.get("title") or "—")[:26]
+                        print(f"{title:<28} {ws:<18} {last_active:<13} {s['id']}")
+                    else:
+                        preview = s.get("preview", "")[:36]
+                        print(f"{preview:<38} {ws:<18} {last_active:<13} {s['source']:<6} {s['id']}")
+                return
+
             if has_titles:
                 print(f"{'Title':<32} {'Preview':<40} {'Last Active':<13} {'ID'}")
                 print("─" * 110)
@@ -12769,34 +14175,411 @@ def main():
                     print(f"{preview:<50} {last_active:<13} {s['source']:<6} {sid}")
 
         elif action == "export":
+            from ruslan_cli.session_filters import (
+                build_prune_filters,
+                describe_filters,
+            )
+
+            _filter_arg_names = (
+                "older_than", "newer_than", "before", "after",
+                "source", "title", "end_reason", "cwd",
+                "min_messages", "max_messages", "model", "provider",
+                "user", "chat_id", "chat_type", "branch",
+                "min_tokens", "max_tokens", "min_cost", "max_cost",
+                "min_tool_calls", "max_tool_calls",
+            )
+            _any_filters = any(
+                getattr(args, a, None) is not None for a in _filter_arg_names
+            )
+            filters = None
+            if _any_filters:
+                try:
+                    filters = build_prune_filters(args)
+                except ValueError as e:
+                    print(f"Error: {e}")
+                    return
+                # Unlike prune/archive, export includes archived sessions.
+                filters["archived"] = None
+
+            def _redact(data):
+                if not args.redact or data is None:
+                    return data
+                from ruslan_cli.session_export_md import redact_session_data
+
+                return redact_session_data(data)
+
+            def _collect_sessions():
+                """Resolve --session-id / filters / bare export into a list
+                of redacted session dicts, or None after printing an error."""
+                if args.session_id:
+                    resolved = db.resolve_session_id(args.session_id)
+                    data = _redact(db.export_session(resolved)) if resolved else None
+                    if not data:
+                        print(f"Session '{args.session_id}' not found.")
+                        return None
+                    return [data]
+                if filters:
+                    candidates = db.list_prune_candidates(**filters)
+                    if args.dry_run:
+                        print(
+                            f"Would export {len(candidates)} session(s) "
+                            f"({describe_filters(filters)})."
+                        )
+                        for row in candidates[:100]:
+                            print(f"  {row.get('id')}  {row.get('source', '')}")
+                        if len(candidates) > 100:
+                            print(f"  ... {len(candidates) - 100} more")
+                        return None
+                    return [
+                        s
+                        for s in (
+                            _redact(db.export_session(row["id"])) for row in candidates
+                        )
+                        if s
+                    ]
+                if args.dry_run:
+                    print("--dry-run requires at least one filter.")
+                    return None
+                return [_redact(s) for s in db.export_all(source=None)]
+
+            # Prompt-only export (--only user-prompts): one prompt record per
+            # line (jsonl) or headed sections (md). Delegates rendering to
+            # ruslan_cli.session_export.
+            if getattr(args, "only", None):
+                if args.format not in ("jsonl", "md"):
+                    print("--only user-prompts supports --format jsonl or md.")
+                    return
+                from ruslan_cli.session_export import (
+                    export_record_count,
+                    render_sessions_export,
+                )
+
+                sessions = _collect_sessions()
+                if sessions is None:
+                    db.close()
+                    return
+                rendered = render_sessions_export(
+                    sessions,
+                    fmt="markdown" if args.format == "md" else "jsonl",
+                    only=args.only,
+                )
+                if not args.output or args.output == "-":
+                    sys.stdout.write(rendered)
+                    db.close()
+                    return
+                with open(args.output, "w", encoding="utf-8") as f:
+                    f.write(rendered)
+                count, noun = export_record_count(sessions, only=args.only)
+                suffix = "" if count == 1 else "s"
+                print(f"Exported {count} {noun}{suffix} to {args.output}")
+                db.close()
+                return
+
+            # Standalone HTML export: one self-contained file (single session
+            # or multi-session with sidebar navigation).
+            if args.format == "html":
+                if not args.output or args.output == "-":
+                    print("HTML export requires an output file path.")
+                    return
+                from ruslan_cli.session_export_html import (
+                    generate_html_export,
+                    generate_multi_session_html_export,
+                )
+
+                sessions = _collect_sessions()
+                if sessions is None:
+                    db.close()
+                    return
+                if len(sessions) == 1:
+                    content = generate_html_export(sessions[0])
+                else:
+                    content = generate_multi_session_html_export(sessions)
+                with open(args.output, "w", encoding="utf-8") as f:
+                    f.write(content)
+                suffix = "" if len(sessions) == 1 else "s"
+                print(f"Exported {len(sessions)} session{suffix} to {args.output} (HTML)")
+                db.close()
+                return
+
+            # Claude Code JSONL trace export — local file or HF upload.
+            # Redaction is ON by default for traces (they leave the machine
+            # when --upload is used); --no-redact opts out after review.
+            if args.format == "trace":
+                if getattr(args, "only", None):
+                    print("--only user-prompts supports --format jsonl or md.")
+                    db.close()
+                    return
+                session_id = args.session_id
+                if not session_id and not filters:
+                    # Match the shell's common intent: "the last thing I did".
+                    rows = db.list_sessions_rich(limit=1, order_by_last_active=True)
+                    session_id = rows[0].get("id") if rows else None
+                    if not session_id:
+                        print("No session found to export. Pass --session-id.")
+                        db.close()
+                        return
+                if session_id and not db.resolve_session_id(session_id):
+                    print(f"Session '{session_id}' not found.")
+                    db.close()
+                    return
+
+                from agent.trace_upload import (
+                    TraceRedactionError,
+                    build_trace_jsonl,
+                    upload_session_trace,
+                )
+
+                redact_trace = not getattr(args, "no_redact", False)
+
+                if getattr(args, "upload", False):
+                    if not session_id:
+                        print("--upload exports one session: pass --session-id (or drop filters to use the most recent).")
+                        db.close()
+                        return
+                    resolved = db.resolve_session_id(session_id)
+                    db.close()
+                    status = upload_session_trace(
+                        resolved,
+                        cwd="",
+                        redact=redact_trace,
+                        private=not getattr(args, "public", False),
+                    )
+                    print(status)
+                    return
+
+                # Local trace file(s)
+                def _trace_ids():
+                    if session_id:
+                        return [db.resolve_session_id(session_id)]
+                    candidates = db.list_prune_candidates(**filters)
+                    if args.dry_run:
+                        print(
+                            f"Would export {len(candidates)} session(s) "
+                            f"({describe_filters(filters)})."
+                        )
+                        for row in candidates[:100]:
+                            print(f"  {row.get('id')}  {row.get('source', '')}")
+                        if len(candidates) > 100:
+                            print(f"  ... {len(candidates) - 100} more")
+                        return None
+                    return [row["id"] for row in candidates]
+
+                ids = _trace_ids()
+                if ids is None:
+                    db.close()
+                    return
+
+                def _render_trace(sid):
+                    meta = db.get_session(sid) or {}
+                    messages = db.get_messages_as_conversation(sid)
+                    if not messages:
+                        return None
+                    return build_trace_jsonl(
+                        messages,
+                        session_id=sid,
+                        model=meta.get("model") or "",
+                        cwd="",
+                        redact=redact_trace,
+                    )
+
+                try:
+                    if len(ids) == 1:
+                        jsonl = _render_trace(ids[0])
+                        if not jsonl:
+                            print(f"No transcript to export for session '{ids[0]}'.")
+                            db.close()
+                            return
+                        if not args.output or args.output == "-":
+                            sys.stdout.write(jsonl)
+                        else:
+                            with open(args.output, "w", encoding="utf-8") as f:
+                                f.write(jsonl)
+                            print(f"Exported 1 session trace to {args.output}")
+                    else:
+                        out_dir = (
+                            Path(args.output).expanduser()
+                            if args.output and args.output != "-"
+                            else get_ruslan_home() / "session-exports"
+                        )
+                        out_dir.mkdir(parents=True, exist_ok=True)
+                        exported = 0
+                        for sid in ids:
+                            jsonl = _render_trace(sid)
+                            if not jsonl:
+                                continue
+                            (out_dir / f"{sid}.trace.jsonl").write_text(
+                                jsonl, encoding="utf-8"
+                            )
+                            exported += 1
+                        print(f"Exported {exported} session trace(s) to {out_dir}")
+                except TraceRedactionError:
+                    print("Redaction failed; refusing to export unredacted trace content.")
+                db.close()
+                return
+
+            if args.format == "jsonl":
+                if not args.output:
+                    print("JSONL export requires an output path (use - for stdout).")
+                    return
+                if args.session_id:
+                    resolved_session_id = db.resolve_session_id(args.session_id)
+                    if not resolved_session_id:
+                        print(f"Session '{args.session_id}' not found.")
+                        return
+                    data = _redact(db.export_session(resolved_session_id))
+                    if not data:
+                        print(f"Session '{args.session_id}' not found.")
+                        return
+                    line = _json.dumps(data, ensure_ascii=False) + "\n"
+                    if args.output == "-":
+
+                        sys.stdout.write(line)
+                    else:
+                        with open(args.output, "w", encoding="utf-8") as f:
+                            f.write(line)
+                        print(f"Exported 1 session to {args.output}")
+                else:
+                    if filters:
+                        candidates = db.list_prune_candidates(**filters)
+                        if args.dry_run:
+                            print(
+                                f"Would export {len(candidates)} session(s) "
+                                f"({describe_filters(filters)})."
+                            )
+                            for row in candidates[:100]:
+                                print(f"  {row.get('id')}  {row.get('source', '')}")
+                            if len(candidates) > 100:
+                                print(f"  ... {len(candidates) - 100} more")
+                            return
+                        sessions = [
+                            s
+                            for s in (
+                                db.export_session(row["id"]) for row in candidates
+                            )
+                            if s
+                        ]
+                    else:
+                        if args.dry_run:
+                            print("--dry-run requires at least one filter.")
+                            return
+                        sessions = db.export_all(source=None)
+                    if args.output == "-":
+
+                        for s in sessions:
+                            sys.stdout.write(
+                                _json.dumps(_redact(s), ensure_ascii=False) + "\n"
+                            )
+                    else:
+                        with open(args.output, "w", encoding="utf-8") as f:
+                            for s in sessions:
+                                f.write(
+                                    _json.dumps(_redact(s), ensure_ascii=False) + "\n"
+                                )
+                        print(f"Exported {len(sessions)} sessions to {args.output}")
+                return
+
+            # Markdown / QMD export
+            from ruslan_cli.session_export_md import (
+                append_manifest_entry,
+                verify_export_file,
+                write_session_markdown,
+            )
+
+            if args.output == "-":
+                print("Markdown/QMD export writes files; stdout (-) is only supported with --format jsonl.")
+                db.close()
+                return
+            output_dir = Path(args.output).expanduser() if args.output else get_ruslan_home() / "session-exports"
+
+            def _export_one(session_id: str):
+                data = (
+                    db.export_session_lineage(session_id)
+                    if getattr(args, "lineage", "single") == "logical"
+                    else db.export_session(session_id)
+                )
+                if not data:
+                    return None, None
+                data = _redact(data)
+                path = write_session_markdown(
+                    data,
+                    output_dir,
+                    fmt=args.format,
+                    force=args.force,
+                )
+                append_manifest_entry(output_dir, data, path, fmt=args.format)
+                return data, path
+
+            if args.delete_after_verified and not args.yes:
+                print("--delete-after-verified requires --yes.")
+                db.close()
+                return
+            if args.delete_after_verified and not args.session_id:
+                print("--delete-after-verified is only supported with --session-id.")
+                db.close()
+                return
+
             if args.session_id:
                 resolved_session_id = db.resolve_session_id(args.session_id)
                 if not resolved_session_id:
                     print(f"Session '{args.session_id}' not found.")
+                    db.close()
                     return
-                data = db.export_session(resolved_session_id)
-                if not data:
+                try:
+                    data, exported_path = _export_one(resolved_session_id)
+                except FileExistsError as e:
+                    print(f"Export already exists: {e}. Pass --force to overwrite.")
+                    db.close()
+                    return
+                if not data or not exported_path:
                     print(f"Session '{args.session_id}' not found.")
+                    db.close()
                     return
-                line = _json.dumps(data, ensure_ascii=False) + "\n"
-                if args.output == "-":
+                message_count = len(data.get("messages") or [])
+                suffix = "" if message_count == 1 else "s"
+                print(f"Exported 1 session ({message_count} message{suffix}) to {exported_path}")
+                if args.delete_after_verified:
+                    ok, reason = verify_export_file(exported_path, data)
+                    if not ok:
+                        print(f"Export verification failed; not deleting: {reason}")
+                        db.close()
+                        return
+                    sessions_dir = get_ruslan_home() / "sessions"
+                    if db.delete_session(resolved_session_id, sessions_dir=sessions_dir):
+                        print(f"Deleted exported session '{resolved_session_id}'.")
+                    else:
+                        print(f"Exported, but session '{resolved_session_id}' was not deleted because it was not found.")
+                db.close()
+                return
 
-                    sys.stdout.write(line)
-                else:
-                    with open(args.output, "w", encoding="utf-8") as f:
-                        f.write(line)
-                    print(f"Exported 1 session to {args.output}")
-            else:
-                sessions = db.export_all(source=args.source)
-                if args.output == "-":
-
-                    for s in sessions:
-                        sys.stdout.write(_json.dumps(s, ensure_ascii=False) + "\n")
-                else:
-                    with open(args.output, "w", encoding="utf-8") as f:
-                        for s in sessions:
-                            f.write(_json.dumps(s, ensure_ascii=False) + "\n")
-                    print(f"Exported {len(sessions)} sessions to {args.output}")
+            if not filters:
+                print(
+                    "Refusing bulk export without a filter. Pass --session-id or "
+                    "at least one filter (e.g. --older-than 90, --source telegram)."
+                )
+                db.close()
+                return
+            candidates = db.list_prune_candidates(**filters)
+            if args.dry_run:
+                print(
+                    f"Would export {len(candidates)} session(s) "
+                    f"({describe_filters(filters)})."
+                )
+                for row in candidates[:100]:
+                    print(f"  {row.get('id')}  {row.get('source', '')}")
+                if len(candidates) > 100:
+                    print(f"  ... {len(candidates) - 100} more")
+                db.close()
+                return
+            exported = 0
+            for row in candidates:
+                try:
+                    data, exported_path = _export_one(row["id"])
+                except FileExistsError as e:
+                    print(f"Skipping existing export: {e}. Pass --force to overwrite.")
+                    continue
+                if data and exported_path:
+                    exported += 1
+            print(f"Exported {exported} session(s) to {output_dir}")
 
         elif action == "delete":
             resolved_session_id = db.resolve_session_id(args.session_id)
@@ -12807,7 +14590,7 @@ def main():
                 if not _confirm_prompt(
                     f"Delete session '{resolved_session_id}' and all its messages? [y/N] "
                 ):
-                    print("Отменено.")
+                    print("Cancelled.")
                     return
             sessions_dir = get_ruslan_home() / "sessions"
             if db.delete_session(resolved_session_id, sessions_dir=sessions_dir):
@@ -12815,20 +14598,114 @@ def main():
             else:
                 print(f"Session '{args.session_id}' not found.")
 
-        elif action == "prune":
-            days = args.older_than
-            source_msg = f" from '{args.source}'" if args.source else ""
+        elif action in ("prune", "archive"):
+            from ruslan_cli.session_filters import (
+                build_prune_filters,
+                describe_filters,
+                format_epoch,
+            )
+
+            # Preserve the historical default ONLY for a truly bare
+            # `ruslan sessions prune`: no time window and no filters at all
+            # means "older than 90 days". ANY filter — including --source —
+            # suppresses the implicit cutoff, so `prune --source cron`
+            # matches ALL cron sessions regardless of age. The preview +
+            # confirmation below (count, oldest/newest) is the safety net.
+            _non_time_filters = any(
+                getattr(args, a, None) is not None
+                for a in (
+                    "source", "title", "end_reason", "cwd",
+                    "min_messages", "max_messages", "model", "provider",
+                    "user", "chat_id", "chat_type", "branch",
+                    "min_tokens", "max_tokens", "min_cost", "max_cost",
+                    "min_tool_calls", "max_tool_calls",
+                )
+            )
+            if (
+                action == "prune"
+                and args.older_than is None
+                and args.newer_than is None
+                and args.before is None
+                and args.after is None
+                and not _non_time_filters
+            ):
+                args.older_than = "90"
+
+            try:
+                filters = build_prune_filters(args)
+            except ValueError as e:
+                print(f"Error: {e}")
+                return
+
+            if action == "archive" and not any(
+                v for k, v in filters.items() if k != "older_than_days"
+            ):
+                print(
+                    "Refusing to archive every ended session: pass at least one "
+                    "filter (e.g. --newer-than 5h, --source cli, --title codex)."
+                )
+                return
+
+            # Prune skips archived sessions unless --include-archived;
+            # archive only targets not-yet-archived rows (idempotent).
+            if action == "prune":
+                filters["archived"] = (
+                    None if getattr(args, "include_archived", False) else False
+                )
+            else:
+                filters["archived"] = False
+
+            candidates = db.list_prune_candidates(**filters)
+            verb = "Delete" if action == "prune" else "Archive"
+            if not candidates:
+                print(f"No sessions match ({describe_filters(filters)}).")
+                return
+
+            # Candidates are ordered oldest-first — surface the age span so
+            # the confirmation makes the blast radius obvious.
+            _oldest = candidates[0].get("started_at")
+            _newest = candidates[-1].get("started_at")
+            _span = (
+                f"oldest {format_epoch(_oldest)}, newest {format_epoch(_newest)}"
+            )
+
+            if args.dry_run or not args.yes:
+                shown = candidates if args.dry_run else candidates[:15]
+                print(
+                    f"{len(candidates)} session(s) match "
+                    f"({describe_filters(filters)}; {_span}):"
+                )
+                for s in shown:
+                    title = (s.get("title") or "")[:36]
+                    model = (s.get("model") or "-").split("/")[-1][:24]
+                    print(
+                        f"  {s['id']}  {format_epoch(s['started_at']):<17} "
+                        f"{s['source']:<10} {model:<24} "
+                        f"{s['message_count']:>4} msgs  {title}"
+                    )
+                if len(candidates) > len(shown):
+                    print(f"  … and {len(candidates) - len(shown)} more")
+                if args.dry_run:
+                    print(f"Dry run — nothing {'deleted' if action == 'prune' else 'archived'}.")
+                    return
+
             if not args.yes:
                 if not _confirm_prompt(
-                    f"Delete all ended sessions older than {days} days{source_msg}? [y/N] "
+                    f"{verb} these {len(candidates)} session(s) ({_span})? [y/N] "
                 ):
-                    print("Отменено.")
+                    print("Cancelled.")
                     return
-            sessions_dir = get_ruslan_home() / "sessions"
-            count = db.prune_sessions(
-                older_than_days=days, source=args.source, sessions_dir=sessions_dir
-            )
-            print(f"Pruned {count} session(s).")
+
+            if action == "prune":
+                sessions_dir = get_ruslan_home() / "sessions"
+                count = db.prune_sessions(sessions_dir=sessions_dir, **filters)
+                print(f"Pruned {count} session(s).")
+            else:
+                count = db.archive_sessions(**filters)
+                print(
+                    f"Archived {count} session(s). They're hidden from listings "
+                    "but fully recoverable (nothing was deleted)."
+                )
 
         elif action == "rename":
             resolved_session_id = db.resolve_session_id(args.session_id)
@@ -12853,12 +14730,12 @@ def main():
             )
             db.close()
             if not sessions:
-                print("Сессии не найдены.")
+                print("No sessions found.")
                 return
 
             selected_id = _session_browse_picker(sessions)
             if not selected_id:
-                print("Отменено.")
+                print("Cancelled.")
                 return
 
             # Launch ruslan --resume <id> by replacing the current process
@@ -12875,7 +14752,7 @@ def main():
                 if db_path.exists()
                 else 0.0
             )
-            print("Оптимизация хранилища сессий (FTS merge + VACUUM)…")
+            print("Optimizing session store (FTS merge + VACUUM)…")
             try:
                 # vacuum() merges FTS5 segments (optimize_fts) then VACUUMs,
                 # and returns the number of indexes it merged.
@@ -12957,14 +14834,14 @@ def main():
     # =========================================================================
     completion_parser = subparsers.add_parser(
         "completion",
-        help="Вывести скрипт автодополнения оболочки (bash, zsh или fish)",
+        help="Print shell completion script (bash, zsh, or fish)",
     )
     completion_parser.add_argument(
         "shell",
         nargs="?",
         default="bash",
         choices=["bash", "zsh", "fish"],
-        help="Тип оболочки (по умолчанию: bash)",
+        help="Shell type (default: bash)",
     )
     completion_parser.set_defaults(func=lambda args: cmd_completion(args, parser))
 
@@ -13069,6 +14946,15 @@ def main():
         cmd_version(args)
         return
 
+    # --yolo: set RUSLAN_YOLO_MODE *before* plugin discovery.  The call to
+    # _prepare_agent_startup() below triggers discover_plugins() → tool
+    # imports, and tools.approval freezes _YOLO_MODE_FROZEN at module
+    # import time (PR #7994, security hardening against prompt-injection).
+    # If the env var is set only later (e.g. inside cmd_chat), the frozen
+    # value is already False and --yolo silently does nothing.
+    if getattr(args, "yolo", False):
+        os.environ["RUSLAN_YOLO_MODE"] = "1"
+
     # Discover Python plugins and register shell hooks once, before any
     # command that can fire lifecycle hooks.  Both are idempotent; gated
     # so introspection/management commands (ruslan hooks list, cron
@@ -13087,6 +14973,7 @@ def main():
                 model=getattr(args, "model", None),
                 provider=getattr(args, "provider", None),
                 toolsets=getattr(args, "toolsets", None),
+                usage_file=getattr(args, "usage_file", None),
             )
         )
 

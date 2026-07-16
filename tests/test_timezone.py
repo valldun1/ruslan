@@ -31,7 +31,7 @@ def _reset_ruslan_time_cache():
 # ruslan_time.now() — core helper
 # =========================================================================
 
-class TestHermesTimeNow:
+class TestRuslanTimeNow:
     """Test the timezone-aware now() helper."""
 
     def setup_method(self):

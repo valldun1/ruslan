@@ -79,7 +79,7 @@ ruslan [global-options] <command> [subcommand/options]
 | `ruslan profile` | 管理 profile——多个隔离的 Ruslan 实例。 |
 | `ruslan completion` | 打印 shell 补全脚本（bash/zsh/fish）。 |
 | `ruslan version` | 显示版本信息。 |
-| `ruslan update` | 拉取最新代码并重新安装依赖（git 安装），或检查 PyPI 并执行 `pip install --upgrade`（pip 安装）。`--check` 预览而不安装；`--backup` 在拉取前对 `RUSLAN_HOME` 进行快照。 |
+| `ruslan update` | 拉取最新代码并重新安装依赖。`--check` 预览而不安装；`--backup` 在拉取前对 `RUSLAN_HOME` 进行快照。 |
 | `ruslan uninstall` | 从系统中删除 Ruslan。 |
 
 ## `ruslan chat`
@@ -477,6 +477,7 @@ ruslan webhook subscribe <name> [options]
 | `--deliver-chat-id` | 跨平台投递的目标聊天/频道 ID。 |
 | `--secret` | 自定义 HMAC 密钥。省略时自动生成。 |
 | `--deliver-only` | 跳过 agent——将渲染后的 `--prompt` 作为字面消息投递。零 LLM 成本，亚秒级投递。要求 `--deliver` 为真实目标（非 `log`）。 |
+| `--script` | 位于 `~/.ruslan/scripts/` 下的过滤/转换脚本。webhook payload 以 JSON 形式通过 stdin 传入；JSON stdout 会替换 payload，空 stdout、`[SILENT]` 或非零退出码会忽略该 webhook。参见[脚本过滤与转换](../user-guide/messaging/webhooks.md#script-filters-and-transforms)。 |
 
 订阅持久化到 `~/.ruslan/webhook_subscriptions.json`，webhook 适配器无需重启 gateway 即可热重载。
 
@@ -819,7 +820,7 @@ ruslan skills inspect official/security/1password
 ruslan skills inspect skills-sh/vercel-labs/json-render/json-render-react
 ruslan skills install official/migration/openclaw-migration
 ruslan skills install skills-sh/anthropics/skills/pdf --force
-ruslan skills install https://sharethis.chat/SKILL.md                     # 直接 URL（单文件 SKILL.md）
+ruslan skills install https://sharethis.chat/SKILL.md                     # 直接 URL（含引用的支持文件）
 ruslan skills install https://example.com/SKILL.md --name my-skill        # frontmatter 无名称时覆盖名称
 ruslan skills check
 ruslan skills update
@@ -834,7 +835,7 @@ ruslan skills reset google-workspace --restore --yes
 - `--source skills-sh` 搜索公共 `skills.sh` 目录。
 - `--source well-known` 允许你将 Ruslan 指向暴露 `/.well-known/skills/index.json` 的站点。
 - `--source browse-sh` 搜索 [browse.sh](https://browse.sh) 包含 200+ 站点特定浏览器自动化 skill 的目录。标识符形如 `browse-sh/airbnb.com/search-listings-ddgioa`。
-- 传入 `http(s)://…/*.md` URL 可直接安装单文件 SKILL.md。当 frontmatter 没有 `name:` 且 URL slug 不是有效标识符时，交互式终端会提示输入名称；非交互式界面（TUI 内的 `/skills install`、gateway 平台）需要改用 `--name <x>`。
+- 传入 `http(s)://…/*.md` URL 可安装 `SKILL.md`，以及其中明确引用且位于 `references/`、`templates/`、`scripts/`、`assets/` 和 `examples/` 下的文件。当 frontmatter 没有 `name:` 且 URL slug 不是有效标识符时，交互式终端会提示输入名称；非交互式界面（TUI 内的 `/skills install`、gateway 平台）需要改用 `--name <x>`。
 
 ## `ruslan bundles`
 
@@ -974,7 +975,7 @@ python -m acp_adapter
 首先安装支持：
 
 ```bash
-pip install -e '.[acp]'
+cd ~/.ruslan/ruslan-agent && uv pip install -e '.[acp]'
 ```
 
 参见 [ACP 编辑器集成](../user-guide/features/acp.md) 和 [ACP 内部原理](../developer-guide/acp-internals.md)。
@@ -1026,7 +1027,7 @@ Provider plugin 选择保存到 `config.yaml`：
 
 通用 plugin 禁用列表存储在 `config.yaml` 的 `plugins.disabled` 下。
 
-参见 [Plugins](../user-guide/features/plugins.md) 和 [构建 Ruslan Plugin](../guides/build-a-ruslan-plugin.md)。
+参见 [Plugins](../user-guide/features/plugins.md) 和 [构建 Ruslan Plugin](../developer-guide/plugins/index.md)。
 
 ## `ruslan tools`
 
@@ -1144,7 +1145,7 @@ ruslan claw migrate --source /home/user/old-openclaw
 ruslan dashboard [options]
 ```
 
-启动 Web 控制台——基于浏览器的界面，用于管理配置、API 密钥和监控会话。需要 `pip install ruslan-agent[web]`（FastAPI + Uvicorn）。内嵌浏览器 Chat 标签页始终可用，但额外需要 `pty` extra（`pip install 'ruslan-agent[web,pty]'`）以及 POSIX PTY 环境（如 Linux、macOS 或 WSL2）。完整文档请参阅 [Web 控制台](/user-guide/features/web-dashboard)。
+启动 Web 控制台——基于浏览器的界面，用于管理配置、API 密钥和监控会话。需要 `cd ~/.ruslan/ruslan-agent && uv pip install -e ".[web]"`（FastAPI + Uvicorn）。内嵌浏览器 Chat 标签页始终可用，但额外需要 `pty` extra（`cd ~/.ruslan/ruslan-agent && uv pip install -e ".[web,pty]"`）以及 POSIX PTY 环境（如 Linux、macOS 或 WSL2）。完整文档请参阅 [Web 控制台](/user-guide/features/web-dashboard)。
 
 | 选项 | 默认值 | 说明 |
 |--------|---------|-------------|
@@ -1227,9 +1228,7 @@ ruslan completion fish > ~/.config/fish/completions/ruslan.fish
 ruslan update [--check] [--backup] [--restart-gateway]
 ```
 
-拉取最新的 `ruslan-agent` 代码并在 venv 中重新安装依赖，然后重新运行安装后 hook（MCP 服务器、skill 同步、补全安装）。可在运行中的安装上安全执行。
-
-**pip 安装：** `ruslan update` 自动检测基于 pip 的安装——查询 PyPI 获取最新版本并运行 `pip install --upgrade ruslan-agent`，而非 `git pull`。PyPI 发布跟踪标记版本（主要/次要版本），而非 `main` 上的每个 commit。使用 `--check` 查看是否有更新的 PyPI 版本可用，而不安装。
+拉取最新的 `ruslan-agent` 代码并在受管理的 venv 中重新安装依赖，然后重新运行安装后 hook（MCP 服务器、skill 同步、补全安装）。可在运行中的安装上安全执行。使用 `--check` 查看你的检出是否落后于 `origin/main`，而不安装。
 
 | 选项 | 说明 |
 |--------|-------------|

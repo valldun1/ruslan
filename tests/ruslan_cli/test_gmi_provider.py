@@ -118,6 +118,12 @@ class TestGmiModelCatalog:
             },
         )
         monkeypatch.setattr("ruslan_cli.models.fetch_api_models", lambda api_key, base_url: None)
+        # Generic profile path uses ProviderProfile.fetch_models (urllib), not
+        # fetch_api_models — must stub it or CI can hit the real endpoint.
+        monkeypatch.setattr(
+            "providers.base.ProviderProfile.fetch_models",
+            lambda self, *, api_key=None, base_url=None, timeout=8.0: None,
+        )
 
         assert provider_model_ids("gmi") == list(_PROVIDER_MODELS["gmi"])
 
@@ -270,21 +276,21 @@ class TestGmiAuxiliary:
         assert model == "google/gemini-3.1-flash-lite-preview"
         assert mock_openai.call_args.kwargs["api_key"] == "gmi-test-key"
         assert mock_openai.call_args.kwargs["base_url"] == "https://api.gmi-serving.com/v1"
-        # GMI profile declares default_headers with a HermesAgent User-Agent
+        # GMI profile declares default_headers with a RuslanAgent User-Agent
         # for traffic attribution. The generic profile-fallback branch in
         # resolve_provider_client should carry it through to the OpenAI client.
         headers = mock_openai.call_args.kwargs.get("default_headers", {})
-        assert headers.get("User-Agent", "").startswith("HermesAgent/")
+        assert headers.get("User-Agent", "").startswith("RuslanAgent/")
 
     def test_gmi_profile_declares_ruslan_user_agent(self):
-        """The GMI plugin sets a HermesAgent/<ver> User-Agent on its profile."""
+        """The GMI plugin sets a RuslanAgent/<ver> User-Agent on its profile."""
         from providers import get_provider_profile
 
         profile = get_provider_profile("gmi")
         assert profile is not None
         ua = profile.default_headers.get("User-Agent", "")
-        assert ua.startswith("HermesAgent/"), (
-            f"expected GMI profile User-Agent to start with 'HermesAgent/', got {ua!r}"
+        assert ua.startswith("RuslanAgent/"), (
+            f"expected GMI profile User-Agent to start with 'RuslanAgent/', got {ua!r}"
         )
 
     def test_resolve_provider_client_accepts_gmi_alias(self, monkeypatch):

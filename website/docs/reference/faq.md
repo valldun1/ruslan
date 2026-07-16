@@ -17,7 +17,7 @@ Quick answers and fixes for the most common questions and issues.
 Ruslan Agent works with any OpenAI-compatible API. Supported providers include:
 
 - **[OpenRouter](https://openrouter.ai/)** — access hundreds of models through one API key (recommended for flexibility)
-- **[Nous Portal](/integrations/nous-portal)** — Valldun's subscription gateway — 300+ models plus web/image/TTS/browser through one OAuth login (recommended for newcomers)
+- **[Nous Portal](/integrations/nous-portal)** — Nous Research's subscription gateway — 300+ models plus web/image/TTS/browser through one OAuth login (recommended for newcomers)
 - **OpenAI** — GPT-5.4, GPT-5-codex, GPT-4.1, GPT-4o, etc.
 - **Anthropic** — Claude models (direct API, OAuth via `ruslan auth add anthropic`, OpenRouter, or any compatible proxy)
 - **Google** — Gemini models (direct API via `gemini` provider, OpenRouter, or compatible proxy)
@@ -28,21 +28,8 @@ Ruslan Agent works with any OpenAI-compatible API. Supported providers include:
 
 Set your provider with `ruslan model` or by editing `~/.ruslan/.env`. See the [Environment Variables](./environment-variables.md) reference for all provider keys.
 
-### Does it work on Windows?
-
-**Yes, natively.** Ruslan supports native Windows via the PowerShell installer — no WSL required. Run in PowerShell:
-
-```powershell
-iex (irm https://ruslan.team/install.ps1)
-```
-
-The installer provisions a PortableGit that backs the terminal tool's shell. See the [Windows (Native) Guide](../user-guide/windows-native.md) for details.
-
-WSL2 remains a fully supported alternative. To run Ruslan inside WSL2, install [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) and use the standard install command:
-
-```bash
-curl -fsSL https://ruslan.team/install.sh | bash
-```
+### Does it work on Windows/Android/Termux/my plataform??
+See **[Platform Support](../getting-started/platform-support.md)** for the full platform availability matrix.
 
 ### I run Ruslan in WSL2. What's the best way to control my normal Windows Chrome?
 
@@ -61,20 +48,6 @@ See:
 
 - [Use MCP with Ruslan](../guides/use-mcp-with-ruslan.md#wsl2-bridge-ruslan-in-wsl-to-windows-chrome)
 - [Browser Automation](../user-guide/features/browser.md#wsl2--windows-chrome-prefer-mcp-over-browser-connect)
-
-### Does it work on Android / Termux?
-
-Yes — Ruslan now has a tested Termux install path for Android phones.
-
-Quick install:
-
-```bash
-curl -fsSL https://ruslan.team/install.sh | bash
-```
-
-For the fully explicit manual steps, supported extras, and current limitations, see the [Termux guide](../getting-started/termux.md).
-
-Important caveat: the full `.[all]` extra is not currently available on Android because the `voice` extra depends on `faster-whisper` → `ctranslate2`, and `ctranslate2` does not publish Android wheels. Use the tested `.[termux]` extra instead.
 
 ### Is my data sent anywhere?
 
@@ -233,7 +206,7 @@ source ~/.bashrc
 # If you previously installed with sudo, clean up:
 sudo rm /usr/local/bin/ruslan
 # Then re-run the standard installer
-curl -fsSL https://ruslan.team/install.sh | bash
+curl -fsSL https://ruslan-agent.nousresearch.com/install.sh | bash
 ```
 
 ---
@@ -445,7 +418,7 @@ Configure in `~/.ruslan/config.yaml` under your gateway's settings. See the [Mes
 **Solution:**
 ```bash
 # Install core messaging gateway dependencies
-pip install "ruslan-agent[messaging]"  # Telegram, Discord, Slack, and shared gateway deps
+cd ~/.ruslan/ruslan-agent && uv pip install -e ".[messaging]"  # Telegram, Discord, Slack, and shared gateway deps
 
 # Check for port conflicts
 lsof -i :8080
@@ -673,6 +646,10 @@ For one-off model switches without delegation, use `/model` in the CLI:
 /model openai/gpt-5.4                   # switch back
 ```
 
+:::warning
+Each `/model` switch resets the prompt cache — the cache key includes the model, so the first message after every switch re-reads the whole conversation at full input price. On long sessions, prefer delegation (subagents get their own fresh context) or a new session over repeated back-and-forth switching.
+:::
+
 See [Subagent Delegation](../user-guide/features/delegation.md) for more on how delegation works.
 
 ### Running multiple agents on one WhatsApp number (per-chat binding)
@@ -759,7 +736,7 @@ Skills with very long descriptions are truncated to 40 characters in the Telegra
 
 1. Install Ruslan Agent on the new machine:
    ```bash
-   curl -fsSL https://ruslan.team/install.sh | bash
+   curl -fsSL https://ruslan-agent.nousresearch.com/install.sh | bash
    ```
 
 2. On the **source machine**, create a full backup:
@@ -863,6 +840,6 @@ If using OpenRouter, make sure your API key has credits. A 400 from OpenRouter o
 
 If your issue isn't covered here:
 
-1. **Search existing issues:** [GitHub Issues](https://github.com/valldun1/ruslan/issues)
-2. **Ask the community:** [Valldun Discord](https://discord.gg/nousresearch)
+1. **Search existing issues:** [GitHub Issues](https://github.com/NousResearch/ruslan-agent/issues)
+2. **Ask the community:** [Nous Research Discord](https://discord.gg/nousresearch)
 3. **File a bug report:** Include your OS, Python version (`python3 --version`), Ruslan version (`ruslan --version`), and the full error message

@@ -13,6 +13,7 @@ from pathlib import Path
 from ruslan_cli.config import get_project_root, get_ruslan_home, get_env_path
 from ruslan_cli.env_loader import load_ruslan_dotenv
 from ruslan_constants import display_ruslan_home
+from ruslan_constants import agent_browser_runnable
 
 PROJECT_ROOT = get_project_root()
 RUSLAN_HOME = get_ruslan_home()
@@ -29,6 +30,7 @@ from utils import base_url_host_matches
 
 
 _PROVIDER_ENV_HINTS = (
+    "DEEPINFRA_API_KEY",
     "OPENROUTER_API_KEY",
     "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY",
@@ -41,6 +43,7 @@ _PROVIDER_ENV_HINTS = (
     "KIMI_API_KEY",
     "KIMI_CN_API_KEY",
     "GMI_API_KEY",
+    "FIREWORKS_API_KEY",
     "MINIMAX_API_KEY",
     "MINIMAX_CN_API_KEY",
     "KILOCODE_API_KEY",
@@ -127,7 +130,7 @@ def _is_kanban_worker_env_gate(item: dict) -> bool:
 def _doctor_tool_availability_detail(toolset: str) -> str:
     """Optional explanatory suffix for toolsets whose doctor status needs context."""
     if toolset == "kanban" and not os.environ.get("RUSLAN_KANBAN_TASK"):
-        return "(рантайм-ограничен; только для воркеров диспетчера)"
+        return "(runtime-gated; loaded only for dispatcher-spawned workers)"
     return ""
 
 
@@ -198,6 +201,32 @@ def _fail_and_issue(text: str, detail: str, fix: str, issues: list[str]) -> None
     issues.append(fix)
 
 
+def _enabled_cli_toolsets_for_doctor() -> set[str] | None:
+    """Return toolsets enabled for the CLI, or None if config resolution fails."""
+    try:
+        from ruslan_cli.config import load_config
+        from ruslan_cli.tools_config import _get_platform_tools
+
+        return {str(toolset) for toolset in _get_platform_tools(load_config() or {}, "cli")}
+    except Exception:
+        return None
+
+
+def _missing_api_key_toolsets_for_summary(unavailable: list[dict]) -> list[dict]:
+    """Filter unavailable API-key toolsets to those enabled for the CLI."""
+    api_key_unavailable = [
+        item for item in unavailable
+        if item.get("missing_vars") or item.get("env_vars")
+    ]
+    enabled_toolsets = _enabled_cli_toolsets_for_doctor()
+    if enabled_toolsets is None:
+        return api_key_unavailable
+    return [
+        item for item in api_key_unavailable
+        if str(item.get("name") or "") in enabled_toolsets
+    ]
+
+
 def _read_pyproject_version() -> str | None:
     """Read the ``version = "..."`` from ``pyproject.toml`` at the project root.
 
@@ -241,7 +270,7 @@ def _check_version_consistency(issues: list[str]) -> None:
         # Installed wheel or unreadable pyproject — nothing to cross-check.
         return
     if pyproject_version == init_version:
-        check_ok("Версии файлов согласованы", f"({init_version})")
+        check_ok("Version files consistent", f"({init_version})")
     else:
         _fail_and_issue(
             "Version mismatch between source files",
@@ -276,7 +305,7 @@ def _check_s6_supervision(issues: list[str]) -> None:
     if detect_service_manager() != "s6":
         return
 
-    _section("Мониторинг s6")
+    _section("s6 Supervision")
 
     mgr = S6ServiceManager()
 
@@ -290,7 +319,7 @@ def _check_s6_supervision(issues: list[str]) -> None:
 
     profiles = mgr.list_profile_gateways()
     if not profiles:
-        check_info("Per-profile шлюзы не зарегистрированы — create one with `ruslan profile create <name>`")
+        check_info("No per-profile gateways registered yet — create one with `ruslan profile create <name>`")
         return
 
     up_count = sum(1 for p in profiles if mgr.is_running(f"gateway-{p}"))
@@ -310,11 +339,11 @@ def check_certificates() -> None:
         from agent.ssl_guard import verify_ca_bundle_with_fallback
         from agent.errors import SSLConfigurationError
         verify_ca_bundle_with_fallback()
-        check_ok("Сертификаты SSL действительны")
+        check_ok("SSL CA certificate bundle is valid")
     except SSLConfigurationError as e:
-        check_fail("Сертификаты SSL повреждены", str(e))
+        check_fail("SSL CA certificate bundle is broken", str(e))
     except Exception as e:
-        check_warn("Проверка SSL пропущена", str(e))
+        check_warn("SSL certificate check skipped", str(e))
 
 
 def _check_gateway_service_linger(issues: list[str]) -> None:
@@ -333,7 +362,7 @@ def _check_gateway_service_linger(issues: list[str]) -> None:
         )
         from ruslan_cli.service_manager import detect_service_manager
     except Exception as e:
-        check_warn("Gateway service linger", f"(не удалось импортировать gateway helpers: {e})")
+        check_warn("Gateway service linger", f"(could not import gateway helpers: {e})")
         return
 
     if not is_linux():
@@ -349,16 +378,16 @@ def _check_gateway_service_linger(issues: list[str]) -> None:
     if not unit_path.exists():
         return
 
-    _section("Служба шлюза")
+    _section("Gateway Service")
     linger_enabled, linger_detail = get_systemd_linger_status()
     if linger_enabled is True:
-        check_ok("Systemd linger включён", "(шлюз переживёт выход из системы)")
+        check_ok("Systemd linger enabled", "(gateway service survives logout)")
     elif linger_enabled is False:
-        check_warn("Systemd linger выключен", "(шлюз может остановиться после выхода)")
-        check_info("Запустите: sudo loginctl enable-linger $USER")
+        check_warn("Systemd linger disabled", "(gateway may stop after logout)")
+        check_info("Run: sudo loginctl enable-linger $USER")
         issues.append("Enable linger for the gateway user service: sudo loginctl enable-linger $USER")
     else:
-        check_warn("Не удалось проверить systemd linger", f"({linger_detail})")
+        check_warn("Could not verify systemd linger", f"({linger_detail})")
 
 
 _APIKEY_PROVIDERS_CACHE: list | None = None
@@ -527,10 +556,10 @@ def run_doctor(args):
 
     print()
     print(color("┌─────────────────────────────────────────────────────────┐", Colors.CYAN))
-    print(color("│                    🩺 Доктор Руслана                     │", Colors.CYAN))
+    print(color("│                 🩺 Ruslan Doctor                        │", Colors.CYAN))
     print(color("└─────────────────────────────────────────────────────────┘", Colors.CYAN))
 
-    _section("Советы безопасности")
+    _section("Security Advisories")
     try:
         from ruslan_cli.security_advisories import (
             detect_compromised,
@@ -571,12 +600,12 @@ def run_doctor(args):
                         f"(advisory {h.advisory.id} acknowledged)",
                     )
         else:
-            check_ok("Нет активных советов безопасности")
+            check_ok("No active security advisories")
     except Exception as e:
         # Never let a bug in the advisory check block the rest of doctor.
         check_warn(f"Security advisory check failed: {e}")
 
-    _section("Безопасность MCP-серверов")
+    _section("MCP Server Security")
     try:
         from ruslan_cli.config import load_config
         from ruslan_cli.mcp_security import validate_mcp_server_entry
@@ -596,19 +625,19 @@ def run_doctor(args):
                     f"Review/remove mcp_servers.{name} in config.yaml; rotate any credentials that may have been exposed."
                 )
         if suspicious == 0:
-            check_ok("Нет подозрительных MCP-команд")
+            check_ok("No suspicious MCP stdio commands")
     except Exception as e:
         check_warn(f"MCP security check failed: {e}")
     
-    _section("Окружение Python")
+    _section("Python Environment")
     py_version = sys.version_info
     if py_version >= (3, 11):
         check_ok(f"Python {py_version.major}.{py_version.minor}.{py_version.micro}")
     elif py_version >= (3, 10):
         check_ok(f"Python {py_version.major}.{py_version.minor}.{py_version.micro}")
-        check_warn("Рекомендуется Python 3.11+ для инструментов RL Training")
+        check_warn("Python 3.11+ recommended for RL Training tools (tinker requires >= 3.11)")
     elif py_version >= (3, 8):
-        check_warn(f"Python {py_version.major}.{py_version.minor}.{py_version.micro}", "(рекомендуется 3.10+)")
+        check_warn(f"Python {py_version.major}.{py_version.minor}.{py_version.micro}", "(3.10+ recommended)")
     else:
         _fail_and_issue(
             f"Python {py_version.major}.{py_version.minor}.{py_version.micro}",
@@ -620,18 +649,18 @@ def run_doctor(args):
     # Check if in virtual environment
     in_venv = sys.prefix != sys.base_prefix
     if in_venv:
-        check_ok("Виртуальное окружение активно")
+        check_ok("Virtual environment active")
     else:
-        check_warn("Не в виртуальном окружении", "(рекомендуется)")
+        check_warn("Not in virtual environment", "(recommended)")
 
     # Detect drift between pyproject.toml and ruslan_cli/__init__.py versions
     # (a git conflict resolution can silently revert one but not the other).
     _check_version_consistency(issues)
 
-    _section("SSL / Сертификаты")
+    _section("SSL / CA Certificates")
     check_certificates()
 
-    _section("Необходимые пакеты")
+    _section("Required Packages")
     required_packages = [
         ("openai", "OpenAI SDK"),
         ("rich", "Rich (terminal UI)"),
@@ -651,16 +680,16 @@ def run_doctor(args):
             __import__(module)
             check_ok(name)
         except ImportError:
-            _fail_and_issue(name, "(отсутствует)", f"Install {name}: {_python_install_cmd()} {module}", issues)
+            _fail_and_issue(name, "(missing)", f"Install {name}: {_python_install_cmd()} {module}", issues)
     
     for module, name in optional_packages:
         try:
             __import__(module)
-            check_ok(name, "(опционально)")
+            check_ok(name, "(optional)")
         except ImportError:
-            check_warn(name, "(опционально, не установлен)")
+            check_warn(name, "(optional, not installed)")
     
-    _section("Файлы конфигурации")
+    _section("Configuration Files")
     # Managed scope (administrator-pinned config/env), when present.
     managed_scope_check()
     # Check ~/.ruslan/.env (primary location for user config)
@@ -674,10 +703,10 @@ def run_doctor(args):
         # locales (e.g. GBK) as soon as the file contains any non-ASCII byte.
         content = env_path.read_text(encoding="utf-8")
         if _has_provider_env_config(content):
-            check_ok("API-ключ или свой эндпоинт настроен")
+            check_ok("API key or custom endpoint configured")
         else:
-            check_warn(f"API-ключ не найден в {_DHH}/.env")
-            issues.append("Запустите 'ruslan setup' для настройки API-ключей")
+            check_warn(f"No API key found in {_DHH}/.env")
+            issues.append("Run 'ruslan setup' to configure API keys")
     else:
         # Also check project root as fallback
         fallback_env = PROJECT_ROOT / '.env'
@@ -695,11 +724,11 @@ def run_doctor(args):
                     os.chmod(str(env_path), 0o600)
                 except OSError:
                     pass
-                check_ok(f"Создан пустой {_DHH}/.env")
-                check_info("Запустите 'ruslan setup' для настройки API-ключей")
+                check_ok(f"Created empty {_DHH}/.env")
+                check_info("Run 'ruslan setup' to configure API keys")
                 fixed_count += 1
             else:
-                check_info("Запустите 'ruslan setup' для создания")
+                check_info("Run 'ruslan setup' to create one")
                 issues.append("Run 'ruslan setup' to create .env")
     
     # Check ~/.ruslan/config.yaml (primary) or project cli-config.yaml (fallback)
@@ -818,6 +847,14 @@ def run_doctor(args):
                 "lmstudio",
                 "nous",
                 "nvidia",
+                # Fireworks' native model IDs are slash-form
+                # (accounts/fireworks/models/... and .../routers/...), so a "/"
+                # is expected, not an aggregator vendor prefix.
+                "fireworks",
+                # DeepInfra is an aggregator-style gateway: its catalog
+                # is exclusively ``vendor/model`` slugs (Qwen/Qwen3.5-…,
+                # meta-llama/Llama-3-…, anthropic/claude-opus-4-7, …).
+                "deepinfra",
             }
             provider_accepts_vendor_slug = (
                 provider_policy_id in providers_accepting_vendor_slugs
@@ -881,7 +918,7 @@ def run_doctor(args):
                     pass
 
         except Exception as e:
-            check_warn("Не удалось проверить конфиг модели/провайдера", f"({e})")
+            check_warn("Could not validate model/provider config", f"({e})")
     else:
         fallback_config = PROJECT_ROOT / 'cli-config.yaml'
         if fallback_config.exists():
@@ -892,14 +929,14 @@ def run_doctor(args):
                 example_config = PROJECT_ROOT / 'cli-config.yaml.example'
                 if example_config.exists():
                     shutil.copy2(str(example_config), str(config_path))
-                    check_ok(f"Создан config.yaml из примера")
+                    check_ok(f"Created {_DHH}/config.yaml from cli-config.yaml.example")
                 else:
                     from ruslan_cli.config import DEFAULT_CONFIG, save_config
                     save_config(DEFAULT_CONFIG)
-                    check_ok(f"Создан config.yaml из значений по умолчанию")
+                    check_ok(f"Created {_DHH}/config.yaml from defaults")
                 fixed_count += 1
             else:
-                check_warn("config.yaml not found", "(по умолчанию)")
+                check_warn("config.yaml not found", "(using defaults)")
 
     # Check config version and stale keys
     config_path = RUSLAN_HOME / 'config.yaml'
@@ -915,7 +952,7 @@ def run_doctor(args):
                 if should_fix:
                     try:
                         migrate_config(interactive=False, quiet=False)
-                        check_ok("Конфиг обновлён до последней версии")
+                        check_ok("Config migrated to latest version")
                         fixed_count += 1
                     except Exception as mig_err:
                         check_warn(f"Auto-migration failed: {mig_err}")
@@ -923,7 +960,7 @@ def run_doctor(args):
                 else:
                     issues.append("Run 'ruslan doctor --fix' or 'ruslan setup' to migrate config")
             else:
-                check_ok(f"Версия конфига актуальна (v{current_ver})")
+                check_ok(f"Config version up to date (v{current_ver})")
         except Exception:
             pass
 
@@ -956,9 +993,9 @@ def run_doctor(args):
                             model_section[k] = raw_config.pop(k)
                         else:
                             raw_config.pop(k)
-                    from utils import atomic_yaml_write
-                    atomic_yaml_write(config_path, raw_config)
-                    check_ok("Устаревшие ключи перемещены в секцию model")
+                    from ruslan_cli.config import atomic_config_write
+                    atomic_config_write(config_path, raw_config)
+                    check_ok("Migrated stale root-level keys into model section")
                     fixed_count += 1
                 else:
                     issues.append("Stale root-level provider/base_url in config.yaml — run 'ruslan doctor --fix'")
@@ -1009,7 +1046,7 @@ def run_doctor(args):
                         )
                         fixed_count += 1
                     else:
-                        check_warn("Не удалось удалить RUSLAN_MAX_ITERATIONS из .env")
+                        check_warn("Could not remove RUSLAN_MAX_ITERATIONS from .env")
                         manual_issues.append(
                             "Manually delete the RUSLAN_MAX_ITERATIONS line from "
                             f"{_DHH}/.env — config.yaml agent.max_turns is authoritative."
@@ -1027,7 +1064,7 @@ def run_doctor(args):
             from ruslan_cli.config import validate_config_structure
             config_issues = validate_config_structure()
             if config_issues:
-                _section("Структура конфига")
+                _section("Config Structure")
                 for ci in config_issues:
                     if ci.severity == "error":
                         check_fail(ci.message)
@@ -1040,7 +1077,7 @@ def run_doctor(args):
         except Exception:
             pass
 
-    _section("Вывод моделей xAI (15 мая 2026)")
+    _section("xAI Model Retirement (May 15, 2026)")
 
     try:
         from ruslan_cli.config import load_config
@@ -1053,11 +1090,11 @@ def run_doctor(args):
         _xai_cfg = load_config()
         retired_refs = find_retired_xai_refs(_xai_cfg)
         if not retired_refs:
-            check_ok("Нет выведенных моделей xAI в конфиге")
+            check_ok("No retired xAI models in config")
         else:
             for ref in retired_refs:
                 check_warn(format_issue(ref))
-            check_info(f"Инструкция по миграции: {MIGRATION_GUIDE_URL}")
+            check_info(f"Migration guide: {MIGRATION_GUIDE_URL}")
             manual_issues.append(
                 f"Update {len(retired_refs)} retired xAI model reference(s) "
                 f"in config.yaml — see {MIGRATION_GUIDE_URL}"
@@ -1065,7 +1102,7 @@ def run_doctor(args):
     except Exception as _xai_check_err:
         check_warn("xAI retirement check skipped", f"({_xai_check_err})")
 
-    _section("Провайдеры аутентификации")
+    _section("Auth Providers")
 
     try:
         from ruslan_cli.auth import (
@@ -1076,15 +1113,15 @@ def run_doctor(args):
 
         nous_status = get_nous_auth_status()
         if nous_status.get("logged_in"):
-            check_ok("Nous Portal auth", "(выполнен вход)")
+            check_ok("Nous Portal auth", "(logged in)")
         else:
-            check_warn("Nous Portal auth", "(не выполнен вход)")
+            check_warn("Nous Portal auth", "(not logged in)")
 
         codex_status = get_codex_auth_status()
         if codex_status.get("logged_in"):
-            check_ok("OpenAI Codex auth", "(выполнен вход)")
+            check_ok("OpenAI Codex auth", "(logged in)")
         else:
-            check_warn("OpenAI Codex auth", "(не выполнен вход)")
+            check_warn("OpenAI Codex auth", "(not logged in)")
             if codex_status.get("error"):
                 check_info(codex_status["error"])
             # Native OAuth uses Ruslan' own device-code flow — the Codex CLI is
@@ -1093,19 +1130,19 @@ def run_doctor(args):
             # remediation for whichever provider happens to print next (#27975).
             if not _safe_which("codex"):
                 check_info(
-                    "codex CLI не установлен "
-                    "(опционально — только для импорта токенов "
-                    "из существующего входа Codex CLI)"
+                    "codex CLI not installed "
+                    "(optional — only required to import tokens "
+                    "from an existing Codex CLI login)"
                 )
 
         minimax_status = get_minimax_oauth_auth_status()
         if minimax_status.get("logged_in"):
             region = minimax_status.get("region", "global")
-            check_ok("MiniMax OAuth", f"(выполнен вход, регион={region})")
+            check_ok("MiniMax OAuth", f"(logged in, region={region})")
         else:
-            check_warn("MiniMax OAuth", "(не выполнен вход)")
+            check_warn("MiniMax OAuth", "(not logged in)")
     except Exception as e:
-        check_warn("Статус провайдера аутентификации", f"(не удалось проверить: {e})")
+        check_warn("Auth provider status", f"(could not check: {e})")
 
     # xAI OAuth — separate try/except so an import failure here cannot
     # disrupt the already-printed Nous/Codex/Gemini/MiniMax rows above.
@@ -1113,15 +1150,15 @@ def run_doctor(args):
         from ruslan_cli.auth import get_xai_oauth_auth_status
         xai_oauth_status = get_xai_oauth_auth_status() or {}
         if xai_oauth_status.get("logged_in"):
-            check_ok("xAI OAuth", "(выполнен вход)")
+            check_ok("xAI OAuth", "(logged in)")
         else:
-            check_warn("xAI OAuth", "(не выполнен вход)")
+            check_warn("xAI OAuth", "(not logged in)")
             if xai_oauth_status.get("error"):
                 check_info(xai_oauth_status["error"])
     except Exception:
         pass
 
-    _section("Структура папок")
+    _section("Directory Structure")
     ruslan_home = RUSLAN_HOME
     if ruslan_home.exists():
         check_ok(f"{_DHH} directory exists")
@@ -1130,7 +1167,7 @@ def run_doctor(args):
         check_ok(f"Created {_DHH} directory")
         fixed_count += 1
     else:
-        check_warn(f"{_DHH} not found", "(будет создано при первом запуске)")
+        check_warn(f"{_DHH} not found", "(will be created on first use)")
     
     # Check expected subdirectories
     expected_subdirs = ["cron", "sessions", "logs", "skills", "memories"]
@@ -1143,7 +1180,7 @@ def run_doctor(args):
             check_ok(f"Created {_DHH}/{subdir_name}/")
             fixed_count += 1
         else:
-            check_warn(f"{_DHH}/{subdir_name}/ not found", "(будет создано при первом запуске)")
+            check_warn(f"{_DHH}/{subdir_name}/ not found", "(will be created on first use)")
     
     # Check for SOUL.md persona file
     soul_path = ruslan_home / "SOUL.md"
@@ -1152,11 +1189,11 @@ def run_doctor(args):
         # Check if it's just the template comments (no real content)
         lines = [l for l in content.splitlines() if l.strip() and not l.strip().startswith(("<!--", "-->", "#"))]
         if lines:
-            check_ok(f"{_DHH}/SOUL.md exists (персона настроена)")
+            check_ok(f"{_DHH}/SOUL.md exists (persona configured)")
         else:
             check_info(f"{_DHH}/SOUL.md exists but is empty — edit it to customize personality")
     else:
-        check_warn(f"{_DHH}/SOUL.md not found", "(создайте для настройки личности Руслана)")
+        check_warn(f"{_DHH}/SOUL.md not found", "(create it to give Ruslan a custom personality)")
         if should_fix:
             soul_path.parent.mkdir(parents=True, exist_ok=True)
             soul_path.write_text(
@@ -1176,16 +1213,16 @@ def run_doctor(args):
         user_file = memories_dir / "USER.md"
         if memory_file.exists():
             size = len(memory_file.read_text(encoding="utf-8").strip())
-            check_ok(f"MEMORY.md существует ({size} chars)")
+            check_ok(f"MEMORY.md exists ({size} chars)")
         else:
-            check_info("MEMORY.md ещё не создан (будет создан при первой записи агентом)")
+            check_info("MEMORY.md not created yet (will be created when the agent first writes a memory)")
         if user_file.exists():
             size = len(user_file.read_text(encoding="utf-8").strip())
-            check_ok(f"USER.md существует ({size} chars)")
+            check_ok(f"USER.md exists ({size} chars)")
         else:
-            check_info("USER.md ещё не создан (будет создан при первой записи агентом)")
+            check_info("USER.md not created yet (will be created when the agent first writes a memory)")
     else:
-        check_warn(f"{_DHH}/memories/ not found", "(будет создано при первом запуске)")
+        check_warn(f"{_DHH}/memories/ not found", "(will be created on first use)")
         if should_fix:
             memories_dir.mkdir(parents=True, exist_ok=True)
             check_ok(f"Created {_DHH}/memories/")
@@ -1201,6 +1238,46 @@ def run_doctor(args):
             count = cursor.fetchone()[0]
             conn.close()
             check_ok(f"{_DHH}/state.db exists ({count} sessions)")
+
+            # FTS write-health probe (#50502): `SELECT COUNT(*)` above succeeds
+            # even when the FTS index is corrupt and every message write fails
+            # through the triggers. `_db_opens_cleanly` now drives a rolled-back
+            # write so this otherwise-silent corruption class is surfaced (and
+            # repaired in place with --fix).
+            from ruslan_state import _db_opens_cleanly, repair_state_db_schema
+
+            _write_reason = _db_opens_cleanly(state_db_path)
+            if _write_reason is not None:
+                check_warn(
+                    f"{_DHH}/state.db fails a write-health probe (FTS index may be corrupt)",
+                    f"({_write_reason})",
+                )
+                if should_fix:
+                    report = repair_state_db_schema(state_db_path)
+                    if report.get("repaired"):
+                        backup_name = (
+                            Path(report["backup_path"]).name
+                            if report.get("backup_path") else "n/a"
+                        )
+                        check_ok(
+                            "Repaired state.db FTS write health",
+                            f"(strategy: {report.get('strategy')}; backup: {backup_name})",
+                        )
+                        fixed_count += 1
+                    else:
+                        check_warn(
+                            "state.db FTS write-health repair did not recover automatically",
+                            f"({report.get('error')}; backup: {report.get('backup_path')})",
+                        )
+                        issues.append(
+                            "state.db FTS write corruption and auto-repair failed — "
+                            "restore from the backup copy beside state.db"
+                        )
+                else:
+                    issues.append(
+                        "state.db FTS write corruption — run 'ruslan doctor --fix' "
+                        "(or 'ruslan sessions repair') to rebuild the FTS index"
+                    )
         except Exception as e:
             from ruslan_state import is_malformed_db_error, repair_state_db_schema
 
@@ -1281,7 +1358,7 @@ def run_doctor(args):
     _check_s6_supervision(issues)
 
     if sys.platform != "win32":
-        _section("Установка команд")
+        _section("Command Installation")
         # Determine the venv entry point location
         _venv_bin = None
         for _venv_name in ("venv", ".venv"):
@@ -1355,19 +1432,19 @@ def run_doctor(args):
                 else:
                     issues.append(f"Missing {_cmd_link_display}/ruslan symlink — run 'ruslan doctor --fix'")
 
-    _section("Внешние инструменты")
+    _section("External Tools")
     # Git
     if _safe_which("git"):
         check_ok("git")
     else:
-        check_warn("git not found", "(опционально)")
+        check_warn("git not found", "(optional)")
     
     # ripgrep (optional, for faster file search)
     if _safe_which("rg"):
         check_ok("ripgrep (rg)", "(faster file search)")
     else:
-        check_warn("ripgrep (rg) not found", "(поиск по файлам через grep)")
-        check_info(f"Для быстрого поиска: {_system_package_install_cmd('ripgrep')}")
+        check_warn("ripgrep (rg) not found", "(file search uses grep fallback)")
+        check_info(f"Install for faster search: {_system_package_install_cmd('ripgrep')}")
     
     # Docker (optional)
     terminal_env = os.getenv("TERMINAL_ENV", "local")
@@ -1410,13 +1487,13 @@ def run_doctor(args):
                 issues,
             )
     elif _safe_which("docker"):
-        check_ok("docker", "(опционально)")
+        check_ok("docker", "(optional)")
     elif _is_termux():
         check_info("Docker backend is not available inside Termux (expected on Android)")
     elif running_in_container:
         pass  # already explained above
     else:
-        check_warn("docker not found", "(опционально)")
+        check_warn("docker not found", "(optional)")
     
     # SSH (if using ssh backend)
     if terminal_env == "ssh":
@@ -1483,12 +1560,21 @@ def run_doctor(args):
         # Check if agent-browser is installed
         agent_browser_path = PROJECT_ROOT / "node_modules" / "agent-browser"
         agent_browser_ok = False
+        _which_ab = shutil.which("agent-browser")
         if agent_browser_path.exists():
             check_ok("agent-browser (Node.js)", "(browser automation)")
             agent_browser_ok = True
-        elif shutil.which("agent-browser"):
+        elif _which_ab and agent_browser_runnable(_which_ab):
             check_ok("agent-browser", "(browser automation)")
             agent_browser_ok = True
+        elif _which_ab:
+            # Found on PATH but won't run — almost always a dangling global
+            # symlink left behind by agent-browser's npm postinstall after a
+            # `ruslan update` wiped node_modules (issue #48521).
+            check_warn(
+                "agent-browser found but not runnable",
+                f"(broken symlink at {_which_ab}? run: npm install)",
+            )
         elif _is_termux():
             check_info("agent-browser is not installed (expected in the tested Termux path)")
             check_info("Install it manually later with: npm install -g agent-browser && agent-browser install")
@@ -1496,7 +1582,7 @@ def run_doctor(args):
             for step in _termux_browser_setup_steps(node_installed=True):
                 check_info(step)
         else:
-            check_warn("agent-browser not installed", "(установите: npm install)")
+            check_warn("agent-browser not installed", "(run: npm install)")
 
         # Chromium presence — the browser tools silently fail to register when
         # agent-browser is found but no Playwright-managed Chromium is on disk
@@ -1660,7 +1746,7 @@ def run_doctor(args):
         for note in _termux_install_all_fallback_notes():
             check_info(note)
 
-    _section("Подключение к API")
+    _section("API Connectivity")
     # Refactor: every connectivity probe below is HTTP-bound and fully
     # independent. Running them in series spent ~5s wall on a typical
     # workstation (2s of that was boto3's IMDS lookup for AWS credentials,
@@ -1686,7 +1772,7 @@ def run_doctor(args):
             return _ConnectivityResult(
                 "OpenRouter API",
                 [(color("⚠", Colors.YELLOW), "OpenRouter API",
-                  color("(не настроен)", Colors.DIM))],
+                  color("(not configured)", Colors.DIM))],
                 [],
             )
         try:
@@ -2090,7 +2176,7 @@ def run_doctor(args):
         for _issue in _issues_to_add:
             issues.append(_issue)
 
-    _section("Доступность инструментов")
+    _section("Tool Availability")
     try:
         # Add project root to path for imports
         sys.path.insert(0, str(PROJECT_ROOT))
@@ -2109,19 +2195,21 @@ def run_doctor(args):
                 vars_str = ", ".join(env_vars)
                 check_warn(item["name"], f"(missing {vars_str})")
             else:
-                check_warn(item["name"], "(зависимость не удовлетворена)")
+                check_warn(item["name"], "(system dependency not met)")
 
-        # Count disabled tools with API key requirements
-        api_disabled = [u for u in unavailable if (u.get("missing_vars") or u.get("env_vars"))]
+        # Count missing API-key requirements only for toolsets enabled in the
+        # current CLI platform. Default-off or explicitly disabled toolsets may
+        # still show warnings above, but should not pollute the final summary.
+        api_disabled = _missing_api_key_toolsets_for_summary(unavailable)
         if api_disabled:
             issues.append("Run 'ruslan setup' to configure missing API keys for full tool access")
     except Exception as e:
         check_warn("Could not check tool availability", f"({e})")
     
-    _section("Хаб навыков")
+    _section("Skills Hub")
     hub_dir = RUSLAN_HOME / "skills" / ".hub"
     if hub_dir.exists():
-        check_ok("Папка хаба навыков существует")
+        check_ok("Skills Hub directory exists")
         lock_file = hub_dir / "lock.json"
         if lock_file.exists():
             try:
@@ -2136,7 +2224,7 @@ def run_doctor(args):
         if q_count > 0:
             check_warn(f"{q_count} skill(s) in quarantine", "(pending review)")
     else:
-        check_warn("Хаб навыков не инициализирован", "(запустите: ruslan skills list)")
+        check_warn("Skills Hub directory not initialized", "(run: ruslan skills list)")
 
     from ruslan_cli.config import get_env_value
 
@@ -2159,7 +2247,7 @@ def run_doctor(args):
     else:
         check_warn("No GITHUB_TOKEN", f"(60 req/hr rate limit — set in {_DHH}/.env for better rates)")
 
-    _section("Провайдер памяти")
+    _section("Memory Provider")
     _active_memory_provider = ""
     try:
         import yaml as _yaml
@@ -2267,7 +2355,7 @@ def run_doctor(args):
 
         named_profiles = [p for p in list_profiles() if not p.is_default]
         if named_profiles:
-            _section("Профили")
+            _section("Profiles")
             check_ok(f"{len(named_profiles)} profile(s) found")
             wrapper_dir = _get_wrapper_dir()
             for p in named_profiles:
@@ -2320,15 +2408,15 @@ def run_doctor(args):
             print()
     elif remaining_issues:
         print(color("─" * 60, Colors.YELLOW))
-        print(color(f"  Найдено проблем: {len(remaining_issues)}", Colors.YELLOW, Colors.BOLD))
+        print(color(f"  Found {len(remaining_issues)} issue(s) to address:", Colors.YELLOW, Colors.BOLD))
         print()
         for i, issue in enumerate(remaining_issues, 1):
             print(f"  {i}. {issue}")
         print()
         if not should_fix:
-            print(color("  Совет: запусти 'ruslan doctor --fix' для автоисправления.", Colors.DIM))
+            print(color("  Tip: run 'ruslan doctor --fix' to auto-fix what's possible.", Colors.DIM))
     else:
         print(color("─" * 60, Colors.GREEN))
-        print(color("  Все проверки пройдены! 🎉", Colors.GREEN, Colors.BOLD))
+        print(color("  All checks passed! 🎉", Colors.GREEN, Colors.BOLD))
     
     print()

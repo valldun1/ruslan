@@ -39,12 +39,14 @@ ruslan [global-options] <command> [subcommand/options]
 |---------|---------|
 | `ruslan chat` | Interactive or one-shot chat with the agent. |
 | `ruslan model` | Interactively choose the default provider and model. |
+| `ruslan moa` | Configure named Mixture of Agents presets selectable from the model picker. |
 | `ruslan fallback` | Manage fallback providers tried when the primary model errors. |
 | `ruslan gateway` | Run or manage the messaging gateway service. |
 | `ruslan proxy` | Local OpenAI-compatible proxy that attaches OAuth provider credentials. See [Subscription Proxy](../user-guide/features/subscription-proxy.md). |
 | `ruslan lsp` | Manage Language Server Protocol integration (semantic diagnostics for write_file/patch). |
 | `ruslan setup` | Interactive setup wizard for all or part of the configuration. |
 | `ruslan whatsapp` | Configure and pair the WhatsApp bridge. |
+| `ruslan whatsapp-cloud` | Configure the official Meta WhatsApp Business Cloud API adapter (Business account + public webhook required). Distinct from `ruslan whatsapp` (Baileys personal-account bridge). |
 | `ruslan slack` | Slack helpers (currently: generate the app manifest with every command as a native slash). |
 | `ruslan auth` | Manage credentials — add, list, remove, reset, status, logout. Handles OAuth flows for Codex/Nous/Anthropic. |
 | `ruslan login` / `logout` | **Deprecated** — use `ruslan auth` instead. |
@@ -54,6 +56,7 @@ ruslan [global-options] <command> [subcommand/options]
 | `ruslan status` | Show agent, auth, and platform status. |
 | `ruslan cron` | Inspect and tick the cron scheduler. |
 | `ruslan kanban` | Multi-profile collaboration board (tasks, links, dispatcher). |
+| `ruslan project` | Manage named, multi-folder workspaces (projects). Anchors desktop session grouping and, when bound to a kanban board, gives tasks a deterministic worktree + branch convention. State is per-profile. |
 | `ruslan webhook` | Manage dynamic webhook subscriptions for event-driven activation. |
 | `ruslan hooks` | Inspect, approve, or remove shell-script hooks declared in `config.yaml`. |
 | `ruslan doctor` | Diagnose config and dependency issues. |
@@ -77,14 +80,16 @@ ruslan [global-options] <command> [subcommand/options]
 | `ruslan portal` | Nous Portal status, subscription link, and Tool Gateway routing. See [Tool Gateway](../user-guide/features/tool-gateway.md). |
 | `ruslan tools` | Configure enabled tools per platform. |
 | `ruslan computer-use` | Install or check the cua-driver backend (macOS Computer Use). |
+| `ruslan pets` | Browse, install, and select [petdex](../user-guide/features/pets.md) animated pets shown across the CLI, TUI, and desktop app. Subcommands: `list`, `install`, `select`, `show`, `off`, `scale`, `remove`, `doctor`. |
 | `ruslan sessions` | Browse, export, prune, rename, and delete sessions. |
 | `ruslan insights` | Show token/cost/activity analytics. |
 | `ruslan claw` | OpenClaw migration helpers. |
 | `ruslan dashboard` | Launch the web dashboard for managing config, API keys, and sessions. |
+| `ruslan desktop` (alias `gui`) | Build and launch the native Electron desktop app. |
 | `ruslan profile` | Manage profiles — multiple isolated Ruslan instances. |
 | `ruslan completion` | Print shell completion scripts (bash/zsh/fish). |
 | `ruslan version` | Show version information. |
-| `ruslan update` | Pull latest code and reinstall dependencies (git installs), or check PyPI and `pip install --upgrade` (pip installs). `--check` previews without installing; `--backup` takes a pre-pull `RUSLAN_HOME` snapshot. |
+| `ruslan update` | Pull latest code and reinstall dependencies. `--check` previews without installing; `--backup` takes a pre-pull `RUSLAN_HOME` snapshot. |
 | `ruslan uninstall` | Remove Ruslan from the system. |
 
 ## `ruslan chat`
@@ -100,7 +105,7 @@ Common options:
 | `-q`, `--query "..."` | One-shot, non-interactive prompt. |
 | `-m`, `--model <model>` | Override the model for this run. |
 | `-t`, `--toolsets <csv>` | Enable a comma-separated set of toolsets. |
-| `--provider <provider>` | Force a provider: `auto`, `openrouter`, `nous`, `openai-codex`, `copilot-acp`, `copilot`, `anthropic`, `gemini`, `huggingface`, `novita` (aliases `novita-ai`, `novitaai`), `openai-api`, `zai`, `kimi-coding`, `kimi-coding-cn`, `minimax`, `minimax-cn`, `minimax-oauth`, `kilocode`, `xiaomi`, `arcee`, `gmi`, `alibaba`, `alibaba-coding-plan` (alias `alibaba_coding`), `deepseek`, `nvidia`, `ollama-cloud`, `xai` (alias `grok`), `xai-oauth` (alias `grok-oauth`), `qwen-oauth`, `bedrock`, `opencode-zen`, `opencode-go`, `azure-foundry`, `lmstudio`, `stepfun`, `tencent-tokenhub` (alias `tencent`, `tokenhub`). |
+| `--provider <provider>` | Force a provider: `auto`, `openrouter`, `nous`, `openai-codex`, `copilot-acp`, `copilot`, `anthropic`, `gemini`, `huggingface`, `novita` (aliases `novita-ai`, `novitaai`), `openai-api`, `zai`, `kimi-coding`, `kimi-coding-cn`, `minimax`, `minimax-cn`, `minimax-oauth`, `kilocode`, `xiaomi`, `arcee`, `gmi`, `upstage` (alias `solar`), `alibaba`, `alibaba-coding-plan` (alias `alibaba_coding`), `deepseek`, `nvidia`, `ollama-cloud`, `xai` (alias `grok`), `xai-oauth` (alias `grok-oauth`), `qwen-oauth`, `bedrock`, `opencode-zen`, `opencode-go`, `azure-foundry`, `lmstudio`, `stepfun`, `tencent-tokenhub` (alias `tencent`, `tokenhub`). |
 | `-s`, `--skills <name>` | Preload one or more skills for the session (can be repeated or comma-separated). |
 | `-v`, `--verbose` | Verbose output. |
 | `-Q`, `--quiet` | Programmatic mode: suppress banner/spinner/tool previews. |
@@ -112,7 +117,7 @@ Common options:
 | `--pass-session-id` | Pass the session ID into the system prompt. |
 | `--ignore-user-config` | Ignore `~/.ruslan/config.yaml` and use built-in defaults. Credentials in `.env` are still loaded. Useful for isolated CI runs, reproducible bug reports, and third-party integrations. |
 | `--ignore-rules` | Skip auto-injection of `AGENTS.md`, `SOUL.md`, `.cursorrules`, persistent memory, and preloaded skills. Combine with `--ignore-user-config` for a fully isolated run. |
-| `--safe-mode` | Troubleshooting mode: disable ALL customizations — user config, rules/memory injection, plugins, and MCP servers (implies `--ignore-user-config` and `--ignore-rules`). Use to isolate whether a problem comes from your setup or from Ruslan itself. |
+| `--safe-mode` | Troubleshooting mode: disable ALL customizations — user config, rules/memory injection, plugins, shell hooks, and MCP servers (implies `--ignore-user-config` and `--ignore-rules`). Use to isolate whether a problem comes from your setup or from Ruslan itself. |
 | `--source <tag>` | Session source tag for filtering (default: `cli`). Use `tool` for third-party integrations that should not appear in user session lists. |
 | `--max-turns <N>` | Maximum tool-calling iterations per conversation turn (default: 90, or `agent.max_turns` in config). |
 
@@ -225,6 +230,7 @@ Subcommands:
 | `install` | Install as a systemd (Linux) or launchd (macOS) background service. |
 | `uninstall` | Remove the installed service. |
 | `setup` | Interactive messaging-platform setup. |
+| `migrate-legacy` | Remove legacy `ruslan.service` units left over from pre-rename installs. Profile units (`ruslan-gateway-<profile>.service`) and unrelated services are never touched. Flags: `--dry-run`, `-y`/`--yes`. |
 | `enroll` | Experimental: enroll this gateway with a relay connector and save relay credentials for connector-backed platforms. |
 
 Options:
@@ -233,8 +239,17 @@ Options:
 |--------|-------------|
 | `--all` | On `start` / `restart` / `stop`: act on **every profile's** gateway, not just the active `RUSLAN_HOME`. Useful if you run multiple profiles side-by-side and want to restart them all after `ruslan update`. |
 | `--no-supervise` | On `run`: inside the s6-overlay Docker image, opt out of auto-supervision and use pre-s6 foreground semantics — gateway runs as the container's main process with no auto-restart. No-op outside the s6 image. Equivalent to setting `RUSLAN_GATEWAY_NO_SUPERVISE=1`. |
+| `--external-supervisor` | On `run`: declare that a wrapper-provided process manager owns the foreground gateway. Use this when `sudo`, `env -i`, or another wrapper strips launchd/systemd's native environment marker. In-chat restarts and updates exit back to that manager instead of spawning a detached replacement. |
 
-`ruslan gateway enroll` accepts `--token`, `--connector-url`, and `--gateway-id`. It exchanges the enrollment token with the connector and writes the resulting `GATEWAY_RELAY_ID`, `GATEWAY_RELAY_SECRET`, `GATEWAY_RELAY_DELIVERY_KEY`, and optional `GATEWAY_RELAY_URL` values to the active profile's `.env`.
+`--external-supervisor` is a restart-policy contract: an in-chat restart or
+service-restart update exits with status `75`, so the wrapper's supervisor must
+relaunch the gateway after that nonzero exit. For systemd, use
+`Restart=on-failure` or `Restart=always` and do not include `75` in
+`RestartPreventExitStatus`; for launchd, configure `KeepAlive` to relaunch after
+unsuccessful exits. Without that policy, a requested restart leaves the gateway
+stopped.
+
+`ruslan gateway enroll` accepts `--token`, `--connector-url`, `--gateway-id`, and `--wake-url`. It exchanges the enrollment token with the connector and writes the resulting `GATEWAY_RELAY_ID`, `GATEWAY_RELAY_SECRET`, `GATEWAY_RELAY_DELIVERY_KEY`, optional `GATEWAY_RELAY_URL`, and (when `--wake-url` is given) `GATEWAY_RELAY_WAKE_URL` values to the active profile's `.env`.
 
 :::tip WSL users
 Use `ruslan gateway run` instead of `ruslan gateway start` — WSL's systemd support is unreliable. Wrap it in tmux for persistence: `tmux new -s ruslan 'ruslan gateway run'`. See [WSL FAQ](/reference/faq#wsl-gateway-keeps-disconnecting-or-ruslan-gateway-start-fails) for details.
@@ -612,6 +627,28 @@ All actions are also available as a slash command in the gateway (`/kanban …`)
 
 For the full design — comparison with Cline Kanban / Paperclip / NanoClaw / Gemini Enterprise, eight collaboration patterns, four user stories, concurrency correctness proof — see `docs/ruslan-kanban-v1-spec.pdf` in the repository or the [Kanban user guide](/user-guide/features/kanban).
 
+## `ruslan project`
+
+```bash
+ruslan project <create|list|show|add-folder|remove-folder|rename|set-primary|use|archive|restore|bind-board>
+```
+
+Projects are human-named workspaces that can span multiple folders / repos. They anchor desktop session grouping and, when bound to a kanban board, give tasks a deterministic worktree + branch convention. State is per-profile.
+
+| Subcommand | Description |
+|------------|-------------|
+| `create` | Create a new project. |
+| `list` (alias `ls`) | List projects. |
+| `show` | Show a project's details. |
+| `add-folder` | Add a folder / repo to a project. |
+| `remove-folder` | Remove a folder from a project. |
+| `rename` | Rename a project. |
+| `set-primary` | Set the primary folder. |
+| `use` | Set the active project. |
+| `archive` | Archive a project (recoverable). |
+| `restore` | Restore an archived project. |
+| `bind-board` | Bind a kanban board to this project. |
+
 ## `ruslan webhook`
 
 ```bash
@@ -643,6 +680,7 @@ ruslan webhook subscribe <name> [options]
 | `--deliver-chat-id` | Target chat/channel ID for cross-platform delivery. |
 | `--secret` | Custom HMAC secret. Auto-generated if omitted. |
 | `--deliver-only` | Skip the agent — deliver the rendered `--prompt` as the literal message. Zero LLM cost, sub-second delivery. Requires `--deliver` to be a real target (not `log`). |
+| `--script` | Filter/transform script under `~/.ruslan/scripts/`. The webhook payload is passed as JSON on stdin; JSON stdout replaces the payload, and empty stdout, `[SILENT]`, or a nonzero exit code ignores the webhook. See [Script Filters and Transforms](../user-guide/messaging/webhooks.md#script-filters-and-transforms). |
 
 Subscriptions persist to `~/.ruslan/webhook_subscriptions.json` and are hot-reloaded by the webhook adapter without a gateway restart.
 
@@ -744,11 +782,13 @@ Upload a debug report (system info + recent logs) to a paste service and get a s
 |--------|-------------|
 | `--lines <N>` | Number of log lines to include per log file (default: 200). |
 | `--expire <days>` | Paste expiry in days (default: 7). |
+| `--nous` | Upload to Nous-internal diagnostics storage instead of a public paste service. Use this when Nous support asks for a private diagnostic bundle. |
 | `--local` | Print the report locally instead of uploading. |
+| `--no-redact` | Disable upload-time secret redaction. By default, uploads are redacted. |
 
-The report includes system info (OS, Python version, Ruslan version), recent agent, gateway, GUI/dashboard, and desktop logs (512 KB limit per file), and redacted API key status. Keys are always redacted — no secrets are uploaded.
+The report includes system info (OS, Python version, Ruslan version), recent agent, gateway, GUI/dashboard, and desktop logs (512 KB limit per file), and redacted API key status. By default, uploads are redacted so secrets are not included.
 
-Paste services tried in order: paste.rs, dpaste.com.
+Default uploads use public paste services tried in order: paste.rs, dpaste.com. `--nous` uploads the same debug bundle to private Nous diagnostics storage instead; the returned viewer link is for the Nous team and auto-deletes after 14 days.
 
 ### Examples
 
@@ -756,6 +796,7 @@ Paste services tried in order: paste.rs, dpaste.com.
 ruslan debug share              # Upload debug report, print URL
 ruslan debug share --lines 500  # Include more log lines
 ruslan debug share --expire 30  # Keep paste for 30 days
+ruslan debug share --nous       # Upload a private diagnostics bundle for Nous support
 ruslan debug share --local      # Print report to terminal (no upload)
 ```
 
@@ -1033,7 +1074,7 @@ ruslan skills inspect official/security/1password
 ruslan skills inspect skills-sh/vercel-labs/json-render/json-render-react
 ruslan skills install official/migration/openclaw-migration
 ruslan skills install skills-sh/anthropics/skills/pdf --force
-ruslan skills install https://sharethis.chat/SKILL.md                     # Direct URL (single-file SKILL.md)
+ruslan skills install https://sharethis.chat/SKILL.md                     # Direct URL (+ referenced support files)
 ruslan skills install https://example.com/SKILL.md --name my-skill        # Override name when frontmatter has none
 ruslan skills check
 ruslan skills update
@@ -1051,7 +1092,7 @@ Notes:
 - `--source skills-sh` searches the public `skills.sh` directory.
 - `--source well-known` lets you point Ruslan at a site exposing `/.well-known/skills/index.json`.
 - `--source browse-sh` searches [browse.sh](https://browse.sh)'s catalog of 200+ site-specific browser-automation skills. Identifiers look like `browse-sh/airbnb.com/search-listings-ddgioa`.
-- Passing an `http(s)://…/*.md` URL installs a single-file SKILL.md directly. When frontmatter has no `name:` and the URL slug isn't a valid identifier, an interactive terminal prompts for a name; non-interactive surfaces (`/skills install` inside the TUI, gateway platforms) require `--name <x>` instead.
+- Passing an `http(s)://…/*.md` URL installs `SKILL.md` plus explicitly referenced files under `references/`, `templates/`, `scripts/`, `assets/`, and `examples/`. When frontmatter has no `name:` and the URL slug isn't a valid identifier, an interactive terminal prompts for a name; non-interactive surfaces (`/skills install` inside the TUI, gateway platforms) require `--name <x>` instead.
 
 ## `ruslan bundles`
 
@@ -1118,6 +1159,18 @@ The curator is an auxiliary-model background task that periodically reviews agen
 On a fresh install the first scheduled pass is deferred by one full `interval_hours` (7 days by default) — the gateway will not curate immediately on the first tick after `ruslan update`. Use `ruslan curator run --dry-run` to preview before that happens.
 
 See [Curator](../user-guide/features/curator.md) for behavior and config.
+
+## `ruslan moa`
+
+Configure named Mixture of Agents presets. Presets appear as selectable models under a `Mixture of Agents` provider in every model picker; `/moa <prompt>` runs one prompt through the default preset.
+
+```bash
+ruslan moa list
+ruslan moa configure [name]
+ruslan moa delete <name>
+```
+
+`ruslan moa configure` reuses Ruslan' provider → model picker for each reference model and the aggregator. A preset is an execution-mode configuration, not a primary model or provider.
 
 ## `ruslan fallback`
 
@@ -1191,7 +1244,7 @@ python -m acp_adapter
 Install support first:
 
 ```bash
-pip install -e '.[acp]'
+cd ~/.ruslan/ruslan-agent && uv pip install -e '.[acp]'
 ```
 
 See [ACP Editor Integration](../user-guide/features/acp.md) and [ACP Internals](../developer-guide/acp-internals.md).
@@ -1246,7 +1299,7 @@ Provider plugin selections are saved to `config.yaml`:
 
 General plugin disabled list is stored in `config.yaml` under `plugins.disabled`.
 
-See [Plugins](../user-guide/features/plugins.md) and [Build a Ruslan Plugin](../guides/build-a-ruslan-plugin.md).
+See [Plugins](../user-guide/features/plugins.md) and [Build a Ruslan Plugin](../developer-guide/plugins/index.md).
 
 ## `ruslan tools`
 
@@ -1270,7 +1323,7 @@ Subcommands:
 
 | Subcommand | Description |
 |------------|-------------|
-| `install` | Run the upstream cua-driver installer (macOS only). |
+| `install` | Run the upstream cua-driver installer (macOS, Windows, and Linux). |
 | `install --upgrade` | Re-run the installer even if cua-driver is already on PATH. The upstream script always pulls the latest release, so this performs an in-place upgrade. |
 | `status` | Print whether `cua-driver` is on `$PATH` and which version is installed. |
 
@@ -1286,6 +1339,27 @@ of the update if cua-driver is on PATH, so most users will not need to
 call `--upgrade` manually. Use it when upstream ships a fix you want
 right now without waiting for the next Ruslan update.
 
+## `ruslan pets`
+
+```bash
+ruslan pets <list|install|select|show|off|scale|remove|doctor>
+```
+
+[Petdex](https://github.com/crafter-station/petdex) is a public gallery of animated sprite pets for coding agents. Install one and Ruslan shows it reacting to agent activity across the CLI, TUI, and desktop app.
+
+| Subcommand | Description |
+|------------|-------------|
+| `list` | Browse the petdex gallery. |
+| `install` | Install a pet from the gallery. |
+| `select` | Set the active pet (writes `display.pet.*`). |
+| `show` | Animate the active pet in the terminal. |
+| `off` | Disable the pet display. |
+| `scale` | Resize the pet everywhere (`display.pet.scale`). |
+| `remove` | Delete an installed pet. |
+| `doctor` | Check pet setup + terminal graphics support. |
+
+You can also generate a brand-new pet from a text description with the `/hatch` slash command. See [Pets](../user-guide/features/pets.md).
+
 ## `ruslan sessions`
 
 ```bash
@@ -1300,7 +1374,8 @@ Subcommands:
 | `browse` | Interactive session picker with search and resume. |
 | `export <output> [--session-id ID]` | Export sessions to JSONL. |
 | `delete <session-id>` | Delete one session. |
-| `prune` | Delete old sessions. |
+| `prune` | Delete sessions matching filters: time bounds `--older-than`/`--newer-than`/`--before`/`--after` (durations like `5h`/`2d`, bare days, or ISO timestamps); attributes `--source`, `--title`, `--model`, `--provider`, `--branch`, `--end-reason`, `--user`, `--chat-id`, `--chat-type`, `--cwd`; numeric bounds `--min/--max-messages`, `--min/--max-tokens`, `--min/--max-cost`, `--min/--max-tool-calls`; plus `--include-archived`, `--dry-run`, `--yes`. Default: older than 90 days. |
+| `archive` | Bulk-archive (soft-hide, no deletion) sessions matching the same filters as `prune`. Requires at least one filter. |
 | `stats` | Show session-store statistics. |
 | `rename <session-id> <title>` | Set or change a session title. |
 
@@ -1366,23 +1441,42 @@ ruslan claw migrate --preset user-data --overwrite
 ruslan claw migrate --source /home/user/old-openclaw
 ```
 
+## `ruslan serve`
+
+```bash
+ruslan serve [options]
+```
+
+Start the Ruslan **backend server** — the JSON-RPC/WebSocket gateway the [desktop app](/user-guide/desktop) and remote clients connect to. It is the same server `ruslan dashboard` runs, but **headless**: it never opens a browser UI. The desktop app launches its own `ruslan serve` backend; use this command directly when you want a headless backend on a remote host. Accepts the same `--host` / `--port` / `--insecure` / `--skip-build` / `--stop` / `--status` options as `ruslan dashboard` below (a non-loopback bind engages the same auth gate). Requires the `[web]` extra; the embedded Chat socket additionally needs `[pty]` on a POSIX host.
+
 ## `ruslan dashboard`
 
 ```bash
 ruslan dashboard [options]
 ```
 
-Launch the web dashboard — a browser-based UI for managing configuration, API keys, and monitoring sessions. Requires `pip install ruslan-agent[web]` (FastAPI + Uvicorn). The embedded browser Chat tab is always available and additionally needs the `pty` extra (`pip install 'ruslan-agent[web,pty]'`) plus a POSIX PTY environment such as Linux, macOS, or WSL2. See [Web Dashboard](/user-guide/features/web-dashboard) for full documentation.
+Launch the web dashboard — a browser-based UI for managing configuration, API keys, and monitoring sessions. (For a headless backend with no browser UI — e.g. what the desktop app spawns — use [`ruslan serve`](#ruslan-serve) above.) Requires `cd ~/.ruslan/ruslan-agent && uv pip install -e ".[web]"` (FastAPI + Uvicorn). The embedded browser Chat tab is always available and additionally needs the `pty` extra (`cd ~/.ruslan/ruslan-agent && uv pip install -e ".[web,pty]"`) plus a POSIX PTY environment such as Linux, macOS, or WSL2. See [Web Dashboard](/user-guide/features/web-dashboard) for full documentation.
 
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--port` | `9119` | Port to run the web server on |
 | `--host` | `127.0.0.1` | Bind address |
 | `--no-open` | — | Don't auto-open the browser |
-| `--insecure` | off | Allow binding to non-localhost hosts. Exposes dashboard credentials on the network; use only behind trusted network controls. |
+| `--insecure` | off | **Deprecated / no-op.** Formerly bypassed auth on a non-loopback bind. Since the June 2026 hardening a public bind *always* requires an auth provider (password or OAuth). Bind `127.0.0.1` and tunnel to keep it local. |
+| `--skip-build` | off | Skip the web UI build step and serve the existing `dist` directly. Useful for non-interactive contexts (Windows Scheduled Tasks, CI) where npm isn't available. Pre-build with `cd web && npm run build`. |
 | `--isolated` | off | When launched from a named profile (`worker dashboard`), run a dedicated per-profile server instead of routing to the machine dashboard. |
 | `--stop` | — | Stop running `ruslan dashboard` processes and exit. |
 | `--status` | — | List running `ruslan dashboard` processes and exit. |
+
+### `ruslan dashboard register`
+
+Register this install as a self-hosted dashboard with your Nous Portal account. Creates an OAuth client, writes `RUSLAN_DASHBOARD_OAUTH_CLIENT_ID` into `~/.ruslan/.env`, and prints how to engage the login gate. Requires being logged in (`ruslan setup`).
+
+| Option | Description |
+|--------|-------------|
+| `--name` | Human-readable label for the dashboard (default: auto-generated). |
+| `--redirect-uri` | Public HTTPS OAuth redirect URI (e.g. `https://ruslan.example.com/auth/callback`). Omit for localhost-only use. |
+| `--portal-url` | Override the Nous Portal base URL for registration (default: the portal you logged into). Also settable via `RUSLAN_DASHBOARD_PORTAL_URL`. |
 
 ```bash
 # Default — opens browser to http://127.0.0.1:9119
@@ -1460,11 +1554,9 @@ ruslan completion fish > ~/.config/fish/completions/ruslan.fish
 ruslan update [--gateway] [--check] [--no-backup] [--backup] [--yes]
 ```
 
-Pulls the latest `ruslan-agent` code and reinstalls dependencies in your venv, then re-runs the post-install hooks (MCP servers, skills sync, completion install). Safe to run on a live install.
+Pulls the latest `ruslan-agent` code and reinstalls dependencies in the managed venv, then re-runs the post-install hooks (MCP servers, skills sync, completion install). Safe to run on a live install. Use `--check` to see whether your checkout is behind `origin/main` without installing.
 
-**pip installs:** `ruslan update` detects pip-based installations automatically — it queries PyPI for the latest release and runs `pip install --upgrade ruslan-agent` instead of `git pull`. PyPI releases track tagged versions (major/minor releases), not every commit on `main`. Use `--check` to see if a newer PyPI release is available without installing.
-
-**git installs:** `ruslan update` pulls the configured update branch (default: `main`). If your checkout is on another branch, Ruslan may check out the update branch before pulling. Commit branch work before updating when you want to keep it outside the update autostash flow.
+`ruslan update` pulls the configured update branch (default: `main`). If your checkout is on another branch, Ruslan may check out the update branch before pulling. Commit branch work before updating when you want to keep it outside the update autostash flow.
 
 | Option | Description |
 |--------|-------------|
@@ -1489,7 +1581,7 @@ Additional behavior:
 |---------|-------------|
 | `ruslan version` | Print version information. |
 | `ruslan update` | Pull latest changes and reinstall dependencies. |
-| `ruslan postinstall` | Internal bootstrap. Runs once after `pip install ruslan-agent` (or `ruslan update` on pip installs) to install non-Python dependencies that pip cannot provide — Node.js runtime, headless browser, ripgrep, ffmpeg — and then trigger `ruslan setup` if the profile has not been configured yet. Safe to re-run idempotently. |
+| `ruslan postinstall` | Internal bootstrap. Runs once after the install script provisions Ruslan (or after `ruslan update`) to install non-Python dependencies that pip cannot provide — Node.js runtime, headless browser, ripgrep, ffmpeg — and then trigger `ruslan setup` if the profile has not been configured yet. Safe to re-run idempotently. |
 | `ruslan uninstall [--full] [--gui] [--yes]` | Remove Ruslan, optionally deleting all config/data. `--gui` removes only the desktop Chat GUI, leaving the agent intact; `--full` also deletes config/data; `--yes` skips prompts. |
 
 ## See also

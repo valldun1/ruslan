@@ -18,7 +18,7 @@ def build_logs_parser(subparsers, *, cmd_logs: Callable) -> None:
     logs_parser = subparsers.add_parser(
         "logs",
         help="View and filter Ruslan log files",
-        description="Просмотр, tail и фильтрация agent.log / errors.log / gateway.log / gui.log / desktop.log",
+        description="View, tail, and filter agent.log / errors.log / gateway.log / gui.log / desktop.log",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Examples:
@@ -47,32 +47,32 @@ Examples:
         "--lines",
         type=int,
         default=50,
-        help="Количество строк для показа (по умолчанию: 50)",
+        help="Number of lines to show (default: 50)",
     )
     logs_parser.add_argument(
         "-f",
         "--follow",
         action="store_true",
-        help="Следить за логом в реальном времени (как tail -f)",
+        help="Follow the log in real time (like tail -f)",
     )
     logs_parser.add_argument(
         "--level",
         metavar="LEVEL",
-        help="Минимальный уровень логирования для показа (DEBUG, INFO, WARNING, ERROR)",
+        help="Minimum log level to show (DEBUG, INFO, WARNING, ERROR)",
     )
     logs_parser.add_argument(
         "--session",
         metavar="ID",
-        help="Фильтр по подстроке ID сессии",
+        help="Filter lines containing this session ID substring",
     )
     logs_parser.add_argument(
         "--since",
         metavar="TIME",
-        help="Показать строки с времени TIME назад (напр. 1h, 30m, 2d)",
+        help="Show lines since TIME ago (e.g. 1h, 30m, 2d)",
     )
     logs_parser.add_argument(
         "--component",
         metavar="NAME",
-        help="Фильтр по компоненту: gateway, agent, tools, cli, cron, gui",
+        help="Filter by component: gateway, agent, tools, cli, cron, gui",
     )
     logs_parser.set_defaults(func=cmd_logs)

@@ -30,7 +30,7 @@ class TestParseReasoningConfig(unittest.TestCase):
         self.assertEqual(result, {"enabled": False})
 
     def test_valid_levels(self):
-        for level in ("low", "medium", "high", "xhigh", "minimal"):
+        for level in ("low", "medium", "high", "xhigh", "max", "ultra", "minimal"):
             result = self._parse(level)
             self.assertIsNotNone(result)
             self.assertTrue(result.get("enabled"))
@@ -41,7 +41,6 @@ class TestParseReasoningConfig(unittest.TestCase):
         self.assertIsNone(self._parse("  "))
 
     def test_unknown_returns_none(self):
-        self.assertIsNone(self._parse("ultra"))
         self.assertIsNone(self._parse("turbo"))
 
     def test_case_insensitive(self):
@@ -306,9 +305,9 @@ class TestReasoningCallback(unittest.TestCase):
 
 class TestReasoningPreviewBuffering(unittest.TestCase):
     def _make_cli(self):
-        from cli import HermesCLI
+        from cli import RuslanCLI
 
-        cli = HermesCLI.__new__(HermesCLI)
+        cli = RuslanCLI.__new__(RuslanCLI)
         cli.verbose = True
         cli._spinner_text = ""
         cli._reasoning_preview_buf = ""
@@ -376,9 +375,9 @@ class TestReasoningPreviewBuffering(unittest.TestCase):
 
 class TestReasoningDisplayModeSelection(unittest.TestCase):
     def _make_cli(self, *, show_reasoning=False, streaming_enabled=False, verbose=False):
-        from cli import HermesCLI
+        from cli import RuslanCLI
 
-        cli = HermesCLI.__new__(HermesCLI)
+        cli = RuslanCLI.__new__(RuslanCLI)
         cli.show_reasoning = show_reasoning
         cli.streaming_enabled = streaming_enabled
         cli.verbose = verbose
@@ -550,7 +549,10 @@ class TestConfigDefault(unittest.TestCase):
         from ruslan_cli.config import DEFAULT_CONFIG
         display = DEFAULT_CONFIG.get("display", {})
         self.assertIn("show_reasoning", display)
-        self.assertFalse(display["show_reasoning"])
+        # Default ON (July 2026 TTFT-perception change): thinking models
+        # stream reasoning for tens of seconds; hiding it left users staring
+        # at a spinner. The key must exist and be a bool.
+        self.assertTrue(display["show_reasoning"])
 
 
 class TestCommandRegistered(unittest.TestCase):
@@ -714,8 +716,8 @@ class TestReasoningShownThisTurnFlag(unittest.TestCase):
     was already shown during streaming in a tool-calling loop."""
 
     def _make_cli(self):
-        from cli import HermesCLI
-        cli = HermesCLI.__new__(HermesCLI)
+        from cli import RuslanCLI
+        cli = RuslanCLI.__new__(RuslanCLI)
         cli.show_reasoning = True
         cli.streaming_enabled = True
         cli._stream_box_opened = False

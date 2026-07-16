@@ -11,7 +11,7 @@
     { pkgs, self', ... }:
     let
       packages = builtins.attrValues self'.packages;
-      hermesNpmLib = self'.packages.default.passthru.hermesNpmLib;
+      ruslanNpmLib = self'.packages.default.passthru.ruslanNpmLib;
 
       # Collect all packageJsonPath values from npm workspace packages.
       npmPackageJsonPaths = builtins.filter (p: p != null) (
@@ -25,15 +25,28 @@
     in
     {
       devShells.default = pkgs.mkShell {
-        inputsFrom = packages;
-        packages = with pkgs; [
-          uv
-        ];
+        packages =
+          with pkgs;
+          [
+            (pkgs.runCommand "ruslan" { } ''
+              mkdir -p $out/bin
+              install -Dm755 ${../ruslan} $out/bin/ruslan
+            '')
+            (pkgs.runCommand "dev-sandbox" { } ''
+              mkdir -p $out/bin
+              install -Dm755 ${../scripts/dev-sandbox.sh} $out/bin/sandbox
+            '')
+            uv
+          ]
+          ++ self'.packages.default.passthru.devDeps;
         shellHook = ''
-          echo "Ruslan Agent dev shell"
           ${combinedNonNpm}
-          ${hermesNpmLib.mkNpmDevShellHook npmPackageJsonPaths}
-          echo "Ready. Run 'ruslan' to start."
+          ${ruslanNpmLib.mkNpmDevShellHook npmPackageJsonPaths}
+
+          # for the devshell to pick up the src
+          export RUSLAN_PYTHON_SRC_ROOT=$(git rev-parse --show-toplevel)
+          echo "Ruslan Agent dev shell in $RUSLAN_PYTHON_SRC_ROOT"
+          echo "Ready. Run 'ruslan' or 'sandbox ruslan' to start."
         '';
       };
     };

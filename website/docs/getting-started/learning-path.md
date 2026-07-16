@@ -85,7 +85,7 @@ Cron jobs let Ruslan Agent run tasks on a schedule — daily summaries, periodic
 Extend Ruslan Agent with your own tools and reusable skill packages.
 
 1. [Plugins](/user-guide/features/plugins)
-2. [Build a Ruslan Plugin](/guides/build-a-ruslan-plugin)
+2. [Build a Ruslan Plugin](/developer-guide/plugins)
 3. [Tools Overview](/user-guide/features/tools)
 4. [Skills Overview](/user-guide/features/skills)
 5. [MCP (Model Context Protocol)](/user-guide/features/mcp)
@@ -100,11 +100,11 @@ page is for built-in Ruslan core development, not the usual user/custom-tool pat
 
 ### "I want to train models"
 
-Use reinforcement learning to fine-tune model behavior with Ruslan Agent's RL training pipeline (powered by [Atropos](https://github.com/valldun1/atropos)).
+Use reinforcement learning to fine-tune model behavior with Ruslan Agent's RL training pipeline (powered by [Atropos](https://github.com/NousResearch/atropos)).
 
 1. [Quickstart](/getting-started/quickstart)
 2. [Configuration](/user-guide/configuration)
-3. [Atropos RL Environments](https://github.com/valldun1/atropos) (external)
+3. [Atropos RL Environments](https://github.com/NousResearch/atropos) (external)
 4. [Provider Routing](/user-guide/features/provider-routing)
 5. [Architecture](/developer-guide/architecture)
 

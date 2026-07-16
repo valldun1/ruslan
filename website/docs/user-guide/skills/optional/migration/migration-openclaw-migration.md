@@ -17,7 +17,7 @@ Migrate a user's OpenClaw customization footprint into Ruslan Agent. Imports Rus
 | Source | Optional — install with `ruslan skills install official/migration/openclaw-migration` |
 | Path | `optional-skills/migration/openclaw-migration` |
 | Version | `1.0.0` |
-| Author | Ruslan Agent (Valldun) |
+| Author | Ruslan Agent (Nous Research) |
 | License | MIT |
 | Platforms | linux, macos, windows |
 | Tags | `Migration`, `OpenClaw`, `Ruslan`, `Memory`, `Persona`, `Import` |

@@ -15,19 +15,19 @@ Ruslan isn't just a CLI tool. You can import `AIAgent` directly and use it progr
 Install Ruslan directly from the repository:
 
 ```bash
-pip install git+https://github.com/valldun1/ruslan.git
+pip install git+https://github.com/NousResearch/ruslan-agent.git
 ```
 
 Or with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uv pip install git+https://github.com/valldun1/ruslan.git
+uv pip install git+https://github.com/NousResearch/ruslan-agent.git
 ```
 
 You can also pin it in your `requirements.txt`:
 
 ```text
-ruslan-agent @ git+https://github.com/valldun1/ruslan.git
+ruslan-agent @ git+https://github.com/NousResearch/ruslan-agent.git
 ```
 
 :::tip

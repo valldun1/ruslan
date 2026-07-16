@@ -23,6 +23,6 @@ def build_dump_parser(subparsers, *, cmd_dump: Callable) -> None:
     dump_parser.add_argument(
         "--show-keys",
         action="store_true",
-        help="Показать маскированные префиксы API-ключей (первые/последние 4 символа) вместо только set/not set",
+        help="Show redacted API key prefixes (first/last 4 chars) instead of just set/not set",
     )
     dump_parser.set_defaults(func=cmd_dump)

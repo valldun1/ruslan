@@ -24,10 +24,10 @@ A quick search before you build saves your time and keeps the PR queue clean —
 
 - **Search both open *and* merged PRs and issues** for your topic or error symptom — the duplicate-check in the PR template fires at review time, after you've already done the work:
   ```bash
-  gh search issues --repo valldun1/ruslan "<your terms>"
-  gh search prs --repo valldun1/ruslan --state all "<your terms>"
+  gh search issues --repo NousResearch/ruslan-agent "<your terms>"
+  gh search prs --repo NousResearch/ruslan-agent --state all "<your terms>"
   ```
-  Or use the web UI: [issues](https://github.com/valldun1/ruslan/issues?q=) · [PRs (all states)](https://github.com/valldun1/ruslan/pulls?q=is%3Apr).
+  Or use the web UI: [issues](https://github.com/NousResearch/ruslan-agent/issues?q=) · [PRs (all states)](https://github.com/NousResearch/ruslan-agent/pulls?q=is%3Apr).
 - **The issue tracker can lag the code.** Many requested features are already implemented in-tree, so also search the source (`search_files`, or your editor's grep) for the capability before proposing it.
 - **If an open PR already addresses it**, consider reviewing or improving that one instead of opening a competing duplicate.
 - **For larger work**, comment on the issue to signal you're working on it, so others don't start the same thing.
@@ -63,7 +63,7 @@ Bundled skills (in `skills/`) ship with every Ruslan install. They should be **b
 
 If your skill is official and useful but not universally needed (e.g., a paid service integration, a heavyweight dependency), put it in **`optional-skills/`** — it ships with the repo but isn't activated by default. Users can discover it via `ruslan skills browse` (labeled "official") and install it with `ruslan skills install` (no third-party warning, built-in trust).
 
-If your skill is specialized, community-contributed, or niche, it's better suited for a **Skills Hub** — upload it to a skills registry and share it in the [Valldun Discord](https://ruslan.team/discord). Users can install it with `ruslan skills install`.
+If your skill is specialized, community-contributed, or niche, it's better suited for a **Skills Hub** — upload it to a skills registry and share it in the [Nous Research Discord](https://discord.gg/NousResearch). Users can install it with `ruslan skills install`.
 
 ---
 
@@ -85,6 +85,23 @@ This isn't a quality bar — it's a coupling-and-maintenance decision. Memory pr
 
 ---
 
+## Third-Party Product Integrations: Ship as a Standalone Plugin
+
+The same rule extends to **any plugin that integrates someone else's product or project** — observability/metrics backends, vendor SaaS connectors, analytics dashboards, paid-service tie-ins, and similar third-party integrations. **These do not land in this repo.**
+
+The reason is maintenance load, not quality. Every external product absorbed into the core tree becomes ours to keep working against a fast-moving codebase, for a backend we don't own and can't control. Ruslan ships a lot and the core moves quickly; coupling third-party products into it creates an open-ended burden on the maintainers.
+
+Publish these as a **standalone plugin repo** instead:
+
+- Implement the relevant ABC and use the existing plugin discovery path (`~/.ruslan/plugins/`, project `.ruslan/plugins/`, or a pip entry point) — see [Build a Ruslan Plugin](https://ruslan-agent.nousresearch.com/docs/guides/build-a-ruslan-plugin)
+- Register lifecycle hooks (`pre_tool_call`, `post_tool_call`, `pre_llm_call`, `post_llm_call`, `on_session_start`, `on_session_end`), tools (`ctx.register_tool`), and CLI subcommands (`ctx.register_cli_command`) through the surface we already expose — no core changes needed
+- If your plugin needs a capability the framework doesn't expose, that's a feature request to **widen the generic plugin surface** (a new hook or `ctx` method) — never special-case your plugin in core
+- Promote it in the [Nous Research Discord](https://discord.gg/NousResearch) `#plugins-skills-and-skins` channel so users can find and install it
+
+A well-built third-party-product plugin can clear automated review and still be closed for this reason — it's a placement decision, not a verdict on the code. PRs that add such a directory under `plugins/` will be closed with a pointer to publish it as its own repo.
+
+---
+
 ## Development Setup
 
 ### Prerequisites
@@ -92,7 +109,7 @@ This isn't a quality bar — it's a coupling-and-maintenance decision. Memory pr
 | Requirement | Notes |
 |-------------|-------|
 | **Git** | With the `git-lfs` extension installed |
-| **Python 3.11+** | uv will install it if missing |
+| **Python 3.11–3.13** | uv will install it if missing |
 | **uv** | Fast Python package manager ([install](https://docs.astral.sh/uv/)) |
 | **Node.js 20+** | Optional — needed for browser tools and WhatsApp bridge (matches root `package.json` engines) |
 
@@ -107,7 +124,7 @@ development environment on the same layout the CLI, updater, lazy dependency
 installer, gateway, and docs assume.
 
 ```bash
-curl -fsSL https://ruslan.team/install.sh | bash
+curl -fsSL https://ruslan-agent.nousresearch.com/install.sh | bash
 cd "${RUSLAN_HOME:-$HOME/.ruslan}/ruslan-agent"
 
 # Add dev/test extras on top of the standard install.
@@ -132,13 +149,20 @@ this way, make sure you run the `ruslan` entrypoint from this venv; running the
 system `python3 -m ruslan_cli.main` can pick up unrelated system Python
 packages.
 
+Create the venv **outside** the cloned source tree. A venv that lives inside
+the directory the agent operates from can be wiped by a relative-path command
+the agent runs against its own checkout (`rm -rf venv`, `uv venv venv`, etc.),
+which silently destroys the running runtime mid-session. Keeping it outside the
+tree means no relative path from the workspace resolves to it.
+
 ```bash
-git clone https://github.com/valldun1/ruslan.git
+git clone https://github.com/NousResearch/ruslan-agent.git
 cd ruslan-agent
 
-# Create venv with Python 3.11
-uv venv venv --python 3.11
-export VIRTUAL_ENV="$(pwd)/venv"
+# Create venv with Python 3.11, OUTSIDE the source tree
+uv venv ~/.ruslan/venvs/ruslan-dev --python 3.11
+export VIRTUAL_ENV="$HOME/.ruslan/venvs/ruslan-dev"
+export PATH="$VIRTUAL_ENV/bin:$PATH"
 
 # Install with all extras (messaging, cron, CLI menus, dev tools)
 uv pip install -e ".[all,dev]"
@@ -192,7 +216,7 @@ pytest tests/ -v
 ```
 ruslan-agent/
 ├── run_agent.py              # AIAgent class — core conversation loop, tool dispatch, session persistence
-├── cli.py                    # HermesCLI class — interactive TUI, prompt_toolkit integration
+├── cli.py                    # RuslanCLI class — interactive TUI, prompt_toolkit integration
 ├── model_tools.py            # Tool orchestration (thin layer over tools/registry.py)
 ├── toolsets.py               # Tool groupings and presets (ruslan-cli, ruslan-telegram, etc.)
 ├── ruslan_state.py           # SQLite session database with FTS5 full-text search, session titles
@@ -250,7 +274,7 @@ ruslan-agent/
 ├── skills/                   # Bundled skills (copied to ~/.ruslan/skills/ on install)
 ├── optional-skills/          # Official optional skills (discoverable via hub, not activated by default)
 ├── tests/                    # Test suite
-├── website/                  # Documentation site (ruslan.team)
+├── website/                  # Documentation site (ruslan-agent.nousresearch.com)
 │
 ├── cli-config.yaml.example   # Example configuration (copied to ~/.ruslan/config.yaml)
 └── AGENTS.md                 # Development guide for AI coding assistants
@@ -963,7 +987,7 @@ test(tools): add unit tests for file_operations
 
 ## Reporting Issues
 
-- Use [GitHub Issues](https://github.com/valldun1/ruslan/issues)
+- Use [GitHub Issues](https://github.com/NousResearch/ruslan-agent/issues)
 - Include: OS, Python version, Ruslan version (`ruslan version`), full error traceback
 - Include steps to reproduce
 - Check existing issues before creating duplicates
@@ -973,7 +997,7 @@ test(tools): add unit tests for file_operations
 
 ## Community
 
-- **Discord**: [ruslan.team/discord](https://ruslan.team/discord) — for questions, showcasing projects, and sharing skills
+- **Discord**: [discord.gg/NousResearch](https://discord.gg/NousResearch) — for questions, showcasing projects, and sharing skills
 - **GitHub Discussions**: For design proposals and architecture discussions
 - **Skills Hub**: Upload specialized skills to a registry and share them with the community
 

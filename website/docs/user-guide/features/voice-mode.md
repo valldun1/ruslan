@@ -14,7 +14,7 @@ If you want a practical setup walkthrough with recommended configurations and re
 
 Before using voice features, make sure you have:
 
-1. **Ruslan Agent installed** — `pip install ruslan-agent` (see [Installation](/getting-started/installation))
+1. **Ruslan Agent installed** — via the install script (see [Installation](/getting-started/installation))
 2. **An LLM provider configured** — run `ruslan model` or set your preferred provider credentials in `~/.ruslan/.env`
 3. **A working base setup** — run `ruslan` to verify the agent responds to text before enabling voice
 
@@ -40,19 +40,19 @@ A paid [Nous Portal](/user-guide/features/tool-gateway) subscription supplies th
 
 ```bash
 # CLI voice mode (microphone + audio playback)
-pip install "ruslan-agent[voice]"
+cd ~/.ruslan/ruslan-agent && uv pip install -e ".[voice]"
 
 # Discord + Telegram messaging (includes discord.py[voice] for VC support)
-pip install "ruslan-agent[messaging]"
+cd ~/.ruslan/ruslan-agent && uv pip install -e ".[messaging]"
 
 # Premium TTS (ElevenLabs)
-pip install "ruslan-agent[tts-premium]"
+cd ~/.ruslan/ruslan-agent && uv pip install -e ".[tts-premium]"
 
 # Local TTS (NeuTTS, optional)
 python -m pip install -U neutts[all]
 
 # Everything at once
-pip install "ruslan-agent[all]"
+cd ~/.ruslan/ruslan-agent && uv pip install -e ".[all]"
 ```
 
 | Extra | Packages | Required For |
@@ -195,7 +195,7 @@ The bot supports two interaction modes on Discord:
 
 **DM (recommended for personal use):** Just open a DM with the bot and type — no @mention needed. Voice replies and all commands work the same as in channels.
 
-**Server channels:** The bot only responds when you @mention it (e.g. `@hermesbyt4 hello`). Make sure you select the **bot user** from the mention popup, not the role with the same name.
+**Server channels:** The bot only responds when you @mention it (e.g. `@ruslanbyt4 hello`). Make sure you select the **bot user** from the mention popup, not the role with the same name.
 
 :::tip
 To disable the mention requirement in server channels, add to `~/.ruslan/.env`:
@@ -263,13 +263,13 @@ Go to the [Discord Developer Portal](https://discord.com/developers/applications
 
 | Level | Integer | What's Included |
 |-------|---------|----------------|
-| Text only | `274878286912` | View Channels, Send Messages, Read History, Embeds, Attachments, Threads, Reactions |
-| Text + Voice | `274881432640` | All above + Connect, Speak |
+| Text only | `309237763136` | View Channels, Send Messages, Read History, Embeds, Attachments, Threads, Reactions, Create Public Threads |
+| Text + Voice | `309240908864` | All above + Connect, Speak |
 
 **Re-invite the bot** with the updated permissions URL:
 
 ```
-https://discord.com/oauth2/authorize?client_id=YOUR_APP_ID&scope=bot+applications.commands&permissions=274881432640
+https://discord.com/oauth2/authorize?client_id=YOUR_APP_ID&scope=bot+applications.commands&permissions=309240908864
 ```
 
 Replace `YOUR_APP_ID` with your Application ID from the Developer Portal.

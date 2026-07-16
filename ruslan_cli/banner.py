@@ -2,7 +2,6 @@
 
 Pure display functions with no RuslanCLI state dependency.
 """
-
 import json
 import logging
 import os
@@ -13,17 +12,17 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse
 from ruslan_constants import get_ruslan_home
-from typing import TYPE_CHECKING, Dict, List, Optional
-
 try:
     from ruslan_cli.banner_i18n import t as _banner_t, get_locale as _banner_get_locale
     _HAS_BANNER_I18N = True
-except Exception:  # pragma: no cover - never let the banner crash the CLI
+except Exception:
     _HAS_BANNER_I18N = False
-    def _banner_t(key, locale="en", **kwargs):  # type: ignore[no-redef]
+    def _banner_t(key, locale="en", **kwargs):
         return key
-    def _banner_get_locale(config=None):  # type: ignore[no-redef]
+    def _banner_get_locale(config=None):
         return "en"
+
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 # rich and prompt_toolkit are imported lazily (inside the functions that use
 # them) rather than at module level.  Importing this module is on the TUI
@@ -78,22 +77,21 @@ RUSLAN_AGENT_LOGO = """[bold #FFD700]██╗  ██╗███████�
 [#CD7F32]██║  ██║███████╗██║  ██║██║ ╚═╝ ██║███████╗███████║      ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║[/]
 [#CD7F32]╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝      ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝[/]"""
 
-RUSLAN_SHIELD = """[bold #00d4ff]          ╔═══════════════╗[/]
-[bold #00d4ff]          ║  ⚔  РУСЛАН  ⚔  ║[/]
-[bold #00d4ff]          ║▓▓▓▓▓▓▓▓▓▓▓▓▓║[/]
-[#0088cc]          ║▓██▄▄█████▄▄██▓║[/]
-[#0088cc]          ║▓█╔═══════╗█▓║[/]
-[#0088cc]          ║▓█║ [+]  [+] ║█▓║[/]
-[#0088cc]          ║▓█║  ╔═══╗  ║█▓║[/]
-[#0088cc]          ║▓█║  ║ T ║  ║█▓║[/]
-[#0088cc]          ║▓█║  ╚═══╝  ║█▓║[/]
-[#006699]          ║▓█║ ▄█████▄ ║█▓║[/]
-[#006699]          ║▓█║ ██▓█▓██ ║█▓║[/]
-[#006699]          ║▓█╙────────╜█▓║[/]
-[#004466]          ║▓█████████████▓║[/]
-[#004466]          ║▓▓▓▓▓▓▓▓▓▓▓▓▓║[/]
-[#00d4ff]          ╚═══════════╝[/]
-[#FFD700]        ⚔  РУСЛАН  ⚔[/]"""
+RUSLAN_CADUCEUS = """[#CD7F32]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣀⡀⠀⣀⣀⠀⢀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+[#CD7F32]⠀⠀⠀⠀⠀⠀⢀⣠⣴⣾⣿⣿⣇⠸⣿⣿⠇⣸⣿⣿⣷⣦⣄⡀⠀⠀⠀⠀⠀⠀[/]
+[#FFBF00]⠀⢀⣠⣴⣶⠿⠋⣩⡿⣿⡿⠻⣿⡇⢠⡄⢸⣿⠟⢿⣿⢿⣍⠙⠿⣶⣦⣄⡀⠀[/]
+[#FFBF00]⠀⠀⠉⠉⠁⠶⠟⠋⠀⠉⠀⢀⣈⣁⡈⢁⣈⣁⡀⠀⠉⠀⠙⠻⠶⠈⠉⠉⠀⠀[/]
+[#FFD700]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣴⣿⡿⠛⢁⡈⠛⢿⣿⣦⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+[#FFD700]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠿⣿⣦⣤⣈⠁⢠⣴⣿⠿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+[#FFBF00]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠉⠻⢿⣿⣦⡉⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+[#FFBF00]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠘⢷⣦⣈⠛⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+[#CD7F32]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣴⠦⠈⠙⠿⣦⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+[#CD7F32]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠸⣿⣤⡈⠁⢤⣿⠇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+[#B8860B]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠛⠷⠄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+[#B8860B]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣀⠑⢶⣄⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+[#B8860B]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣿⠁⢰⡆⠈⡿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+[#B8860B]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠳⠈⣡⠞⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+[#B8860B]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]"""
 
 
 
@@ -132,8 +130,8 @@ _UPDATE_CHECK_CACHE_SECONDS = 6 * 3600
 # (e.g. nix-built ruslan — no local git history to count against).
 UPDATE_AVAILABLE_NO_COUNT = -1
 
-_UPSTREAM_REPO_URL = "https://github.com/valldun1/ruslan.git"
-_OFFICIAL_REPO_CANONICAL = "github.com/valldun1/ruslan"
+_UPSTREAM_REPO_URL = "https://github.com/NousResearch/ruslan-agent.git"
+_OFFICIAL_REPO_CANONICAL = "github.com/nousresearch/ruslan-agent"
 
 
 def _canonical_github_remote(url: str | None) -> str:
@@ -208,7 +206,10 @@ def _check_via_local_git(repo_dir: Path) -> Optional[int]:
     origin_url = _git_stdout(["remote", "get-url", "origin"], cwd=repo_dir)
     if _is_official_ssh_remote(origin_url):
         head_rev = _git_stdout(["rev-parse", "HEAD"], cwd=repo_dir)
-        return _check_via_rev(head_rev) if head_rev else None
+        checked = _check_via_rev(head_rev) if head_rev else None
+        if checked == UPDATE_AVAILABLE_NO_COUNT:
+            return 1
+        return checked
 
     # Installer checkouts are shallow (`git clone --depth 1`). On a shallow
     # clone the history stops at a single commit, so a plain `git fetch` would
@@ -330,8 +331,8 @@ def check_for_updates() -> Optional[int]:
     # both the Rich banner (build_welcome_banner) and the Ink badge
     # (branding.tsx, guarded on `typeof === 'number' && > 0`) show nothing.
     try:
-        from ruslan_cli.config import detect_install_method
-        if detect_install_method() == "docker":
+        from ruslan_cli.config import detect_install_method, get_project_root
+        if detect_install_method(get_project_root()) == "docker":
             return None
     except Exception:
         pass
@@ -466,7 +467,7 @@ def get_git_banner_state(repo_dir: Optional[Path] = None) -> Optional[dict]:
     return {"upstream": upstream, "local": local, "ahead": max(ahead, 0)}
 
 
-_RELEASE_URL_BASE = "https://github.com/valldun1/ruslan/releases/tag"
+_RELEASE_URL_BASE = "https://github.com/NousResearch/ruslan-agent/releases/tag"
 _latest_release_cache: Optional[tuple] = None  # (tag, url) once resolved
 
 
@@ -592,7 +593,7 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
                          session_id: str = None,
                          get_toolset_for_tool=None,
                          context_length: int = None,
-                         locale: str = None):
+                         provider: str = None):
     """Build and print a welcome banner with caduceus on left and info on right.
 
     Args:
@@ -604,24 +605,15 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
         session_id: Session identifier.
         get_toolset_for_tool: Callable to map tool name -> toolset name.
         context_length: Model's context window size in tokens.
-        locale: Locale code ("en" / "ru"). If None — read from ~/.ruslan/config.yaml.
+        provider: Active provider id. When ``"moa"``, ``model`` is a MoA
+            preset name and the banner renders the aggregator instead of a
+            bare model slug.
     """
     from model_tools import check_tool_availability, TOOLSET_REQUIREMENTS
     from rich.panel import Panel
     from rich.table import Table
     if get_toolset_for_tool is None:
         from model_tools import get_toolset_for_tool
-
-    # Resolve banner locale: explicit arg > config.yaml > "en"
-    if locale is None and _HAS_BANNER_I18N:
-        try:
-            from ruslan_cli.config import load_config as _banner_load_config
-            _cfg = _banner_load_config() or {}
-        except Exception:
-            _cfg = {}
-        locale = _banner_get_locale(_cfg)
-    elif locale is None:
-        locale = "ru"  # Изменено с "en" на "ru" — дефолтная локаль Руслана
 
     tools = tools or []
     enabled_toolsets = enabled_toolsets or []
@@ -667,18 +659,41 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
     try:
         from ruslan_cli.skin_engine import get_active_skin
         _bskin = get_active_skin()
-        _hero = _bskin.banner_hero if hasattr(_bskin, 'banner_hero') and _bskin.banner_hero else RUSLAN_SHIELD
+        _hero = _bskin.banner_hero if hasattr(_bskin, 'banner_hero') and _bskin.banner_hero else RUSLAN_CADUCEUS
     except Exception:
         _bskin = None
-        _hero = RUSLAN_SHIELD
+        _hero = RUSLAN_CADUCEUS
     left_lines = ["", _hero, ""]
-    model_short = model.split("/")[-1] if "/" in model else model
-    if model_short.endswith(".gguf"):
-        model_short = model_short[:-5]
-    if len(model_short) > 28:
-        model_short = model_short[:25] + "..."
-    ctx_str = f" [dim {dim}]·[/] [dim {dim}]{_format_context_length(context_length)} context[/]" if context_length else ""
-    left_lines.append(f"[{accent}]{model_short}[/]{ctx_str} [dim {dim}]·[/] [dim {dim}]Valldun[/]")
+    if (provider or "").strip().lower() == "moa":
+        # MoA virtual provider: ``model`` is a preset name. Show the preset and
+        # its aggregator so the banner is meaningful instead of a bare slug.
+        preset_name = model
+        agg_label = ""
+        try:
+            from ruslan_cli.config import load_config
+            from ruslan_cli.moa_config import normalize_moa_config
+
+            _moa = normalize_moa_config(load_config().get("moa") or {})
+            _preset = _moa.get("presets", {}).get(preset_name)
+            if _preset:
+                _agg = _preset.get("aggregator") or {}
+                _am = str(_agg.get("model") or "")
+                agg_label = _am.split("/")[-1] if "/" in _am else _am
+        except Exception:
+            agg_label = ""
+        if len(preset_name) > 28:
+            preset_name = preset_name[:25] + "..."
+        agg_str = f" [dim {dim}]·[/] [dim {dim}]agg {agg_label}[/]" if agg_label else ""
+        ctx_str = f" [dim {dim}]·[/] [dim {dim}]{_format_context_length(context_length)} context[/]" if context_length else ""
+        left_lines.append(f"[{accent}]MoA: {preset_name}[/]{agg_str}{ctx_str} [dim {dim}]·[/] [dim {dim}]Nous Research[/]")
+    else:
+        model_short = model.split("/")[-1] if "/" in model else model
+        if model_short.endswith(".gguf"):
+            model_short = model_short[:-5]
+        if len(model_short) > 28:
+            model_short = model_short[:25] + "..."
+        ctx_str = f" [dim {dim}]·[/] [dim {dim}]{_format_context_length(context_length)} context[/]" if context_length else ""
+        left_lines.append(f"[{accent}]{model_short}[/]{ctx_str} [dim {dim}]·[/] [dim {dim}]Nous Research[/]")
 
     if os.getenv("RUSLAN_YOLO_MODE"):
         left_lines.append(f"[bold red]⚠ YOLO mode[/] [dim {dim}]— all approval prompts bypassed[/]")
@@ -687,7 +702,7 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
         left_lines.append(f"[dim {session_color}]Session: {session_id}[/]")
     left_content = "\n".join(left_lines)
 
-    right_lines = [f"[bold {accent}]{_banner_t('cli.banner.available_tools', locale=locale)}[/]"]
+    right_lines = [f"[bold {accent}]Available Tools[/]"]
     toolsets_dict: Dict[str, list] = {}
 
     for tool in tools:
@@ -744,11 +759,7 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
         right_lines.append(f"[dim {dim}]{toolset}:[/] {tools_str}")
 
     if remaining_toolsets > 0:
-        right_lines.append(
-            f"[dim {dim}]"
-            f"{_banner_t('cli.banner.more_toolsets', locale=locale, n=remaining_toolsets)}"
-            f"[/]"
-        )
+        right_lines.append(f"[dim {dim}](and {remaining_toolsets} more toolsets...)[/]")
 
     # MCP Servers section (only if configured)
     try:
@@ -759,7 +770,7 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
 
     if mcp_status:
         right_lines.append("")
-        right_lines.append(f"[bold {accent}]{_banner_t('cli.banner.mcp_servers', locale=locale)}[/]")
+        right_lines.append(f"[bold {accent}]MCP Servers[/]")
         for srv in mcp_status:
             status = srv.get("status")
             if srv["connected"]:
@@ -789,7 +800,7 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
                 )
 
     right_lines.append("")
-    right_lines.append(f"[bold {accent}]{_banner_t('cli.banner.available_skills', locale=locale)}[/]")
+    right_lines.append(f"[bold {accent}]Available Skills[/]")
     # The skills catalog is only reachable when the `skills` toolset is enabled
     # (it exposes skill_view / skill_manage). When it's disabled — e.g. a Blank
     # Slate install — the agent literally cannot load any skill, so advertising
@@ -802,28 +813,44 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
         skills_by_category = {}
         total_skills = 0
 
+    # Dynamically size skills display based on terminal width.
+    # Rich grid with 2 columns; right column gets roughly 60% of terminal.
+    _term_cols = shutil.get_terminal_size().columns
+    _right_col_width = max(int(_term_cols * 0.6) - 10, 30)
+
     if not _skills_enabled:
-        right_lines.append(f"[dim {dim}]{_banner_t('cli.banner.skills_disabled', locale=locale)}[/]")
+        right_lines.append(f"[dim {dim}]Skills toolset disabled[/]")
     elif skills_by_category:
         for category in sorted(skills_by_category.keys()):
             skill_names = sorted(skills_by_category[category])
-            if len(skill_names) > 8:
-                display_names = skill_names[:8]
-                skills_str = ", ".join(display_names) + f" +{len(skill_names) - 8} more"
-            else:
-                skills_str = ", ".join(skill_names)
-            if len(skills_str) > 50:
-                skills_str = skills_str[:47] + "..."
+            # Account for "category: " prefix
+            _prefix_len = len(category) + 2
+            _avail = max(_right_col_width - _prefix_len, 20)
+            # Accumulate skills until we run out of space
+            parts, length = [], 0
+            for i, name in enumerate(skill_names):
+                _sep = ", " if parts else ""
+                _needed = len(_sep) + len(name)
+                # Estimate indicator size IF we were to add this skill then stop
+                _after = len(skill_names) - (i + 1)  # remaining after adding this
+                _ind_len = len(f", +{_after} more") if _after > 0 else 0
+                if parts and length + _needed + _ind_len > _avail:
+                    remaining = len(skill_names) - len(parts)
+                    parts.append(f"+{remaining} more")
+                    break
+                parts.append(name)
+                length += _needed
+            skills_str = ", ".join(parts)
             right_lines.append(f"[dim {dim}]{category}:[/] [{text}]{skills_str}[/]")
     else:
-        right_lines.append(f"[dim {dim}]{_banner_t('cli.banner.no_skills', locale=locale)}[/]")
+        right_lines.append(f"[dim {dim}]No skills installed[/]")
 
     right_lines.append("")
     mcp_connected = sum(1 for s in mcp_status if s["connected"]) if mcp_status else 0
     summary_parts = [f"{len(tools)} tools", f"{total_skills} skills"]
     if mcp_connected:
         summary_parts.append(f"{mcp_connected} MCP servers")
-    summary_parts.append(_banner_t("cli.banner.summary_help", locale=locale))
+    summary_parts.append("/help for commands")
     # Indicate when the codex_app_server runtime is active so users
     # understand why tool counts may not match what's actually reachable
     # (codex builds its own tool list inside the spawned subprocess).
@@ -854,38 +881,40 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
         if behind is not None and behind != 0:
             from ruslan_cli.config import get_managed_update_command, recommended_update_command
             if behind > 0:
-                if behind == 1:
-                    commits_line = _banner_t("cli.banner.commits_behind_one", locale=locale)
-                else:
-                    commits_line = _banner_t("cli.banner.commits_behind_many", locale=locale, n=behind)
-                run_line = _banner_t("cli.banner.update_run_cmd", locale=locale, cmd=recommended_update_command())
+                commits_word = "commit" if behind == 1 else "commits"
                 right_lines.append(
-                    f"[bold yellow]{commits_line}[/]"
-                    f"[dim yellow]{run_line}[/]"
+                    f"[bold yellow]⚠ {behind} {commits_word} behind[/]"
+                    f"[dim yellow] — run [bold]{recommended_update_command()}[/bold] to update[/]"
                 )
             else:
                 # UPDATE_AVAILABLE_NO_COUNT: nix-built ruslan; we know an update
                 # exists but not by how much, and we don't know how the user
                 # installed it (nix run, profile, system flake, home-manager).
                 managed_cmd = get_managed_update_command()
-                line = f"[bold yellow]{_banner_t('cli.banner.update_available', locale=locale)}[/]"
+                line = "[bold yellow]⚠ update available[/]"
                 if managed_cmd:
-                    line += f"[dim yellow]{_banner_t('cli.banner.update_run_cmd', locale=locale, cmd=managed_cmd)}[/]"
+                    line += f"[dim yellow] — run [bold]{managed_cmd}[/bold][/]"
                 right_lines.append(line)
     except Exception:
         pass  # Never break the banner over an update check
 
-    # Pip-install warning — `pip install ruslan-agent` is not the supported
-    # install path (it exists on PyPI for internal/CI reasons, not end users).
-    # Such installs miss the git checkout + installer-managed deps, so updates,
-    # self-update, and issue triage don't behave correctly. Warn, don't block.
+    # Unsupported install-method warning — pip/PyPI and Homebrew are no
+    # longer an officially supported distribution method (see
+    # website/docs/getting-started/platform-support.md). Such installs miss
+    # the git checkout + installer-managed deps, so updates, self-update, and
+    # issue triage don't behave correctly. Warn, don't block. NixOS is fully
+    # supported and never hits this.
     try:
-        from ruslan_cli.config import detect_install_method
-        if detect_install_method() == "pip":
+        from ruslan_cli.config import (
+            detect_install_method,
+            format_unsupported_install_warning,
+            is_unsupported_install_method,
+            get_project_root
+        )
+        _install_method = detect_install_method(get_project_root())
+        if is_unsupported_install_method(_install_method):
             right_lines.append(
-                "[bold yellow]⚠ pip install not officially supported[/]"
-                "[dim yellow] — exists for reasons other than user install; "
-                "expect instability and an inability to support issues[/]"
+                f"[bold yellow]⚠ {format_unsupported_install_warning(_install_method)}[/]"
             )
     except Exception:
         pass  # Never break the banner over the install-method check
@@ -912,7 +941,7 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
     console.print()
     term_width = shutil.get_terminal_size().columns
     if term_width >= 95:
-        _logo = _bskin.banner_logo if _bskin and hasattr(_bskin, 'banner_logo') and _bskin.banner_logo else RUSLAN_SHIELD
+        _logo = _bskin.banner_logo if _bskin and hasattr(_bskin, 'banner_logo') and _bskin.banner_logo else RUSLAN_AGENT_LOGO
         console.print(_logo)
         console.print()
     console.print(outer_panel)

@@ -190,7 +190,7 @@ def register_cli(subparser) -> None:
     p_create.add_argument("name", help="Bundle name (becomes the /slash command)")
     p_create.add_argument(
         "--skill", "-s", action="append", default=[],
-        help="Действие to include (repeat for multiple)",
+        help="Skill name to include (repeat for multiple)",
     )
     p_create.add_argument(
         "--description", "-d", default="",

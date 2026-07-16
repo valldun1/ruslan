@@ -13,7 +13,7 @@ def build_claw_parser(subparsers, *, cmd_claw: Callable) -> None:
     """Attach the ``claw`` subcommand to ``subparsers``."""
     claw_parser = subparsers.add_parser(
         "claw",
-        help="Инструменты миграции OpenClaw",
+        help="OpenClaw migration tools",
         description="Migrate settings, memories, skills, and API keys from OpenClaw to Ruslan",
     )
     claw_subparsers = claw_parser.add_subparsers(dest="claw_action")
@@ -22,16 +22,16 @@ def build_claw_parser(subparsers, *, cmd_claw: Callable) -> None:
     claw_migrate = claw_subparsers.add_parser(
         "migrate",
         help="Migrate from OpenClaw to Ruslan",
-        description="Импорт настроек, памяти, скиллов и API-ключей из установки OpenClaw. "
+        description="Import settings, memories, skills, and API keys from an OpenClaw installation. "
         "Always shows a preview before making changes.",
     )
     claw_migrate.add_argument(
-        "--source", help="Путь к директории OpenClaw (по умолчанию: ~/.openclaw)"
+        "--source", help="Path to OpenClaw directory (default: ~/.openclaw)"
     )
     claw_migrate.add_argument(
         "--dry-run",
         action="store_true",
-        help="Только предпросмотр — остановиться после показа что будет мигрировано",
+        help="Preview only — stop after showing what would be migrated",
     )
     claw_migrate.add_argument(
         "--preset",
@@ -48,7 +48,7 @@ def build_claw_parser(subparsers, *, cmd_claw: Callable) -> None:
     claw_migrate.add_argument(
         "--migrate-secrets",
         action="store_true",
-        help="Включить разрешённые секреты (TELEGRAM_BOT_TOKEN, API keys и т.д.). "
+        help="Include allowlisted secrets (TELEGRAM_BOT_TOKEN, API keys, etc.). "
         "Required even under --preset full.",
     )
     claw_migrate.add_argument(
@@ -59,34 +59,34 @@ def build_claw_parser(subparsers, *, cmd_claw: Callable) -> None:
         "before apply; restorable with 'ruslan import').",
     )
     claw_migrate.add_argument(
-        "--workspace-target", help="Абсолютный путь для копирования инструкций рабочего пространства"
+        "--workspace-target", help="Absolute path to copy workspace instructions into"
     )
     claw_migrate.add_argument(
         "--skill-conflict",
         choices=["skip", "overwrite", "rename"],
         default="skip",
-        help="Как обрабатывать конфликты имён навыков (по умолчанию: skip)",
+        help="How to handle skill name conflicts (default: skip)",
     )
     claw_migrate.add_argument(
-        "--yes", "-y", action="store_true", help="Пропустить подтверждения"
+        "--yes", "-y", action="store_true", help="Skip confirmation prompts"
     )
 
     # claw cleanup
     claw_cleanup = claw_subparsers.add_parser(
         "cleanup",
         aliases=["clean"],
-        help="Архивировать оставшиеся директории OpenClaw после миграции",
-        description="Поиск и архивация оставшихся директорий OpenClaw для предотвращения фрагментации состояния",
+        help="Archive leftover OpenClaw directories after migration",
+        description="Scan for and archive leftover OpenClaw directories to prevent state fragmentation",
     )
     claw_cleanup.add_argument(
-        "--source", help="Путь к конкретной директории OpenClaw для очистки"
+        "--source", help="Path to a specific OpenClaw directory to clean up"
     )
     claw_cleanup.add_argument(
         "--dry-run",
         action="store_true",
-        help="Предпросмотр того, что будет архивировано, без изменений",
+        help="Preview what would be archived without making changes",
     )
     claw_cleanup.add_argument(
-        "--yes", "-y", action="store_true", help="Пропустить подтверждения"
+        "--yes", "-y", action="store_true", help="Skip confirmation prompts"
     )
     claw_parser.set_defaults(func=cmd_claw)

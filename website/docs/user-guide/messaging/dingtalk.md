@@ -44,7 +44,7 @@ This guide walks you through the full setup process — from creating your DingT
 Install the required Python packages:
 
 ```bash
-pip install "ruslan-agent[dingtalk]"
+cd ~/.ruslan/ruslan-agent && uv pip install -e ".[dingtalk]"
 ```
 
 Or individually:

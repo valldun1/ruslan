@@ -15,35 +15,35 @@ from ruslan_cli.subcommands._shared import add_accept_hooks_flag
 def build_cron_parser(subparsers, *, cmd_cron: Callable) -> None:
     """Attach the ``cron`` subcommand (and its sub-actions) to ``subparsers``."""
     cron_parser = subparsers.add_parser(
-        "cron", help="Управление cron-задачами", description="Manage scheduled tasks"
+        "cron", help="Cron job management", description="Manage scheduled tasks"
     )
     cron_subparsers = cron_parser.add_subparsers(dest="cron_command")
 
     # cron list
     cron_list = cron_subparsers.add_parser("list", help="List scheduled jobs")
-    cron_list.add_argument("--all", action="store_true", help="Список запланированных задач")
+    cron_list.add_argument("--all", action="store_true", help="Include disabled jobs")
 
     # cron create/add
     cron_create = cron_subparsers.add_parser(
-        "create", aliases=["add"], help="Создать запланированную задачу"
+        "create", aliases=["add"], help="Create a scheduled job"
     )
     cron_create.add_argument(
-        "schedule", help="Расписание: '·30m', '·every 2h', или '·0 9 * * *'"
+        "schedule", help="Schedule like '30m', 'every 2h', or '0 9 * * *'"
     )
     cron_create.add_argument(
-        "prompt", nargs="?", help="Опциональный промпт или инструкция задачи"
+        "prompt", nargs="?", help="Optional self-contained prompt or task instruction"
     )
-    cron_create.add_argument("--name", help="Опциональное человеко-читаемое название задачи")
+    cron_create.add_argument("--name", help="Optional human-friendly job name")
     cron_create.add_argument(
         "--deliver",
-        help="Цель доставки: origin, local, telegram, discord, signal, или platform:chat_id",
+        help="Delivery target: origin, local, telegram, discord, signal, or platform:chat_id",
     )
-    cron_create.add_argument("--repeat", type=int, help="Опциональное количество повторов")
+    cron_create.add_argument("--repeat", type=int, help="Optional repeat count")
     cron_create.add_argument(
         "--skill",
         dest="skills",
         action="append",
-        help="Подключить скилл. Повторите для добавления нескольких скиллов.",
+        help="Attach a skill. Repeat to add multiple skills.",
     )
     cron_create.add_argument(
         "--script",
@@ -80,29 +80,29 @@ def build_cron_parser(subparsers, *, cmd_cron: Callable) -> None:
     cron_edit.add_argument("--prompt", help="New prompt/task instruction")
     cron_edit.add_argument("--name", help="New job name")
     cron_edit.add_argument("--deliver", help="New delivery target")
-    cron_edit.add_argument("--repeat", type=int, help="Редактировать запланированную задачу")
+    cron_edit.add_argument("--repeat", type=int, help="New repeat count")
     cron_edit.add_argument(
         "--skill",
         dest="skills",
         action="append",
-        help="Заменить скиллы задачи этим набором. Повторите для добавления нескольких скиллов.",
+        help="Replace the job's skills with this set. Repeat to attach multiple skills.",
     )
     cron_edit.add_argument(
         "--add-skill",
         dest="add_skills",
         action="append",
-        help="Добавить скилл без замены существующего списка. Можно повторять.",
+        help="Append a skill without replacing the existing list. Repeatable.",
     )
     cron_edit.add_argument(
         "--remove-skill",
         dest="remove_skills",
         action="append",
-        help="Удалить конкретный скилл. Можно повторять.",
+        help="Remove a specific attached skill. Repeatable.",
     )
     cron_edit.add_argument(
         "--clear-skills",
         action="store_true",
-        help="Удалить все скиллы из задачи",
+        help="Remove all attached skills from the job",
     )
     cron_edit.add_argument(
         "--script",
@@ -137,27 +137,27 @@ def build_cron_parser(subparsers, *, cmd_cron: Callable) -> None:
 
     # lifecycle actions
     cron_pause = cron_subparsers.add_parser("pause", help="Pause a scheduled job")
-    cron_pause.add_argument("job_id", help="Приостановить задачу")
+    cron_pause.add_argument("job_id", help="Job ID to pause")
 
     cron_resume = cron_subparsers.add_parser("resume", help="Resume a paused job")
-    cron_resume.add_argument("job_id", help="Возобновить приостановленную задачу")
+    cron_resume.add_argument("job_id", help="Job ID to resume")
 
     cron_run = cron_subparsers.add_parser(
-        "run", help="Запустить задачу в следующем тике планировщика"
+        "run", help="Run a job on the next scheduler tick"
     )
-    cron_run.add_argument("job_id", help="ID задачи для запуска")
+    cron_run.add_argument("job_id", help="Job ID to trigger")
     add_accept_hooks_flag(cron_run)
 
     cron_remove = cron_subparsers.add_parser(
-        "remove", aliases=["rm", "delete"], help="Удалить запланированную задачу"
+        "remove", aliases=["rm", "delete"], help="Remove a scheduled job"
     )
-    cron_remove.add_argument("job_id", help="ID задачи для удаления")
+    cron_remove.add_argument("job_id", help="Job ID to remove")
 
     # cron status
-    cron_subparsers.add_parser("status", help="Проверить, запущен ли cron-планировщик")
+    cron_subparsers.add_parser("status", help="Check if cron scheduler is running")
 
     # cron tick (mostly for debugging)
-    cron_tick = cron_subparsers.add_parser("tick", help="Запустить подходящие задачи один раз и выйти")
+    cron_tick = cron_subparsers.add_parser("tick", help="Run due jobs once and exit")
     add_accept_hooks_flag(cron_tick)
     add_accept_hooks_flag(cron_parser)
     cron_parser.set_defaults(func=cmd_cron)

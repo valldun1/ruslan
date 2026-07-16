@@ -27,7 +27,7 @@ ruslan acp / ruslan-acp / python -m acp_adapter
   -> parse --version / --check / --setup before server startup
   -> load ~/.ruslan/.env
   -> configure stderr logging
-  -> construct HermesACPAgent
+  -> construct RuslanACPAgent
   -> acp.run_agent(agent, use_unstable_protocol=True)
 ```
 
@@ -37,7 +37,7 @@ Stdout is reserved for ACP JSON-RPC transport. Human-readable logs go to stderr.
 
 ## Major components
 
-### `HermesACPAgent`
+### `RuslanACPAgent`
 
 `acp_adapter/server.py` implements the ACP agent protocol.
 

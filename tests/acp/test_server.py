@@ -1,4 +1,4 @@
-"""Tests for acp_adapter.server — HermesACPAgent ACP server."""
+"""Tests for acp_adapter.server — RuslanACPAgent ACP server."""
 
 import asyncio
 import os
@@ -36,7 +36,7 @@ from acp.schema import (
     UserMessageChunk,
 )
 from acp_adapter.auth import TERMINAL_SETUP_AUTH_METHOD_ID
-from acp_adapter.server import HermesACPAgent, RUSLAN_VERSION
+from acp_adapter.server import RuslanACPAgent, RUSLAN_VERSION
 from acp_adapter.session import SessionManager
 from ruslan_state import SessionDB
 
@@ -49,8 +49,8 @@ def mock_manager():
 
 @pytest.fixture()
 def agent(mock_manager):
-    """HermesACPAgent backed by a mock session manager."""
-    return HermesACPAgent(session_manager=mock_manager)
+    """RuslanACPAgent backed by a mock session manager."""
+    return RuslanACPAgent(session_manager=mock_manager)
 
 
 @pytest.mark.asyncio
@@ -242,7 +242,7 @@ class TestSessionOps:
         manager = SessionManager(
             agent_factory=lambda: SimpleNamespace(model="gpt-5.4", provider="openai-codex")
         )
-        acp_agent = HermesACPAgent(session_manager=manager)
+        acp_agent = RuslanACPAgent(session_manager=manager)
 
         with patch(
             "ruslan_cli.models.curated_models_for_provider",
@@ -367,7 +367,7 @@ class TestSessionOps:
         state.history = [
             {"role": "system", "content": "hidden system"},
             {"role": "user", "content": "what controls the / slash commands?"},
-            {"role": "assistant", "content": "HermesACPAgent._ADVERTISED_COMMANDS controls them."},
+            {"role": "assistant", "content": "RuslanACPAgent._ADVERTISED_COMMANDS controls them."},
             {
                 "role": "assistant",
                 "content": "",
@@ -405,7 +405,7 @@ class TestSessionOps:
         assert isinstance(replay_calls[0].kwargs["update"], UserMessageChunk)
         assert replay_calls[0].kwargs["update"].content.text == "what controls the / slash commands?"
         assert isinstance(replay_calls[1].kwargs["update"], AgentMessageChunk)
-        assert replay_calls[1].kwargs["update"].content.text.startswith("HermesACPAgent")
+        assert replay_calls[1].kwargs["update"].content.text.startswith("RuslanACPAgent")
 
         tool_updates = [
             call.kwargs["update"]
@@ -984,7 +984,7 @@ class TestSessionConfiguration:
         manager = SessionManager(db=SessionDB(tmp_path / "state.db"))
 
         with patch("run_agent.AIAgent", side_effect=fake_agent):
-            acp_agent = HermesACPAgent(session_manager=manager)
+            acp_agent = RuslanACPAgent(session_manager=manager)
             state = manager.create_session(cwd="/tmp")
             result = await acp_agent.set_session_model(
                 model_id="anthropic:claude-sonnet-4-6",
@@ -1541,6 +1541,37 @@ class TestSlashCommands:
         assert "cleared" in result.lower()
         assert len(state.history) == 0
 
+    def test_reset_resets_agent_session_state(self, agent, mock_manager):
+        state = self._make_state(mock_manager)
+        state.history = [{"role": "user", "content": "hello"}]
+        state.agent.reset_session_state = MagicMock()
+
+        with patch.object(agent.session_manager, "save_session") as mock_save:
+            result = agent._handle_slash_command("/reset", state)
+
+        assert "cleared" in result.lower()
+        assert state.history == []
+        state.agent.reset_session_state.assert_called_once_with()
+        mock_save.assert_called_once_with(state.session_id)
+
+    def test_reset_saves_session_when_agent_state_reset_fails(self, agent, mock_manager):
+        state = self._make_state(mock_manager)
+        state.history = [{"role": "user", "content": "hello"}]
+        state.agent.reset_session_state = MagicMock(side_effect=RuntimeError("boom"))
+
+        with (
+            patch.object(agent.session_manager, "save_session") as mock_save,
+            patch("acp_adapter.server.logger") as mock_logger,
+        ):
+            result = agent._handle_slash_command("/reset", state)
+
+        assert "cleared" in result.lower()
+        assert "state reset failed" in result.lower()
+        assert state.history == []
+        state.agent.reset_session_state.assert_called_once_with()
+        mock_save.assert_called_once_with(state.session_id)
+        mock_logger.warning.assert_called_once()
+
     def test_version(self, agent, mock_manager):
         state = self._make_state(mock_manager)
         result = agent._handle_slash_command("/version", state)
@@ -1688,7 +1719,7 @@ class TestSlashCommands:
         manager = SessionManager(db=SessionDB(tmp_path / "state.db"))
 
         with patch("run_agent.AIAgent", side_effect=fake_agent):
-            acp_agent = HermesACPAgent(session_manager=manager)
+            acp_agent = RuslanACPAgent(session_manager=manager)
             state = manager.create_session(cwd="/tmp")
             result = acp_agent._cmd_model("anthropic:claude-sonnet-4-6", state)
 

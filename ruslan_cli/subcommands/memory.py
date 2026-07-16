@@ -13,7 +13,7 @@ def build_memory_parser(subparsers, *, cmd_memory: Callable) -> None:
     """Attach the ``memory`` subcommand to ``subparsers``."""
     memory_parser = subparsers.add_parser(
         "memory",
-        help="Настроить внешнего провайдера памяти",
+        help="Configure external memory provider",
         description=(
             "Set up and manage external memory provider plugins.\n\n"
             "Available providers: honcho, openviking, mem0, hindsight,\n"
@@ -24,30 +24,30 @@ def build_memory_parser(subparsers, *, cmd_memory: Callable) -> None:
     )
     memory_sub = memory_parser.add_subparsers(dest="memory_command")
     _setup_parser = memory_sub.add_parser(
-        "setup", help="Интерактивный выбор и настройка провайдера"
+        "setup", help="Interactive provider selection and configuration"
     )
     _setup_parser.add_argument(
         "provider",
         nargs="?",
         default=None,
-        help="Действие to configure directly (e.g. honcho), skipping the picker",
+        help="Provider to configure directly (e.g. honcho), skipping the picker",
     )
     memory_sub.add_parser("status", help="Show current memory provider config")
-    memory_sub.add_parser("off", help="Показать текущую конфигурацию провайдера памяти")
+    memory_sub.add_parser("off", help="Disable external provider (built-in only)")
     _reset_parser = memory_sub.add_parser(
         "reset",
-        help="Стереть всю встроенную память (MEMORY.md и USER.md)",
+        help="Erase all built-in memory (MEMORY.md and USER.md)",
     )
     _reset_parser.add_argument(
         "--yes",
         "-y",
         action="store_true",
-        help="Пропустить подтверждение",
+        help="Skip confirmation prompt",
     )
     _reset_parser.add_argument(
         "--target",
         choices=["all", "memory", "user"],
         default="all",
-        help="Какой хранилище сбросить: 'all' (по умолчанию), 'memory' или 'user'",
+        help="Which store to reset: 'all' (default), 'memory', or 'user'",
     )
     memory_parser.set_defaults(func=cmd_memory)

@@ -111,7 +111,7 @@ Skills must be installed before they can be attached to cron jobs. If a skill is
 
 ### Check 2: Check skill name vs. skill folder name
 
-Skill names are case-sensitive and must match the installed skill's folder name. If your job specifies `ai-funding-daily-report` but the skill folder is `ai-funding-daily-report`, confirm the exact name from `ruslan skills list`.
+Skill names are case-sensitive and must match the installed skill's folder name. If your job specifies `ai-funding-report` but the skill folder is `ai-funding-daily-report`, confirm the exact name from `ruslan skills list`.
 
 ### Check 3: Skills that require interactive tools
 
@@ -214,7 +214,7 @@ If you've worked through this guide and the issue persists:
 
 1. Run the job with `ruslan cron run <job_id>` (fires on next gateway tick) and watch for errors in the chat output
 2. Check `~/.ruslan/logs/agent.log` for scheduler messages and `~/.ruslan/logs/errors.log` for warnings
-3. Open an issue at [github.com/valldun1/ruslan](https://github.com/valldun1/ruslan) with:
+3. Open an issue at [github.com/NousResearch/ruslan-agent](https://github.com/NousResearch/ruslan-agent) with:
    - The job ID and schedule
    - The delivery target
    - What you expected vs. what happened

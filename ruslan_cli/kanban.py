@@ -69,6 +69,7 @@ def _task_to_dict(t: kb.Task) -> dict[str, Any]:
         "workspace_kind": t.workspace_kind,
         "workspace_path": t.workspace_path,
         "branch_name": t.branch_name,
+        "project_id": t.project_id,
         "created_by": t.created_by,
         "created_at": t.created_at,
         "started_at": t.started_at,
@@ -201,7 +202,7 @@ def build_parser(parent_subparsers: argparse._SubParsersAction) -> argparse.Argu
             "Durable SQLite-backed task board shared across Ruslan profiles. "
             "Tasks are claimed atomically, can depend on other tasks, and "
             "are executed by a named profile in an isolated workspace. "
-            "See https://ruslan.team/docs/user-guide/features/kanban "
+            "See https://ruslan-agent.nousresearch.com/docs/user-guide/features/kanban "
             "or docs/ruslan-kanban-v1-spec.pdf for the full design."
         ),
     )
@@ -306,7 +307,7 @@ def build_parser(parent_subparsers: argparse._SubParsersAction) -> argparse.Argu
     p_create = sub.add_parser("create", help="Create a new task")
     p_create.add_argument("title", help="Task title")
     p_create.add_argument("--body", default=None, help="Optional opening post")
-    p_create.add_argument("--assignee", default=None, help="Действие to assign")
+    p_create.add_argument("--assignee", default=None, help="Profile name to assign")
     p_create.add_argument("--parent", action="append", default=[],
                           help="Parent task id (repeatable)")
     p_create.add_argument("--workspace", default="scratch",
@@ -314,6 +315,10 @@ def build_parser(parent_subparsers: argparse._SubParsersAction) -> argparse.Argu
                                "(default: scratch)")
     p_create.add_argument("--branch", default=None,
                           help="Branch name for worktree tasks, e.g. wt/t6-wire")
+    p_create.add_argument("--project", default=None,
+                          help="Link to a project (id or slug). Anchors the task's "
+                               "worktree under the project's primary repo with a "
+                               "deterministic branch. See `ruslan project list`.")
     p_create.add_argument("--tenant", default=None, help="Tenant namespace")
     p_create.add_argument("--priority", type=int, default=0, help="Priority tiebreaker")
     p_create.add_argument("--triage", action="store_true",
@@ -438,7 +443,7 @@ def build_parser(parent_subparsers: argparse._SubParsersAction) -> argparse.Argu
     # --- assign ---
     p_assign = sub.add_parser("assign", help="Assign or reassign a task")
     p_assign.add_argument("task_id")
-    p_assign.add_argument("profile", help="Действие (or 'none' to unassign)")
+    p_assign.add_argument("profile", help="Profile name (or 'none' to unassign)")
 
     # --- reclaim / reassign (recovery) ---
     p_reclaim = sub.add_parser(
@@ -458,7 +463,7 @@ def build_parser(parent_subparsers: argparse._SubParsersAction) -> argparse.Argu
     p_reassign.add_argument("task_id")
     p_reassign.add_argument(
         "profile",
-        help="Переименовать профиль (or 'none' to unassign)",
+        help="New profile name (or 'none' to unassign)",
     )
     p_reassign.add_argument(
         "--reclaim", action="store_true",
@@ -554,6 +559,16 @@ def build_parser(parent_subparsers: argparse._SubParsersAction) -> argparse.Argu
     p_block.add_argument("reason", nargs="*", help="Reason (also appended as a comment)")
     p_block.add_argument("--ids", nargs="+", default=None,
                          help="Additional task ids to block with the same reason (bulk mode)")
+    p_block.add_argument(
+        "--kind", default=None, choices=sorted(kb.VALID_BLOCK_KINDS),
+        help=(
+            "Typed block reason. 'dependency' waits in todo (auto-promoted "
+            "when parents finish, no human); 'needs_input'/'capability' go to "
+            "blocked for a human; 'transient' marks a maybe-flaky failure. "
+            "Repeated same-kind re-blocks after unblock route the task to "
+            "triage to break unblock loops. Omit for a generic block."
+        ),
+    )
 
     p_schedule = sub.add_parser("schedule", help="Park one or more tasks in Scheduled (waiting on time, not human input)")
     p_schedule.add_argument("task_id")
@@ -893,7 +908,7 @@ def kanban_command(args: argparse.Namespace) -> int:
             print(f"kanban: {exc}", file=sys.stderr)
             return 2
         if not normed:
-            print("kanban: --board требует slug", file=sys.stderr)
+            print("kanban: --board requires a slug", file=sys.stderr)
             return 2
         # Boards other than 'default' must already exist — typoed slugs
         # would otherwise silently create an empty board.
@@ -1275,7 +1290,7 @@ def _cmd_assignees(args: argparse.Namespace) -> int:
         print(json.dumps(data, indent=2, ensure_ascii=False))
         return 0
     if not data:
-        print("(нет назначенных — создайте профиль с помощью `ruslan -p <имя> setup`)")
+        print("(no assignees — create a profile with `ruslan -p <name> setup`)")
         return 0
     # Header
     print(f"{'NAME':20s}  {'ON DISK':8s}  COUNTS")
@@ -1295,7 +1310,7 @@ def _cmd_create(args: argparse.Namespace) -> int:
         print(f"kanban: {exc}", file=sys.stderr)
         return 2
     if branch_name and ws_kind != "worktree":
-        print("kanban: --branch допустим только с --workspace worktree", file=sys.stderr)
+        print("kanban: --branch is only valid with --workspace worktree", file=sys.stderr)
         return 2
     try:
         max_runtime = _parse_duration(getattr(args, "max_runtime", None))
@@ -1320,6 +1335,7 @@ def _cmd_create(args: argparse.Namespace) -> int:
             workspace_kind=ws_kind,
             workspace_path=ws_path,
             branch_name=branch_name,
+            project_id=getattr(args, "project", None),
             tenant=args.tenant,
             priority=args.priority,
             parents=tuple(args.parent or ()),
@@ -1359,7 +1375,7 @@ def _cmd_swarm(args: argparse.Namespace) -> int:
         print(f"kanban swarm: {exc}", file=sys.stderr)
         return 2
     if not workers:
-        print("kanban swarm: требуется хотя бы один --worker", file=sys.stderr)
+        print("kanban swarm: at least one --worker is required", file=sys.stderr)
         return 2
     with kb.connect_closing() as conn:
         created = ks.create_swarm(
@@ -1421,7 +1437,7 @@ def _cmd_list(args: argparse.Namespace) -> int:
             f"`ruslan kanban boards list`)\n"
         )
     if not tasks:
-        print("(нет подходящих задач)")
+        print("(no matching tasks)")
         return 0
     for t in tasks:
         print(_fmt_task_line(t))
@@ -1432,7 +1448,7 @@ def _cmd_show(args: argparse.Namespace) -> int:
     rsk = _run_state_kwargs(args)
     if rsk is None:
         print(
-            "kanban show: укажите оба --state-type и --state-name, или опустите оба",
+            "kanban show: pass both --state-type and --state-name, or omit both",
             file=sys.stderr,
         )
         return 2
@@ -1556,18 +1572,18 @@ def _cmd_show(args: argparse.Namespace) -> int:
         print(f"  children:  {', '.join(children)}")
     if task.body:
         print()
-        print("Тело:")
+        print("Body:")
         print(task.body)
     if task.result:
         print()
-        print("Результат:")
+        print("Result:")
         print(task.result)
     elif latest_summary:
         # Worker handoff lives on the latest run, not on tasks.result.
         # Surface it at top-level so a glance at ``ruslan kanban show <id>``
         # tells you what the worker did even if tasks.result is empty.
         print()
-        print("Последняя сводка:")
+        print("Latest summary:")
         print(latest_summary)
     if comments:
         print()
@@ -1743,7 +1759,7 @@ def _cmd_diagnostics(args: argparse.Namespace) -> int:
         return 0
 
     if not diags_by_task:
-        print("Нет активной диагностики на этой доске.")
+        print("No active diagnostics on this board.")
         return 0
 
     # Human-readable summary: grouped by task, severity-marked, with
@@ -1823,7 +1839,7 @@ def _cmd_comment(args: argparse.Namespace) -> int:
     body = " ".join(args.text).strip()
     if args.max_len is not None:
         if args.max_len < 1:
-            print("kanban: --max-len должен быть положительным", file=sys.stderr)
+            print("kanban: --max-len must be positive", file=sys.stderr)
             return 2
         if len(body) > args.max_len:
             suffix = f"\n\n[trimmed to {args.max_len} chars by --max-len]"
@@ -1851,7 +1867,7 @@ def _cmd_complete(args: argparse.Namespace) -> int:
     """Mark one or more tasks done. Supports a single id or a list."""
     ids = list(args.task_ids or [])
     if not ids:
-        print("требуется хотя бы один task_id", file=sys.stderr)
+        print("at least one task_id is required", file=sys.stderr)
         return 1
     summary = getattr(args, "summary", None)
     raw_meta = getattr(args, "metadata", None)
@@ -1922,6 +1938,7 @@ def _cmd_edit(args: argparse.Namespace) -> int:
 
 def _cmd_block(args: argparse.Namespace) -> int:
     reason = " ".join(args.reason).strip() if args.reason else None
+    kind = getattr(args, "kind", None)
     author = _profile_author()
     ids = [args.task_id] + list(getattr(args, "ids", None) or [])
     failed: list[str] = []
@@ -1933,12 +1950,26 @@ def _cmd_block(args: argparse.Namespace) -> int:
                 conn,
                 tid,
                 reason=reason,
+                kind=kind,
                 expected_run_id=_worker_run_id_for(tid),
             ):
                 failed.append(tid)
                 print(f"cannot block {tid}", file=sys.stderr)
             else:
-                print(f"Blocked {tid}" + (f": {reason}" if reason else ""))
+                # Report where the task actually landed — dependency blocks go
+                # to todo, and a tripped unblock-loop breaker routes to triage.
+                landed = kb.get_task(conn, tid)
+                where = landed.status if landed else "blocked"
+                suffix = f": {reason}" if reason else ""
+                if where == "todo":
+                    print(f"{tid} → todo (dependency wait){suffix}")
+                elif where == "triage":
+                    print(
+                        f"{tid} → triage (unblock loop detected — needs a "
+                        f"human decision){suffix}"
+                    )
+                else:
+                    print(f"Blocked {tid}{suffix}")
     return 0 if not failed else 1
 
 
@@ -1967,7 +1998,7 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
 def _cmd_unblock(args: argparse.Namespace) -> int:
     ids = list(args.task_ids or [])
     if not ids:
-        print("требуется хотя бы один task_id", file=sys.stderr)
+        print("at least one task_id is required", file=sys.stderr)
         return 1
     reason = getattr(args, "reason", None)
     if reason is not None:
@@ -2041,10 +2072,10 @@ def _cmd_archive(args: argparse.Namespace) -> int:
     ids = list(args.task_ids or [])
     purge_ids = list(getattr(args, "purge_ids", None) or [])
     if ids and purge_ids:
-        print("выберите либо task_ids для архивации, либо --rm archived task_ids", file=sys.stderr)
+        print("choose either task_ids to archive or --rm archived task_ids", file=sys.stderr)
         return 1
     if not ids and not purge_ids:
-        print("требуется хотя бы один task_id", file=sys.stderr)
+        print("at least one task_id is required", file=sys.stderr)
         return 1
     failed: list[str] = []
     with kb.connect_closing() as conn:
@@ -2424,7 +2455,7 @@ def _cmd_notify_list(args: argparse.Namespace) -> int:
         print(json.dumps(subs, indent=2, ensure_ascii=False))
         return 0
     if not subs:
-        print("(нет подписок)")
+        print("(no subscriptions)")
         return 0
     for s in subs:
         thr = f":{s['thread_id']}" if s.get("thread_id") else ""
@@ -2442,7 +2473,7 @@ def _cmd_notify_unsubscribe(args: argparse.Namespace) -> int:
             thread_id=args.thread_id,
         )
     if not ok:
-        print("(такой подписки нет)", file=sys.stderr)
+        print("(no such subscription)", file=sys.stderr)
         return 1
     print(f"Unsubscribed from {args.task_id}")
     return 0
@@ -2465,7 +2496,7 @@ def _cmd_runs(args: argparse.Namespace) -> int:
     rsk = _run_state_kwargs(args)
     if rsk is None:
         print(
-            "kanban runs: укажите оба --state-type и --state-name, или опустите оба",
+            "kanban runs: pass both --state-type and --state-name, or omit both",
             file=sys.stderr,
         )
         return 2
@@ -2526,7 +2557,7 @@ def _cmd_specify(args: argparse.Namespace) -> int:
 
     if args.task_id and all_flag:
         print(
-            "kanban: укажите либо id задачи, либо --all, но не оба",
+            "kanban: pass either a task id OR --all, not both",
             file=sys.stderr,
         )
         return 2
@@ -2548,7 +2579,7 @@ def _cmd_specify(args: argparse.Namespace) -> int:
         ids = [args.task_id]
     else:
         print(
-            "kanban: specify требует id задачи или --all",
+            "kanban: specify requires a task id or --all",
             file=sys.stderr,
         )
         return 2
@@ -2600,7 +2631,7 @@ def _cmd_decompose(args: argparse.Namespace) -> int:
 
     if args.task_id and all_flag:
         print(
-            "kanban: укажите либо id задачи, либо --all, но не оба",
+            "kanban: pass either a task id OR --all, not both",
             file=sys.stderr,
         )
         return 2

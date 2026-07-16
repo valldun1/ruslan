@@ -34,14 +34,14 @@ def build_mcp_parser(subparsers, *, cmd_mcp: Callable) -> None:
         "-v",
         "--verbose",
         action="store_true",
-        help="Включить подробное логирование в stderr",
+        help="Enable verbose logging on stderr",
     )
     add_accept_hooks_flag(mcp_serve_p)
 
     mcp_add_p = mcp_sub.add_parser(
-        "add", help="Добавить MCP-сервер (установка с обнаружением)"
+        "add", help="Add an MCP server (discovery-first install)"
     )
-    mcp_add_p.add_argument("name", help="Имя сервера (используется как ключ конфига)")
+    mcp_add_p.add_argument("name", help="Server name (used as config key)")
     mcp_add_p.add_argument("--url", help="HTTP/SSE endpoint URL")
     # dest="mcp_command" so this flag does not clobber the top-level
     # subparser's args.command attribute, which the dispatcher reads to
@@ -50,41 +50,59 @@ def build_mcp_parser(subparsers, *, cmd_mcp: Callable) -> None:
     # flag is omitted, causing `ruslan mcp add ...` to fall through to
     # interactive chat.
     mcp_add_p.add_argument(
-        "--command", dest="mcp_command", help="Stdio команда (напр. npx)"
+        "--command", dest="mcp_command", help="Stdio command (e.g. npx)"
     )
     mcp_add_p.add_argument(
         "--args",
         nargs=argparse.REMAINDER,
         default=[],
-        help="Аргументы для stdio команды; must be the last option",
+        help="Arguments for stdio command; must be the last option",
     )
-    mcp_add_p.add_argument("--auth", choices=["oauth", "header"], help="Метод авторизации")
+    mcp_add_p.add_argument("--auth", choices=["oauth", "header"], help="Auth method")
     mcp_add_p.add_argument("--preset", help="Known MCP preset name")
+    mcp_add_p.add_argument(
+        "--connect-timeout",
+        type=float,
+        help="Timeout in seconds for initial connection and tool discovery",
+    )
     mcp_add_p.add_argument(
         "--env",
         nargs="*",
         default=[],
-        help="Переменные окружения для stdio серверов (KEY=VALUE)",
+        help="Environment variables for stdio servers (KEY=VALUE)",
     )
 
     mcp_rm_p = mcp_sub.add_parser("remove", aliases=["rm"], help="Remove an MCP server")
-    mcp_rm_p.add_argument("name", help="Удалить MCP-сервер")
+    mcp_rm_p.add_argument("name", help="Server name to remove")
 
-    mcp_sub.add_parser("list", aliases=["ls"], help="Список настроенных MCP-серверов")
+    mcp_sub.add_parser("list", aliases=["ls"], help="List configured MCP servers")
 
     mcp_test_p = mcp_sub.add_parser("test", help="Test MCP server connection")
-    mcp_test_p.add_argument("name", help="Имя сервера для тестирования")
+    mcp_test_p.add_argument("name", help="Server name to test")
 
     mcp_cfg_p = mcp_sub.add_parser(
-        "configure", aliases=["config"], help="Переключить выбор инструментов"
+        "configure", aliases=["config"], help="Toggle tool selection"
     )
-    mcp_cfg_p.add_argument("name", help="Имя сервера для настройки")
+    mcp_cfg_p.add_argument("name", help="Server name to configure")
 
     mcp_login_p = mcp_sub.add_parser(
         "login",
-        help="Форсировать повторную авторизацию для OAuth-сервера MCP",
+        help="Force re-authentication for an OAuth-based MCP server",
     )
-    mcp_login_p.add_argument("name", help="Имя сервера для повторной авторизации")
+    mcp_login_p.add_argument("name", help="Server name to re-authenticate")
+
+    mcp_reauth_p = mcp_sub.add_parser(
+        "reauth",
+        help="Re-authenticate one OAuth MCP server, or all of them (--all)",
+    )
+    mcp_reauth_p.add_argument(
+        "name", nargs="?", help="Server name to re-authenticate (omit with --all)"
+    )
+    mcp_reauth_p.add_argument(
+        "--all",
+        action="store_true",
+        help="Re-authenticate every OAuth server in config, one at a time",
+    )
 
     # ── Catalog (Nous-approved MCPs shipped with the repo) ─────────────────
     mcp_sub.add_parser(

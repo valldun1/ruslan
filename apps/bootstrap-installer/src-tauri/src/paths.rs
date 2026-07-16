@@ -6,7 +6,7 @@
 //!   Linux:   ~/.ruslan  (override via $RUSLAN_HOME)
 //!
 //! NOTE (macOS): Python's get_ruslan_home(), scripts/install.sh, and the
-//! Electron desktop's resolveHermesHome() ALL use ~/.ruslan on macOS — there
+//! Electron desktop's resolveRuslanHome() ALL use ~/.ruslan on macOS — there
 //! is no ~/Library/Application Support branch anywhere else. An earlier
 //! version of this file used Application Support, which drifted from every
 //! other component: the installer wrote the install to one dir and the
@@ -31,14 +31,14 @@ pub fn ruslan_home() -> PathBuf {
 
     #[cfg(target_os = "windows")]
     {
-        // %LOCALAPPDATA%\ruslan — matches scripts/install.ps1's $HermesHome.
+        // %LOCALAPPDATA%\ruslan — matches scripts/install.ps1's $RuslanHome.
         if let Some(local_app_data) = dirs::data_local_dir() {
             return local_app_data.join("ruslan");
         }
     }
 
     // macOS + Linux + fallback: ~/.ruslan (matches Python get_ruslan_home(),
-    // install.sh, and the Electron desktop's resolveHermesHome()).
+    // install.sh, and the Electron desktop's resolveRuslanHome()).
     if let Some(home) = dirs::home_dir() {
         return home.join(".ruslan");
     }
@@ -150,7 +150,7 @@ fn repair_macos_installer_helper(path: &Path) {
 fn repair_macos_installer_helper(_path: &Path) {}
 
 /// Where install.ps1 writes the bootstrap-complete marker (existence-only file
-/// the Electron app also checks). Per main.cjs:
+/// the Electron app also checks). Per main.ts:
 ///   const BOOTSTRAP_COMPLETE_MARKER = path.join(ACTIVE_RUSLAN_ROOT, '.ruslan-bootstrap-complete')
 /// We don't always know ACTIVE_RUSLAN_ROOT until install.ps1 reports it, so
 /// this is a probe helper, not a definitive path.

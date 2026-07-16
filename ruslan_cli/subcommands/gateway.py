@@ -45,22 +45,22 @@ def build_gateway_parser(
 
     # gateway run (default)
     gateway_run = gateway_subparsers.add_parser(
-        "run", help="Запустить шлюз в переднем плане (рекомендуется для WSL, Docker, Termux)"
+        "run", help="Run gateway in foreground (recommended for WSL, Docker, Termux)"
     )
     gateway_run.add_argument(
         "-v",
         "--verbose",
         action="count",
         default=0,
-        help="Увеличить детализацию логов stderr (-v=INFO, -vv=DEBUG)",
+        help="Increase stderr log verbosity (-v=INFO, -vv=DEBUG)",
     )
     gateway_run.add_argument(
-        "-q", "--quiet", action="store_true", help="Подавить все логи stderr"
+        "-q", "--quiet", action="store_true", help="Suppress all stderr log output"
     )
     gateway_run.add_argument(
         "--replace",
         action="store_true",
-        help="Заменить любой существующий экземпляр шлюза (полезно для systemd)",
+        help="Replace any existing gateway instance (useful for systemd)",
     )
     gateway_run.add_argument(
         "--force",
@@ -85,57 +85,67 @@ def build_gateway_parser(
             "gateway's exit code. No effect outside an s6 container."
         ),
     )
+    gateway_run.add_argument(
+        "--external-supervisor",
+        action="store_true",
+        help=(
+            "Declare that an external process manager owns this foreground "
+            "gateway. In-chat restarts and updates exit back to that manager "
+            "instead of spawning a detached replacement. Use this when a "
+            "launchd/systemd wrapper strips its native environment markers."
+        ),
+    )
     add_accept_hooks_flag(gateway_run)
     add_accept_hooks_flag(gateway_parser)
 
     # gateway start
     gateway_start = gateway_subparsers.add_parser(
-        "start", help="Запустить установленную фоновую службу systemd/launchd"
+        "start", help="Start the installed systemd/launchd background service"
     )
     gateway_start.add_argument(
         "--system",
         action="store_true",
-        help="Целить системную Linux-службу шлюза",
+        help="Target the Linux system-level gateway service",
     )
     gateway_start.add_argument(
         "--all",
         action="store_true",
-        help="Убить ВСЕ устаревшие процессы шлюза во всех профилях перед запуском",
+        help="Kill ALL stale gateway processes across all profiles before starting",
     )
     _add_compat_platform_flag(gateway_start)
 
     # gateway stop
-    gateway_stop = gateway_subparsers.add_parser("stop", help="Остановить службу шлюза")
+    gateway_stop = gateway_subparsers.add_parser("stop", help="Stop gateway service")
     gateway_stop.add_argument(
         "--system",
         action="store_true",
-        help="Целить системную Linux-службу шлюза",
+        help="Target the Linux system-level gateway service",
     )
     gateway_stop.add_argument(
         "--all",
         action="store_true",
-        help="Остановить ВСЕ процессы шлюза во всех профилях",
+        help="Stop ALL gateway processes across all profiles",
     )
 
     # gateway restart
     gateway_restart = gateway_subparsers.add_parser(
-        "restart", help="Перезапустить службу шлюза"
+        "restart", help="Restart gateway service"
     )
     gateway_restart.add_argument(
         "--system",
         action="store_true",
-        help="Целить системную Linux-службу шлюза",
+        help="Target the Linux system-level gateway service",
     )
     gateway_restart.add_argument(
         "--all",
         action="store_true",
-        help="Убить ВСЕ процессы шлюза во всех профилях перед перезапуском",
+        help="Kill ALL gateway processes across all profiles before restarting",
     )
     _add_compat_platform_flag(gateway_restart)
 
     # gateway status
     gateway_status = gateway_subparsers.add_parser("status", help="Show gateway status")
-    gateway_status.add_argument("--deep", action="store_true", help="Показать статус шлюза")
+    gateway_status.add_argument("--deep", action="store_true", help="Deep status check")
     gateway_status.add_argument(
         "-l",
         "--full",
@@ -145,50 +155,50 @@ def build_gateway_parser(
     gateway_status.add_argument(
         "--system",
         action="store_true",
-        help="Целить системную Linux-службу шлюза",
+        help="Target the Linux system-level gateway service",
     )
     _add_compat_platform_flag(gateway_status)
 
     # gateway install
     gateway_install = gateway_subparsers.add_parser(
-        "install", help="Установить шлюз как фоновую службу systemd/launchd"
+        "install", help="Install gateway as a systemd/launchd background service"
     )
-    gateway_install.add_argument("--force", action="store_true", help="Принудительная переустановка")
+    gateway_install.add_argument("--force", action="store_true", help="Force reinstall")
     gateway_install.add_argument(
         "--system",
         action="store_true",
-        help="Установить как системную Linux-службу (запуск при загрузке)",
+        help="Install as a Linux system-level service (starts at boot)",
     )
     gateway_install.add_argument(
         "--run-as-user",
         dest="run_as_user",
-        help="Учетная запись пользователя, от имени которой должна работать системная Linux-служба",
+        help="User account the Linux system service should run as",
     )
     gateway_install.add_argument(
         "--start-now",
         dest="start_now",
         action="store_true",
         default=None,
-        help=argparse.SUPPRESS,
+        help="Start the gateway service immediately after installing",
     )
     gateway_install.add_argument(
         "--no-start-now",
         dest="start_now",
         action="store_false",
-        help=argparse.SUPPRESS,
+        help="Do not start the gateway service after installing",
     )
     gateway_install.add_argument(
         "--start-on-login",
         dest="start_on_login",
         action="store_true",
         default=None,
-        help=argparse.SUPPRESS,
+        help="Enable the service to start automatically on login/boot",
     )
     gateway_install.add_argument(
         "--no-start-on-login",
         dest="start_on_login",
         action="store_false",
-        help=argparse.SUPPRESS,
+        help="Do not enable the service to start on login/boot",
     )
     gateway_install.add_argument(
         "--elevated-handoff",
@@ -199,19 +209,19 @@ def build_gateway_parser(
 
     # gateway uninstall
     gateway_uninstall = gateway_subparsers.add_parser(
-        "uninstall", help="Деинсталлировать службу шлюза"
+        "uninstall", help="Uninstall gateway service"
     )
     gateway_uninstall.add_argument(
         "--system",
         action="store_true",
-        help="Целить системную Linux-службу шлюза",
+        help="Target the Linux system-level gateway service",
     )
 
     # gateway list
-    gateway_subparsers.add_parser("list", help="Список всех профилей and their gateway status")
+    gateway_subparsers.add_parser("list", help="List all profiles and their gateway status")
 
     # gateway setup
-    gateway_subparsers.add_parser("setup", help="Настроить платформы сообщений")
+    gateway_subparsers.add_parser("setup", help="Configure messaging platforms")
 
     # gateway migrate-legacy
     gateway_migrate_legacy = gateway_subparsers.add_parser(
@@ -228,14 +238,14 @@ def build_gateway_parser(
         "--dry-run",
         dest="dry_run",
         action="store_true",
-        help="Показать, что будет удалено, без изменений",
+        help="List what would be removed without doing it",
     )
     gateway_migrate_legacy.add_argument(
         "-y",
         "--yes",
         dest="yes",
         action="store_true",
-        help="Пропустить подтверждение",
+        help="Skip the confirmation prompt",
     )
 
     # gateway enroll — enroll a self-hosted gateway with a relay connector
@@ -280,6 +290,19 @@ def build_gateway_parser(
         help=(
             "A stable id for this gateway instance (kill-switch granularity). "
             "Defaults to gw-<hostname>."
+        ),
+    )
+    gateway_enroll.add_argument(
+        "--wake-url",
+        dest="wake_url",
+        default=None,
+        help=(
+            "Phase 5 §5.2 wake URL: a reachable URL the connector pokes "
+            "(payload-free GET) to wake this gateway when buffered work arrives "
+            "while it's idle/suspended, so it reconnects and drains. Persisted as "
+            "GATEWAY_RELAY_WAKE_URL in ~/.ruslan/.env and forwarded at provision. "
+            "Optional — without it the gateway still drains whenever it next "
+            "reconnects on its own."
         ),
     )
     gateway_enroll.set_defaults(func=cmd_gateway_enroll)

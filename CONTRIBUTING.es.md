@@ -45,7 +45,7 @@ Las habilidades incluidas (en `skills/`) se envían con cada instalación de Rus
 
 Si tu habilidad es oficial y útil pero no universalmente necesaria (ej., una integración de servicio de pago, una dependencia pesada), ponla en **`optional-skills/`** — se envía con el repositorio pero no está activada por defecto. Los usuarios pueden descubrirla a través de `ruslan skills browse` (etiquetada como "oficial") e instalarla con `ruslan skills install` (sin advertencia de terceros, confianza integrada).
 
-Si tu habilidad es especializada, contribuida por la comunidad o de nicho, es mejor para un **Skills Hub** — súbela a un registro de habilidades y compártela en el [Discord de Valldun](https://ruslan.team/discord). Los usuarios pueden instalarla con `ruslan skills install`.
+Si tu habilidad es especializada, contribuida por la comunidad o de nicho, es mejor para un **Skills Hub** — súbela a un registro de habilidades y compártela en el [Discord de Nous Research](https://discord.gg/NousResearch). Los usuarios pueden instalarla con `ruslan skills install`.
 
 ---
 
@@ -74,14 +74,14 @@ Esto no es una barra de calidad — es una decisión de acoplamiento y mantenimi
 | Requisito | Notas |
 |-----------|-------|
 | **Git** | Con la extensión `git-lfs` instalada |
-| **Python 3.11+** | uv lo instalará si falta |
+| **Python 3.11–3.13** | uv lo instalará si falta |
 | **uv** | Gestor de paquetes Python rápido ([instalar](https://docs.astral.sh/uv/)) |
 | **Node.js 20+** | Opcional — necesario para herramientas de navegador y puente WhatsApp (coincide con los engines de `package.json` raíz) |
 
 ### Clonar e instalar
 
 ```bash
-git clone https://github.com/valldun1/ruslan.git
+git clone https://github.com/NousResearch/ruslan-agent.git
 cd ruslan-agent
 
 # Crear venv con Python 3.11
@@ -136,7 +136,7 @@ pytest tests/ -v
 ```
 ruslan-agent/
 ├── run_agent.py              # Clase AIAgent — bucle de conversación central, despacho de herramientas, persistencia de sesión
-├── cli.py                    # Clase HermesCLI — TUI interactiva, integración prompt_toolkit
+├── cli.py                    # Clase RuslanCLI — TUI interactiva, integración prompt_toolkit
 ├── model_tools.py            # Orquestación de herramientas (capa delgada sobre tools/registry.py)
 ├── toolsets.py               # Agrupaciones y presets de herramientas (ruslan-cli, ruslan-telegram, etc.)
 ├── ruslan_state.py           # Base de datos de sesiones SQLite con búsqueda de texto completo FTS5, títulos de sesión
@@ -194,7 +194,7 @@ ruslan-agent/
 ├── skills/                   # Habilidades incluidas (copiadas a ~/.ruslan/skills/ en la instalación)
 ├── optional-skills/          # Habilidades opcionales oficiales (descubribles vía hub, no activadas por defecto)
 ├── tests/                    # Suite de tests
-├── website/                  # Sitio de documentación (ruslan.team)
+├── website/                  # Sitio de documentación (ruslan-agent.nousresearch.com)
 │
 ├── cli-config.yaml.example   # Configuración de ejemplo (copiada a ~/.ruslan/config.yaml)
 └── AGENTS.md                 # Guía de desarrollo para asistentes de codificación IA
@@ -581,7 +581,7 @@ test(tools): añadir tests unitarios para file_operations
 
 ## Reportar Issues
 
-- Usa [GitHub Issues](https://github.com/valldun1/ruslan/issues)
+- Usa [GitHub Issues](https://github.com/NousResearch/ruslan-agent/issues)
 - Incluye: SO, versión de Python, versión de Ruslan (`ruslan version`), traza de error completa
 - Incluye pasos para reproducir
 - Verifica los issues existentes antes de crear duplicados
@@ -591,7 +591,7 @@ test(tools): añadir tests unitarios para file_operations
 
 ## Comunidad
 
-- **Discord**: [ruslan.team/discord](https://ruslan.team/discord) — para preguntas, mostrar proyectos y compartir habilidades
+- **Discord**: [discord.gg/NousResearch](https://discord.gg/NousResearch) — para preguntas, mostrar proyectos y compartir habilidades
 - **GitHub Discussions**: Para propuestas de diseño y discusiones de arquitectura
 - **Skills Hub**: Sube habilidades especializadas a un registro y compártelas con la comunidad
 

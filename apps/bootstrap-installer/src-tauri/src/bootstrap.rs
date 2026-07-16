@@ -1,6 +1,6 @@
 //! Bootstrap orchestration.
 //!
-//! Direct port of `runBootstrap` from `apps/desktop/electron/bootstrap-runner.cjs`.
+//! Direct port of `runBootstrap` from `apps/desktop/electron/bootstrap-runner.ts`.
 //! Drives install.ps1 / install.sh stage-by-stage, emits progress events
 //! over the Tauri `bootstrap` channel, writes a forensic log to
 //! RUSLAN_HOME/logs/bootstrap-<timestamp>.log.
@@ -636,8 +636,8 @@ async fn run_bootstrap(
     }
 
     // 4. Resolve install_root. install.ps1 doesn't (yet) report this back
-    // explicitly; we infer it from $HermesHome which Stage-Repository clones
-    // the repo INTO at $HermesHome\ruslan-agent. Mirrors ruslan_constants.
+    // explicitly; we infer it from $RuslanHome which Stage-Repository clones
+    // the repo INTO at $RuslanHome\ruslan-agent. Mirrors ruslan_constants.
     let ruslan_home = args
         .ruslan_home
         .clone()

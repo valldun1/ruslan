@@ -488,6 +488,66 @@ def _cmd_list_archived(args) -> int:
     return 0
 
 
+def _cmd_usage(args) -> int:
+    """Show usage telemetry for ALL skills, with provenance.
+
+    Unlike `status` (curator-scoped to agent-created candidates), this lists
+    every skill on disk — bundled built-ins and hub-installed included — so you
+    can see how often each is actually used regardless of curation.
+    """
+    import json as _json
+    from tools import skill_usage
+
+    rows = skill_usage.usage_report()
+
+    prov_filter = getattr(args, "provenance", None)
+    if prov_filter:
+        rows = [r for r in rows if r.get("provenance") == prov_filter]
+
+    sort_key = getattr(args, "sort", "activity")
+    if sort_key == "name":
+        rows.sort(key=lambda r: r["name"])
+    elif sort_key == "recent":
+        # Most-recently-active first; never-active sinks to the bottom.
+        rows.sort(key=lambda r: r.get("last_activity_at") or "", reverse=True)
+    else:  # "activity" (default): most-used first
+        rows.sort(key=lambda r: r.get("activity_count", 0), reverse=True)
+
+    if getattr(args, "json", False):
+        print(_json.dumps(rows, indent=2, ensure_ascii=False))
+        return 0
+
+    if not rows:
+        print("curator: no skills found")
+        return 0
+
+    # Provenance tallies for a quick header.
+    counts = {"agent": 0, "bundled": 0, "hub": 0}
+    for r in rows:
+        counts[r.get("provenance", "agent")] = counts.get(r.get("provenance", "agent"), 0) + 1
+    print(
+        f"skills: {len(rows)} total  "
+        f"(agent={counts['agent']}  bundled={counts['bundled']}  hub={counts['hub']})"
+    )
+    print()
+    print(
+        f"  {'skill':40s}  {'origin':8s}  "
+        f"{'use':>4s}  {'view':>4s}  {'patch':>5s}  {'act':>4s}  last_activity"
+    )
+    for r in rows:
+        last = _fmt_ts(r.get("last_activity_at"))
+        print(
+            f"  {r['name'][:40]:40s}  "
+            f"{r.get('provenance', 'agent'):8s}  "
+            f"{r.get('use_count', 0):>4d}  "
+            f"{r.get('view_count', 0):>4d}  "
+            f"{r.get('patch_count', 0):>5d}  "
+            f"{r.get('activity_count', 0):>4d}  "
+            f"{last}"
+        )
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # argparse wiring (called from ruslan_cli.main)
 # ---------------------------------------------------------------------------
@@ -503,6 +563,25 @@ def register_cli(parent: argparse.ArgumentParser) -> None:
 
     p_status = subs.add_parser("status", help="Show curator status and skill stats")
     p_status.set_defaults(func=_cmd_status)
+
+    p_usage = subs.add_parser(
+        "usage",
+        help="Show usage telemetry for ALL skills (built-in, hub, agent) with provenance",
+    )
+    p_usage.add_argument(
+        "--sort", choices=("activity", "recent", "name"), default="activity",
+        help="Sort order: activity (most-used first, default), recent "
+             "(most-recently-active first), or name (alphabetical)",
+    )
+    p_usage.add_argument(
+        "--provenance", choices=("agent", "bundled", "hub"), default=None,
+        help="Only show skills of this origin",
+    )
+    p_usage.add_argument(
+        "--json", action="store_true",
+        help="Emit the full report as JSON instead of a table",
+    )
+    p_usage.set_defaults(func=_cmd_usage)
 
     p_run = subs.add_parser("run", help="Trigger a curator review now")
     p_run.add_argument(
@@ -533,15 +612,15 @@ def register_cli(parent: argparse.ArgumentParser) -> None:
     p_resume.set_defaults(func=_cmd_resume)
 
     p_pin = subs.add_parser("pin", help="Pin a skill so the curator never auto-transitions it")
-    p_pin.add_argument("skill", help="Действие")
+    p_pin.add_argument("skill", help="Skill name")
     p_pin.set_defaults(func=_cmd_pin)
 
     p_unpin = subs.add_parser("unpin", help="Unpin a skill")
-    p_unpin.add_argument("skill", help="Действие")
+    p_unpin.add_argument("skill", help="Skill name")
     p_unpin.set_defaults(func=_cmd_unpin)
 
     p_restore = subs.add_parser("restore", help="Restore an archived skill")
-    p_restore.add_argument("skill", help="Действие")
+    p_restore.add_argument("skill", help="Skill name")
     p_restore.set_defaults(func=_cmd_restore)
 
     subs.add_parser("list-archived", help="List archived skills") \
@@ -551,7 +630,7 @@ def register_cli(parent: argparse.ArgumentParser) -> None:
         "archive",
         help="Manually archive a skill (move to .archive/, excluded from prompt)",
     )
-    p_archive.add_argument("skill", help="Действие")
+    p_archive.add_argument("skill", help="Skill name")
     p_archive.set_defaults(func=_cmd_archive)
 
     p_prune = subs.add_parser(
@@ -564,7 +643,7 @@ def register_cli(parent: argparse.ArgumentParser) -> None:
     )
     p_prune.add_argument(
         "-y", "--yes", action="store_true",
-        help="Пропустить подтверждение",
+        help="Skip the confirmation prompt",
     )
     p_prune.add_argument(
         "--dry-run", dest="dry_run", action="store_true",
@@ -598,7 +677,7 @@ def register_cli(parent: argparse.ArgumentParser) -> None:
     )
     p_rollback.add_argument(
         "-y", "--yes", action="store_true",
-        help="Пропустить подтверждение",
+        help="Skip confirmation prompt",
     )
     p_rollback.set_defaults(func=_cmd_rollback)
 

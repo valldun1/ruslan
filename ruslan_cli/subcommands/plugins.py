@@ -13,13 +13,13 @@ def build_plugins_parser(subparsers, *, cmd_plugins: Callable) -> None:
     """Attach the ``plugins`` subcommand to ``subparsers``."""
     plugins_parser = subparsers.add_parser(
         "plugins",
-        help="Управление плагинами — установка, обновление, удаление, список",
-        description="Установка плагинов из Git-репозиториев, обновление, удаление или список.",
+        help="Manage plugins — install, update, remove, list",
+        description="Install plugins from Git repositories, update, remove, or list them.",
     )
     plugins_subparsers = plugins_parser.add_subparsers(dest="plugins_action")
 
     plugins_install = plugins_subparsers.add_parser(
-        "install", help="Установить плагин из Git URL или owner/repo"
+        "install", help="Install a plugin from a Git URL or owner/repo"
     )
     plugins_install.add_argument(
         "identifier",
@@ -29,7 +29,7 @@ def build_plugins_parser(subparsers, *, cmd_plugins: Callable) -> None:
         "--force",
         "-f",
         action="store_true",
-        help="Удалить существующий плагин и переустановить",
+        help="Remove existing plugin and reinstall",
     )
     _install_enable_group = plugins_install.add_mutually_exclusive_group()
     _install_enable_group.add_argument(
@@ -44,17 +44,17 @@ def build_plugins_parser(subparsers, *, cmd_plugins: Callable) -> None:
     )
 
     plugins_update = plugins_subparsers.add_parser(
-        "update", help="Загрузить последние изменения для установленного плагина"
+        "update", help="Pull latest changes for an installed plugin"
     )
-    plugins_update.add_argument("name", help="Имя плагина для обновления")
+    plugins_update.add_argument("name", help="Plugin name to update")
 
     plugins_remove = plugins_subparsers.add_parser(
-        "remove", aliases=["rm", "uninstall"], help="Удалить установленный плагин"
+        "remove", aliases=["rm", "uninstall"], help="Remove an installed plugin"
     )
-    plugins_remove.add_argument("name", help="Имя директории плагина для удаления")
+    plugins_remove.add_argument("name", help="Plugin directory name to remove")
 
     plugins_list = plugins_subparsers.add_parser(
-        "list", aliases=["ls"], help="Список установленных плагинов"
+        "list", aliases=["ls"], help="List installed plugins"
     )
     plugins_list.add_argument(
         "--enabled",
@@ -83,12 +83,24 @@ def build_plugins_parser(subparsers, *, cmd_plugins: Callable) -> None:
     )
 
     plugins_enable = plugins_subparsers.add_parser(
-        "enable", help="Включить отключённый плагин"
+        "enable", help="Enable a disabled plugin"
     )
-    plugins_enable.add_argument("name", help="Имя плагина для включения")
+    plugins_enable.add_argument("name", help="Plugin name to enable")
+    _enable_override_group = plugins_enable.add_mutually_exclusive_group()
+    _enable_override_group.add_argument(
+        "--allow-tool-override",
+        action="store_true",
+        help="Grant this plugin permission to replace built-in tools "
+        "(e.g. shell_exec, write_file). Skips the confirmation prompt.",
+    )
+    _enable_override_group.add_argument(
+        "--no-allow-tool-override",
+        action="store_true",
+        help="Enable without granting built-in tool override (skip prompt).",
+    )
 
     plugins_disable = plugins_subparsers.add_parser(
-        "disable", help="Отключить плагин без удаления"
+        "disable", help="Disable a plugin without removing it"
     )
-    plugins_disable.add_argument("name", help="Имя плагина для отключения")
+    plugins_disable.add_argument("name", help="Plugin name to disable")
     plugins_parser.set_defaults(func=cmd_plugins)

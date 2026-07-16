@@ -232,7 +232,7 @@ def register_cli(parser: argparse.ArgumentParser) -> None:
         help="Delete the entire checkpoint base (all /rollback history)",
     )
     p_clear.add_argument("-f", "--force", action="store_true",
-                         help="Пропустить подтверждение")
+                         help="Skip confirmation prompt")
     p_clear.set_defaults(func=cmd_clear)
 
     p_legacy = subs.add_parser(
@@ -240,5 +240,5 @@ def register_cli(parser: argparse.ArgumentParser) -> None:
         help="Delete only the legacy-<ts>/ archives from v1 migration",
     )
     p_legacy.add_argument("-f", "--force", action="store_true",
-                          help="Пропустить подтверждение")
+                          help="Skip confirmation prompt")
     p_legacy.set_defaults(func=cmd_clear_legacy)

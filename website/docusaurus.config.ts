@@ -4,14 +4,14 @@ import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
   title: 'Ruslan Agent',
-  tagline: 'Самосовершенствующийся AI-агент',
+  tagline: 'The self-improving AI agent',
   favicon: 'img/favicon.ico',
 
-  url: 'https://ruslan.team',
+  url: 'https://ruslan-agent.nousresearch.com',
   baseUrl: '/docs/',
 
-  organizationName: 'valldun1',
-  projectName: 'ruslan',
+  organizationName: 'NousResearch',
+  projectName: 'ruslan-agent',
 
   onBrokenLinks: 'warn',
 
@@ -46,11 +46,30 @@ const config: Config = {
         language: ['en', 'zh'],
         indexBlog: false,
         docsRouteBasePath: '/',
+        // Disabled: appends ?_highlight=... to URLs (before the #anchor),
+        // which makes copy/pasted doc links ugly. Ctrl+F on the page is fine.
         highlightSearchTermsOnTargetPage: false,
+        // Exclude the auto-generated per-skill catalog pages from search.
+        // There are hundreds of them and they dominate results for generic
+        // terms, drowning out the real user-guide / reference docs.
+        // The two human-written catalog indexes (reference/skills-catalog,
+        // reference/optional-skills-catalog) remain indexed.
+        //
+        // Note: ignoreFiles matches `route` (baseUrl stripped, no leading
+        // slash). With baseUrl '/docs/', `/docs/user-guide/skills/bundled/x`
+        // becomes 'user-guide/skills/bundled/x'.
         ignoreFiles: [
           /^user-guide\/skills\/bundled\//,
           /^user-guide\/skills\/optional\//,
         ],
+        // Exact-or-prefix matching only (default is edit distance 1).
+        // With fuzzy distance 1, "keet" matched "meetings"/"keep" (one
+        // edit away after stemming), and multi-word typo queries against
+        // our ~14 MB index could stall the single-threaded search worker
+        // for 25s+, backing up every subsequent keystroke's search until
+        // the bar appeared dead. Distance 0 keeps "word or its extension"
+        // semantics (keet -> keet*) and removes the pathological scans.
+        fuzzyMatchingDistance: 0,
       }),
     ],
   ],
@@ -59,10 +78,19 @@ const config: Config = {
     [
       '@docusaurus/plugin-client-redirects',
       {
+        // Static-host redirects for renamed doc pages (GitHub Pages can't
+        // do server-side redirects). Paths are relative to baseUrl (/docs/).
         redirects: [
           {
+            // Renamed in #44470 (Automation Blueprints terminology rebrand)
             from: '/guides/automation-templates',
             to: '/guides/automation-blueprints',
+          },
+          {
+            // Moved when the Plugins subcategory was created under
+            // Developer Guide > Extending (docs restructure, July 2026)
+            from: '/guides/build-a-ruslan-plugin',
+            to: '/developer-guide/plugins',
           },
         ],
       },
@@ -74,9 +102,9 @@ const config: Config = {
       'classic',
       {
         docs: {
-          routeBasePath: '/',
+          routeBasePath: '/',  // Docs at the root of /docs/
           sidebarPath: './sidebars.ts',
-          editUrl: 'https://github.com/valldun1/ruslan/edit/main/website/',
+          editUrl: 'https://github.com/NousResearch/ruslan-agent/edit/main/website/',
         },
         blog: false,
         theme: {
@@ -117,7 +145,7 @@ const config: Config = {
           position: 'left',
         },
         {
-          href: 'https://ruslan.team/',
+          href: 'https://ruslan-agent.nousresearch.com/',
           label: 'Download',
           position: 'left',
         },
@@ -126,13 +154,18 @@ const config: Config = {
           position: 'right',
         },
         {
-          href: 'https://ruslan.team',
+          href: 'https://ruslan-agent.nousresearch.com',
           label: 'Home',
           position: 'right',
         },
         {
-          href: 'https://github.com/valldun1/ruslan',
+          href: 'https://github.com/NousResearch/ruslan-agent',
           label: 'GitHub',
+          position: 'right',
+        },
+        {
+          href: 'https://discord.gg/NousResearch',
+          label: 'Discord',
           position: 'right',
         },
       ],
@@ -152,19 +185,21 @@ const config: Config = {
         {
           title: 'Community',
           items: [
-            { label: 'GitHub Issues', href: 'https://github.com/valldun1/ruslan/issues' },
+            { label: 'Discord', href: 'https://discord.gg/NousResearch' },
+            { label: 'GitHub Issues', href: 'https://github.com/NousResearch/ruslan-agent/issues' },
             { label: 'Skills Hub', href: 'https://agentskills.io' },
           ],
         },
         {
           title: 'More',
           items: [
-            { label: 'Desktop Download', href: 'https://ruslan.team/' },
-            { label: 'GitHub', href: 'https://github.com/valldun1/ruslan' },
+            { label: 'Desktop Download', href: 'https://ruslan-agent.nousresearch.com/' },
+            { label: 'GitHub', href: 'https://github.com/NousResearch/ruslan-agent' },
+            { label: 'Nous Research', href: 'https://nousresearch.com' },
           ],
         },
       ],
-      copyright: `Built by <a href="https://github.com/valldun1">Valldun</a> · MIT License · ${new Date().getFullYear()}`,
+      copyright: `Built by <a href="https://nousresearch.com">Nous Research</a> · MIT License · ${new Date().getFullYear()}`,
     },
     prism: {
       theme: prismThemes.github,

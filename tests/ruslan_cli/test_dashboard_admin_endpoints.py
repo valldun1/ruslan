@@ -65,6 +65,98 @@ class TestMcpEndpoints:
         srv = self.client.get("/api/mcp/servers").json()["servers"][0]
         assert srv["env"]["API_KEY"] != "sk-secret-1234567890"
 
+    def test_http_bearer_auth_separates_secret_from_config(
+        self, _isolate_ruslan_home
+    ):
+        from ruslan_constants import get_ruslan_home
+
+        secret = "dashboard-secret-value"
+        response = self.client.post(
+            "/api/mcp/servers",
+            json={
+                "name": "Bearer Server",
+                "url": "https://example.com/mcp",
+                "auth": "header",
+                "bearer_token": f"Bearer {secret}",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["auth"] == "header"
+        assert "bearer_token" not in response.json()
+
+        ruslan_home = get_ruslan_home()
+        config_text = (ruslan_home / "config.yaml").read_text()
+        env_text = (ruslan_home / ".env").read_text()
+        assert secret not in config_text
+        assert "Bearer ${MCP_BEARER_SERVER_API_KEY}" in config_text
+        assert f"MCP_BEARER_SERVER_API_KEY={secret}" in env_text
+
+    def test_http_oauth_mode_is_persisted_for_existing_auth_flow(self):
+        response = self.client.post(
+            "/api/mcp/servers",
+            json={
+                "name": "oauth-server",
+                "url": "https://example.com/mcp",
+                "auth": "oauth",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["auth"] == "oauth"
+
+        from ruslan_cli.mcp_config import _get_mcp_servers
+
+        assert _get_mcp_servers()["oauth-server"]["auth"] == "oauth"
+
+    @pytest.mark.parametrize(
+        ("payload", "error"),
+        [
+            (
+                {"name": "bad", "url": "https://x/mcp", "env": {"KEY": "value"}},
+                "only supported for stdio",
+            ),
+            (
+                {"name": "bad", "url": "https://x/mcp", "args": ["ignored"]},
+                "only supported for stdio",
+            ),
+            (
+                {"name": "bad", "command": "npx", "auth": "oauth"},
+                "not supported for stdio",
+            ),
+            (
+                {"name": "bad", "url": "https://x/mcp", "auth": "header"},
+                "Bearer token is required",
+            ),
+            (
+                {
+                    "name": "bad",
+                    "url": "https://x/mcp",
+                    "auth": "header",
+                    "bearer_token": "Bearer   ",
+                },
+                "Bearer token is required",
+            ),
+            (
+                {"name": "bad", "url": "https://x/mcp", "bearer_token": "secret"},
+                "requires header authentication",
+            ),
+            (
+                {"name": "bad", "url": "https://x/mcp", "command": "npx"},
+                "exactly one",
+            ),
+            (
+                {"name": "bad", "url": "https://x/mcp", "auth": "unknown"},
+                "Unsupported auth mode",
+            ),
+        ],
+    )
+    def test_transport_auth_contract_is_enforced(self, payload, error):
+        response = self.client.post("/api/mcp/servers", json=payload)
+
+        assert response.status_code == 400
+        assert error in response.json()["detail"]
+
     def test_duplicate_rejected(self):
         self.client.post("/api/mcp/servers", json={"name": "dup", "url": "u"})
         r = self.client.post("/api/mcp/servers", json={"name": "dup", "url": "u"})
@@ -223,6 +315,30 @@ class TestWebhookEndpoints:
         r = self.client.post("/api/webhooks", json={"name": "gh", "deliver": "log"})
         assert r.status_code == 400
 
+    def test_create_webhook_persists_script(self):
+        from ruslan_cli.config import load_config, save_config
+
+        cfg = load_config()
+        cfg.setdefault("platforms", {})["webhook"] = {
+            "enabled": True,
+            "extra": {"host": "0.0.0.0", "port": 8644},
+        }
+        save_config(cfg)
+
+        r = self.client.post(
+            "/api/webhooks",
+            json={
+                "name": "todoist",
+                "deliver": "log",
+                "script": "todoist_filter.py",
+            },
+        )
+        assert r.status_code == 200
+        assert r.json()["script"] == "todoist_filter.py"
+
+        subs = self.client.get("/api/webhooks").json()["subscriptions"]
+        assert subs[0]["script"] == "todoist_filter.py"
+
     def test_enable_platform_starts_gateway_restart(self, monkeypatch):
         import ruslan_cli.web_server as ws
         from ruslan_cli.config import load_config
@@ -313,6 +429,60 @@ class TestOpsEndpoints:
     @pytest.fixture(autouse=True)
     def _setup(self, _isolate_ruslan_home):
         self.client, _ = _client()
+
+    def test_backup_output_uses_output_flag(self, monkeypatch):
+        import ruslan_cli.web_server as ws
+
+        captured = {}
+
+        class FakeProc:
+            pid = 12345
+
+        def fake_spawn_action(subcommand, name):
+            captured["subcommand"] = subcommand
+            captured["name"] = name
+            return FakeProc()
+
+        monkeypatch.setattr(ws, "_spawn_ruslan_action", fake_spawn_action)
+
+        r = self.client.post(
+            "/api/ops/backup",
+            json={"output": "  /tmp/ruslan-test.zip  "},
+        )
+
+        assert r.status_code == 200
+        assert captured == {
+            "subcommand": ["backup", "-o", "/tmp/ruslan-test.zip"],
+            "name": "backup",
+        }
+
+    def test_backup_blank_output_uses_default_archive(self, monkeypatch):
+        from pathlib import Path
+
+        import ruslan_cli.web_server as ws
+        from ruslan_cli.config import get_ruslan_home
+
+        captured = {}
+
+        class FakeProc:
+            pid = 12345
+
+        def fake_spawn_action(subcommand, name):
+            captured["subcommand"] = subcommand
+            captured["name"] = name
+            return FakeProc()
+
+        monkeypatch.setattr(ws, "_spawn_ruslan_action", fake_spawn_action)
+
+        r = self.client.post("/api/ops/backup", json={"output": "   "})
+
+        assert r.status_code == 200
+        archive = Path(r.json()["archive"])
+        assert captured == {
+            "subcommand": ["backup", "-o", str(archive)],
+            "name": "backup",
+        }
+        assert archive.parent == get_ruslan_home() / "backups"
 
     def test_hooks_list_reads_config(self):
         from ruslan_cli.config import load_config, save_config
@@ -451,6 +621,36 @@ class TestSessionManagementEndpoints:
         assert self.client.post(
             "/api/sessions/prune", json={"older_than_days": 0}
         ).status_code == 400
+
+    def test_prune_attr_filter_suppresses_default_cutoff(self):
+        # An attribute filter without an explicit older_than_days matches all
+        # ages (mirrors the CLI: any filter disables the implicit 90-day
+        # default). dry_run so nothing is deleted; the seeded session is
+        # recent + ended, so it would be invisible under a 90-day cutoff.
+        from ruslan_state import SessionDB
+
+        db = SessionDB()
+        db.create_session(session_id="sess-recent-ended", source="cli")
+        db.end_session("sess-recent-ended", "completed")
+        db.close()
+
+        r = self.client.post(
+            "/api/sessions/prune",
+            json={"source": "cli", "dry_run": True},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["matched"] >= 1
+        assert "oldest_started_at" in body and "newest_started_at" in body
+
+    def test_prune_explicit_older_than_kept_with_attr_filter(self):
+        # Explicit older_than_days is honored even alongside attribute filters.
+        r = self.client.post(
+            "/api/sessions/prune",
+            json={"source": "cli", "older_than_days": 9999, "dry_run": True},
+        )
+        assert r.status_code == 200
+        assert r.json()["matched"] == 0
 
 
 class TestSkillsHubSearchEndpoint:

@@ -124,6 +124,68 @@ class TestModelResolution:
 # ── Generate ────────────────────────────────────────────────────────────────
 
 
+class TestSourceImageLoading:
+    def test_load_image_bytes_blocks_credential_store(self, tmp_path, monkeypatch):
+        ruslan_home = tmp_path / ".ruslan"
+        ruslan_home.mkdir()
+        auth_json = ruslan_home / "auth.json"
+        auth_json.write_text('{"api_key":"sk-secret"}', encoding="utf-8")
+        monkeypatch.setenv("RUSLAN_HOME", str(ruslan_home))
+
+        with pytest.raises(ValueError, match="credential store"):
+            openai_plugin._load_image_bytes(str(auth_json))
+
+    def test_load_image_bytes_never_opens_blocked_credential(self, tmp_path, monkeypatch):
+        """The guard must fire BEFORE the file is opened — a credential store
+        must never be read into memory (#57698). Spy builtins.open and assert
+        it is never called for the blocked path."""
+        ruslan_home = tmp_path / ".ruslan"
+        ruslan_home.mkdir()
+        auth_json = ruslan_home / "auth.json"
+        auth_json.write_text('{"api_key":"sk-secret"}', encoding="utf-8")
+        monkeypatch.setenv("RUSLAN_HOME", str(ruslan_home))
+
+        import builtins
+
+        real_open = builtins.open
+        opened: list = []
+
+        def _spy_open(file, *a, **k):
+            opened.append(str(file))
+            return real_open(file, *a, **k)
+
+        monkeypatch.setattr(builtins, "open", _spy_open)
+        with pytest.raises(ValueError, match="credential store"):
+            openai_plugin._load_image_bytes(str(auth_json))
+        assert str(auth_json) not in opened, "blocked credential must never be opened"
+
+    def test_load_image_bytes_allows_legit_local_image(self, tmp_path, monkeypatch):
+        """Negative control: a legitimate local image path is NOT blocked and
+        loads normally — proves the guard doesn't over-fire on everything."""
+        ruslan_home = tmp_path / ".ruslan"
+        ruslan_home.mkdir()
+        monkeypatch.setenv("RUSLAN_HOME", str(ruslan_home))
+        img = tmp_path / "pic.png"
+        img.write_bytes(b"\x89PNG\r\n\x1a\nfake-image-bytes")
+
+        data, name = openai_plugin._load_image_bytes(str(img))
+        assert data == b"\x89PNG\r\n\x1a\nfake-image-bytes"
+        assert name == "pic.png"
+
+    def test_load_image_bytes_passthrough_data_uri_not_blocked(self, tmp_path, monkeypatch):
+        """Negative control: data: URIs are decoded, never routed through the
+        local-path guard (the guard only applies to local file reads)."""
+        import base64
+
+        ruslan_home = tmp_path / ".ruslan"
+        ruslan_home.mkdir()
+        monkeypatch.setenv("RUSLAN_HOME", str(ruslan_home))
+        b64 = base64.b64encode(b"xyz").decode("ascii")
+        data, name = openai_plugin._load_image_bytes(f"data:image/png;base64,{b64}")
+        assert data == b"xyz"
+        assert name.endswith(".png")
+
+
 class TestGenerate:
     def test_empty_prompt_rejected(self, provider):
         result = provider.generate("", aspect_ratio="square")

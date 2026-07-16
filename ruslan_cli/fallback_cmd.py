@@ -3,7 +3,7 @@ ruslan fallback — manage the fallback provider chain.
 
 Fallback providers are tried in order when the primary model fails with
 rate-limit, overload, or connection errors. See:
-https://ruslan.team/docs/user-guide/features/fallback-providers
+https://ruslan-agent.nousresearch.com/docs/user-guide/features/fallback-providers
 
 Subcommands:
   ruslan fallback [list]   Show the current fallback chain (default when no subcommand)
@@ -113,7 +113,7 @@ def cmd_fallback_list(args) -> None:  # noqa: ARG001
 
     print()
     if not chain:
-        print("Резервные провайдеры не настроены")
+        print("  No fallback providers configured.")
         print()
         print("  Add one with:  ruslan fallback add")
         print()
@@ -127,8 +127,8 @@ def cmd_fallback_list(args) -> None:  # noqa: ARG001
     for i, entry in enumerate(chain, 1):
         print(f"    {i}. {_format_entry(entry)}")
     print()
-    print("Перебираются по порядку, когда основной провайдер недоступен (ограничение скорости, 5xx, ошибки подключения).")
-    print("Документация: https://ruslan.team/docs/user-guide/features/fallback-providers")
+    print("  Tried in order when the primary fails (rate-limit, 5xx, connection errors).")
+    print("  Docs: https://ruslan-agent.nousresearch.com/docs/user-guide/features/fallback-providers")
     print()
 
 
@@ -158,8 +158,8 @@ def cmd_fallback_add(args) -> None:
     active_provider_before = _snapshot_auth_active_provider()
 
     print()
-    print("Добавление резервного провайдера. Селектор ниже тот же, что используется командой")
-    print("`ruslan model` — выберите провайдера и модель, которых хотите использовать как резервные.")
+    print("  Adding a fallback provider.  The picker below is the same one used by")
+    print("  `ruslan model` — select the provider + model you want as a fallback.")
     print()
 
     try:
@@ -221,7 +221,7 @@ def cmd_fallback_add(args) -> None:
     print(f"  Added fallback: {_format_entry(new_entry)}")
     print(f"  Chain is now {len(chain)} {'entry' if len(chain) == 1 else 'entries'} long.")
     print()
-    print("Выполните `ruslan fallback list` для просмотра или `ruslan fallback remove` для удаления.")
+    print("  Run `ruslan fallback list` to view, or `ruslan fallback remove` to delete.")
 
 
 def _restore_model_cfg(model_before: Any) -> None:
@@ -298,7 +298,7 @@ def cmd_fallback_clear(args) -> None:  # noqa: ARG001
         resp = input("  Clear all entries? [y/N]: ").strip().lower()
     except (KeyboardInterrupt, EOFError):
         print()
-        print("Отменено.")
+        print("  Cancelled.")
         return
     if resp not in {"y", "yes"}:
         print("  Cancelled — no change.")
@@ -307,7 +307,7 @@ def cmd_fallback_clear(args) -> None:  # noqa: ARG001
     _write_chain(config, [])
     save_config(config)
     print()
-    print("Цепочка резервных провайдеров очищена.")
+    print("  Fallback chain cleared.")
     print()
 
 
@@ -327,7 +327,7 @@ def _numbered_pick(question: str, choices: List[str]) -> Optional[int]:
                 return idx
             print(f"Please enter 1-{len(choices)}")
         except ValueError:
-            print("Пожалуйста, введите число")
+            print("Please enter a number")
         except (KeyboardInterrupt, EOFError):
             print()
             return None

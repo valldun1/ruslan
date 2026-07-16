@@ -120,8 +120,8 @@ class TestCreatePairing:
             "pairing_id": "abcdefghijklmnop",
             "poll_token": "secret-token",
             "suggested_username": "ruslan_abcdefghijklmnop_bot",
-            "deep_link": "https://t.me/newbot/HermesSetupBot/ruslan_abcdefghijklmnop_bot?name=Ruslan+Agent",
-            "qr_payload": "https://t.me/newbot/HermesSetupBot/ruslan_abcdefghijklmnop_bot?name=Ruslan+Agent",
+            "deep_link": "https://t.me/newbot/RuslanSetupBot/ruslan_abcdefghijklmnop_bot?name=Ruslan+Agent",
+            "qr_payload": "https://t.me/newbot/RuslanSetupBot/ruslan_abcdefghijklmnop_bot?name=Ruslan+Agent",
             "expires_at": "2026-05-18T00:00:00.000Z",
         }
 
@@ -134,8 +134,8 @@ class TestCreatePairing:
             pairing_id="abcdefghijklmnop",
             poll_token="secret-token",
             suggested_username="ruslan_abcdefghijklmnop_bot",
-            deep_link="https://t.me/newbot/HermesSetupBot/ruslan_abcdefghijklmnop_bot?name=Ruslan+Agent",
-            qr_payload="https://t.me/newbot/HermesSetupBot/ruslan_abcdefghijklmnop_bot?name=Ruslan+Agent",
+            deep_link="https://t.me/newbot/RuslanSetupBot/ruslan_abcdefghijklmnop_bot?name=Ruslan+Agent",
+            qr_payload="https://t.me/newbot/RuslanSetupBot/ruslan_abcdefghijklmnop_bot?name=Ruslan+Agent",
             expires_at="2026-05-18T00:00:00.000Z",
         )
         post.assert_called_once_with(
@@ -178,8 +178,8 @@ class TestPollForToken:
             pairing_id="abcdefghijklmnop",
             poll_token="secret-token",
             suggested_username="ruslan_abcdefghijklmnop_bot",
-            deep_link="https://t.me/newbot/HermesSetupBot/ruslan_abcdefghijklmnop_bot",
-            qr_payload="https://t.me/newbot/HermesSetupBot/ruslan_abcdefghijklmnop_bot",
+            deep_link="https://t.me/newbot/RuslanSetupBot/ruslan_abcdefghijklmnop_bot",
+            qr_payload="https://t.me/newbot/RuslanSetupBot/ruslan_abcdefghijklmnop_bot",
         )
 
     def test_immediate_success(self):

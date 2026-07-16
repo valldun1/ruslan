@@ -1,22 +1,22 @@
+import { isGatewayReauthRequired, resolveGatewayWsUrl } from '@ruslan/shared'
 import { useStore } from '@nanostores/react'
 import { useCallback, useEffect, useRef } from 'react'
 
-import type { HermesGateway } from '@/ruslan'
-import { isGatewayReauthRequired, resolveGatewayWsUrl } from '@/lib/gateway-ws-url'
+import type { RuslanGateway } from '@/ruslan'
 import { $gateway, ensureActiveGatewayOpen, isActivePrimary } from '@/store/gateway'
 import { $activeGatewayProfile } from '@/store/profile'
 import { $gatewayState, setConnection } from '@/store/session'
 
 export function useGatewayRequest() {
   const gatewayState = useStore($gatewayState)
-  const gatewayRef = useRef<HermesGateway | null>(null)
+  const gatewayRef = useRef<RuslanGateway | null>(null)
 
-  const connectionRef = useRef<Awaited<ReturnType<NonNullable<typeof window.hermesDesktop>['getConnection']>> | null>(
+  const connectionRef = useRef<Awaited<ReturnType<NonNullable<typeof window.ruslanDesktop>['getConnection']>> | null>(
     null
   )
 
   const gatewayStateRef = useRef(gatewayState)
-  const reconnectingRef = useRef<Promise<HermesGateway | null> | null>(null)
+  const reconnectingRef = useRef<Promise<RuslanGateway | null> | null>(null)
   // Holds the reauth error from the most recent failed reconnect so
   // requestGateway can surface the gateway's "session expired, sign in again"
   // message instead of the opaque "connection closed" that triggered the retry.
@@ -31,7 +31,7 @@ export function useGatewayRequest() {
   useEffect(
     () =>
       $gateway.subscribe(gateway => {
-        gatewayRef.current = gateway as HermesGateway | null
+        gatewayRef.current = gateway as RuslanGateway | null
       }),
     []
   )
@@ -52,7 +52,7 @@ export function useGatewayRequest() {
     }
 
     reconnectingRef.current = (async () => {
-      const desktop = window.hermesDesktop
+      const desktop = window.ruslanDesktop
 
       if (!desktop) {
         return null
@@ -94,7 +94,7 @@ export function useGatewayRequest() {
   }, [])
 
   const requestGateway = useCallback(
-    async <T>(method: string, params: Record<string, unknown> = {}) => {
+    async <T>(method: string, params: Record<string, unknown> = {}, timeoutMs?: number, signal?: AbortSignal) => {
       const gateway = gatewayRef.current
 
       if (!gateway) {
@@ -102,7 +102,7 @@ export function useGatewayRequest() {
       }
 
       try {
-        return await gateway.request<T>(method, params)
+        return await gateway.request<T>(method, params, timeoutMs, signal)
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
 
@@ -128,7 +128,7 @@ export function useGatewayRequest() {
           throw error
         }
 
-        return recovered.request<T>(method, params)
+        return recovered.request<T>(method, params, timeoutMs, signal)
       }
     },
     [ensureGatewayOpen]

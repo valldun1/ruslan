@@ -35,11 +35,11 @@ Ruslan Agent 提供了一个 Nix flake，支持三个层级的集成：
 
 ```bash
 # 直接运行（首次使用时构建，之后使用缓存）
-nix run github:valldun1/ruslan-agent -- setup
-nix run github:valldun1/ruslan-agent -- chat
+nix run github:NousResearch/ruslan-agent -- setup
+nix run github:NousResearch/ruslan-agent -- chat
 
 # 或持久化安装
-nix profile install github:valldun1/ruslan-agent
+nix profile install github:NousResearch/ruslan-agent
 ruslan setup
 ruslan chat
 ```
@@ -50,7 +50,7 @@ ruslan chat
 <summary><strong>从本地克隆构建</strong></summary>
 
 ```bash
-git clone https://github.com/valldun1/ruslan.git
+git clone https://github.com/NousResearch/ruslan-agent.git
 cd ruslan-agent
 nix build
 ./result/bin/ruslan setup
@@ -75,7 +75,7 @@ nix build
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    ruslan-agent.url = "github:valldun1/ruslan-agent";
+    ruslan-agent.url = "github:NousResearch/ruslan-agent";
   };
 
   outputs = { nixpkgs, ruslan-agent, ... }: {
@@ -685,7 +685,7 @@ services.ruslan-agent = {
 
 ```nix
 {
-  inputs.ruslan-agent.url = "github:valldun1/ruslan-agent";
+  inputs.ruslan-agent.url = "github:NousResearch/ruslan-agent";
   outputs = { ruslan-agent, nixpkgs, ... }: {
     nixpkgs.overlays = [ ruslan-agent.overlays.default ];
     # 然后：

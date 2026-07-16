@@ -63,134 +63,146 @@ class CommandDef:
 
 COMMAND_REGISTRY: list[CommandDef] = [
     # Session
-    CommandDef("start", "Ответить на пинг платформы без отправки сообщения", "Session",
+    CommandDef("start", "Acknowledge platform start pings without a reply", "Session",
                gateway_only=True),
-    CommandDef("new", "Начать новый сеанс (новый ID + история)", "Session",
+    CommandDef("new", "Start a new session (fresh session ID + history)", "Session",
                aliases=("reset",), args_hint="[name]"),
-    CommandDef("topic", "Включить/просмотреть топики Telegram DM", "Session",
+    CommandDef("topic", "Enable or inspect Telegram DM topic sessions", "Session",
                gateway_only=True, args_hint="[off|help|session-id]"),
-    CommandDef("clear", "Очистить экран и начать новый сеанс", "Session",
+    CommandDef("clear", "Clear screen and start a new session", "Session",
                cli_only=True),
-    CommandDef("redraw", "Полная перерисовка UI (лечит дрифт терминала)", "Session",
+    CommandDef("redraw", "Force a full UI repaint (recovers from terminal drift)", "Session",
                cli_only=True),
-    CommandDef("history", "Показать историю диалога", "Session",
+    CommandDef("history", "Show conversation history", "Session",
                cli_only=True),
-    CommandDef("save", "Сохранить текущий диалог", "Session",
+    CommandDef("save", "Save the current conversation", "Session",
                cli_only=True),
-    CommandDef("retry", "Повторить последнее сообщение (отправить агенту заново)", "Session"),
-    CommandDef("prompt", "Написать следующий промпт в $EDITOR (markdown) и отправить", "Session",
+    CommandDef("retry", "Retry the last message (resend to agent)", "Session"),
+    CommandDef("prompt", "Compose your next prompt in $EDITOR (markdown), then send it", "Session",
                cli_only=True, args_hint="[initial text]", aliases=("compose",)),
-    CommandDef("undo", "Откатиться на N ходов и переспросить (по умолч. 1)", "Session",
+    CommandDef("undo", "Back up N user turns and re-prompt (default 1)", "Session",
                args_hint="[N]"),
-    CommandDef("title", "Установить название для текущего сеанса", "Session",
+    CommandDef("title", "Set a title for the current session", "Session",
                args_hint="[name]"),
-    CommandDef("handoff", "Передать сеанс в мессенджер (Telegram, Discord и др.)", "Session",
+    CommandDef("handoff", "Hand off this session to a messaging platform (Telegram, Discord, etc.)", "Session",
                args_hint="<platform>", cli_only=True),
-    CommandDef("branch", "Ответвить текущий сеанс (исследовать другой путь)", "Session",
+    CommandDef("branch", "Branch the current session (explore a different path)", "Session",
                aliases=("fork",), args_hint="[name]"),
-    CommandDef("compress", "Сжать контекст диалога ('here [N]' — оставить N последних ходов)", "Session",
-               args_hint="[here [N] | focus topic]"),
-    CommandDef("rollback", "Показать/восстановить контрольные точки файловой системы", "Session",
+    CommandDef("compress", "Compress conversation context (add 'here [N]' to keep recent N turns; --preview shows what would happen)", "Session",
+               aliases=("compact",), args_hint="[here [N] | focus topic | --preview|--dry-run]"),
+    CommandDef("rollback", "List or restore filesystem checkpoints", "Session",
                args_hint="[number]"),
-    CommandDef("snapshot", "Создать/восстановить снимки конфигурации Руслана", "Session",
+    CommandDef("snapshot", "Create or restore state snapshots of Ruslan config/state", "Session",
                cli_only=True, aliases=("snap",), args_hint="[create|restore <id>|prune]"),
-    CommandDef("stop", "Остановить все фоновые процессы", "Session"),
-    CommandDef("approve", "Разрешить ожидающую опасную команду", "Session",
+    CommandDef("stop", "Kill all running background processes", "Session"),
+    CommandDef("approve", "Approve a pending dangerous command", "Session",
                gateway_only=True, args_hint="[session|always]"),
-    CommandDef("deny", "Запретить ожидающую опасную команду", "Session",
-               gateway_only=True),
-    CommandDef("background", "Запустить промпт в фоне", "Session",
+    CommandDef("deny", "Deny a pending dangerous command (optionally with a reason)", "Session",
+               gateway_only=True, args_hint="[all] [reason]"),
+    CommandDef("background", "Run a prompt in the background", "Session",
                aliases=("bg", "btw"), args_hint="<prompt>"),
-    CommandDef("agents", "Показать активных агентов и задачи", "Session",
+    CommandDef("agents", "Show active agents and running tasks", "Session",
                aliases=("tasks",)),
-    CommandDef("queue", "Поставить промпт в очередь (без прерывания)", "Session",
+    CommandDef("journey", "Open the learning journey timeline",
+               "Session", aliases=("learning", "memory-graph"), cli_only=True,
+               args_hint="[list|delete <id>|edit <id>]",
+               subcommands=("list", "delete", "edit")),
+    CommandDef("queue", "Queue a prompt for the next turn (doesn't interrupt)", "Session",
                aliases=("q",), args_hint="<prompt>"),
-    CommandDef("steer", "Вставить сообщение после следующего вызова инструмента", "Session",
+    CommandDef("steer", "Inject a message after the next tool call without interrupting", "Session",
                args_hint="<prompt>"),
-    CommandDef("goal", "Установить цель, над которой Руслан работает через ходы до выполнения", "Session",
+    CommandDef("goal", "Set a standing goal Ruslan works on across turns until achieved", "Session",
                args_hint="[text | draft <text> | show | pause | resume | clear | status | wait <pid> | unwait]"),
-    CommandDef("subgoal", "Добавить/управлять доп. критериями к текущей цели", "Session",
+    CommandDef("moa", "Run one prompt through the default Mixture of Agents preset, then restore your model", "Session",
+               args_hint="<prompt>"),
+    CommandDef("subgoal", "Add or manage extra criteria on the active goal", "Session",
                args_hint="[text | remove N | clear]"),
-    CommandDef("status", "Показать информацию о сеансе, модели, токенах и контексте", "Session"),
-    CommandDef("whoami", "Показать ваш уровень доступа (admin / user)", "Info"),
-    CommandDef("profile", "Показать активный профиль и домашнюю директорию", "Info"),
-    CommandDef("sethome", "Установить этот чат как домашний канал", "Session",
+    CommandDef("status", "Show session, model, token, and context info", "Session"),
+    CommandDef("whoami", "Show your slash command access (admin / user)", "Info"),
+    CommandDef("profile", "Show active profile name and home directory", "Info"),
+    CommandDef("sethome", "Set this chat as the home channel", "Session",
                gateway_only=True, aliases=("set-home",)),
-    CommandDef("resume", "Возобновить именованный сеанс", "Session",
+    CommandDef("resume", "Resume a previously-named session", "Session",
                args_hint="[name]"),
 
     # Configuration
-    CommandDef("sessions", "Просмотреть и возобновить прошлые сеансы", "Session"),
+    CommandDef("sessions", "Browse and resume previous sessions", "Session"),
 
     # Configuration
-    CommandDef("config", "Показать текущую конфигурацию", "Configuration",
+    CommandDef("config", "Show current configuration", "Configuration",
                cli_only=True),
-    CommandDef("model", "Сменить модель или провайдера. Без аргументов — показать текущую", "Configuration",
+    CommandDef("model", "Switch model (persists by default)", "Configuration",
                args_hint="[model] [--provider name] [--global|--session] [--refresh]"),
-    CommandDef("codex-runtime", "Переключить runtime codex app-server для моделей OpenAI/Codex",
+    CommandDef("codex-runtime", "Toggle codex app-server runtime for OpenAI/Codex models",
                "Configuration", aliases=("codex_runtime",),
                args_hint="[auto|codex_app_server]"),
 
-    CommandDef("personality", "Установить предопределённую личность", "Configuration",
+    CommandDef("personality", "Set a predefined personality", "Configuration",
                args_hint="[name]"),
-    CommandDef("statusbar", "Переключить строку состояния контекст/модель", "Configuration",
+    CommandDef("statusbar", "Toggle the context/model status bar", "Configuration",
                cli_only=True, aliases=("sb",)),
-    CommandDef("timestamps", "Переключить метки времени [ЧЧ:ММ] на сообщениях", "Configuration",
+    CommandDef("timestamps", "Toggle [HH:MM] timestamps on messages and /history", "Configuration",
                cli_only=True, args_hint="[on|off|status]",
                subcommands=("on", "off", "status"), aliases=("ts",)),
-    CommandDef("verbose", "Переключить отображение прогресса инструментов",
+    CommandDef("verbose", "Cycle tool progress display: off -> new -> all -> verbose -> log",
                "Configuration", cli_only=True,
                gateway_config_gate="display.tool_progress_command"),
-    CommandDef("footer", "Переключить футер с метаданными шлюза в ответах",
+    CommandDef("footer", "Toggle gateway runtime-metadata footer on final replies",
                "Configuration", args_hint="[on|off|status]",
                subcommands=("on", "off", "status")),
-    CommandDef("yolo", "Переключить YOLO-режим (пропуск подтверждения опасных команд)",
+    CommandDef("yolo", "Toggle YOLO mode (skip all dangerous command approvals)",
                "Configuration"),
-    CommandDef("reasoning", "Управление режимом рассуждений и отображением", "Configuration",
+    CommandDef("reasoning", "Manage reasoning effort and display", "Configuration",
                args_hint="[level|show|hide|full|clamp]",
-               subcommands=("none", "minimal", "low", "medium", "high", "xhigh", "show", "hide", "on", "off", "full", "clamp")),
-    CommandDef("fast", "Переключить быстрый режим — Priority Processing / Fast Mode", "Configuration",
+               subcommands=("none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "show", "hide", "on", "off", "full", "clamp")),
+    CommandDef("fast", "Toggle fast mode — OpenAI Priority Processing / Anthropic Fast Mode (Normal/Fast)", "Configuration",
                args_hint="[normal|fast|status]",
                subcommands=("normal", "fast", "status", "on", "off")),
-    CommandDef("skin", "Показать/сменить тему оформления", "Configuration",
+    CommandDef("skin", "Show or change the display skin/theme", "Configuration",
                cli_only=True, args_hint="[name]"),
-    CommandDef("indicator", "Выбрать стиль индикатора занятости", "Configuration",
+    CommandDef("indicator", "Pick the TUI busy-indicator style", "Configuration",
                cli_only=True, args_hint="[kaomoji|emoji|unicode|ascii]",
                subcommands=("kaomoji", "emoji", "unicode", "ascii")),
-    CommandDef("voice", "Переключить голосовой режим", "Configuration",
+    CommandDef("voice", "Toggle voice mode", "Configuration",
                args_hint="[on|off|tts|status]", subcommands=("on", "off", "tts", "status")),
-    CommandDef("busy", "Что делает Enter, пока Руслан работает", "Configuration",
+    CommandDef("busy", "Control what Enter does while Ruslan is working", "Configuration",
                cli_only=True, args_hint="[queue|steer|interrupt|status]",
                subcommands=("queue", "steer", "interrupt", "status")),
 
     # Tools & Skills
-    CommandDef("tools", "Управление инструментами: /tools [list|disable|enable] [name...]", "Tools & Skills",
+    CommandDef("tools", "Manage tools: /tools [list|disable|enable] [name...]", "Tools & Skills",
                args_hint="[list|disable|enable] [name...]", cli_only=True),
-    CommandDef("toolsets", "Показать доступные наборы инструментов", "Tools & Skills",
+    CommandDef("toolsets", "List available toolsets", "Tools & Skills",
                cli_only=True),
-    CommandDef("skills", "Поиск, установка, просмотр и управление навыками",
+    CommandDef("skills", "Search, install, inspect, or manage skills",
                "Tools & Skills", cli_only=True,
                gateway_config_gate="skills.write_approval",
                subcommands=("search", "browse", "inspect", "install", "audit",
                             "pending", "approve", "reject", "diff", "approval")),
-    CommandDef("memory", "Проверить ожидающие записи памяти / переключить шлюз подтверждения",
+    CommandDef("memory", "Review pending memory writes / toggle the approval gate",
                "Tools & Skills",
                args_hint="[pending|approve|reject|approval] [id|on|off]",
                subcommands=("pending", "approve", "reject", "approval")),
-    CommandDef("bundles", "Показать наборы навыков (алиасы /<имя> для нескольких навыков)",
+    CommandDef("bundles", "List skill bundles (aliases /<name> for multiple skills)",
                "Tools & Skills"),
-    CommandDef("cron", "Управление запланированными задачами", "Tools & Skills",
+    CommandDef("pet", "Toggle or adopt a petdex mascot (/pet, /pet list, /pet <slug>)", "Tools & Skills",
+               cli_only=True, args_hint="[toggle|list|scale <n>|<slug>]", subcommands=("toggle", "list", "scale", "off")),
+    CommandDef("hatch", "Generate a new petdex pet from a description",
+               "Tools & Skills", cli_only=True, aliases=("generate-pet",), args_hint="[description]"),
+    CommandDef("learn", "Learn a reusable skill from anything you describe (dirs, URLs, this chat, notes)",
+               "Tools & Skills", args_hint="<what to learn from>"),
+    CommandDef("cron", "Manage scheduled tasks", "Tools & Skills",
                cli_only=True, args_hint="[subcommand]",
                subcommands=("list", "add", "create", "edit", "pause", "resume", "run", "remove")),
-    CommandDef("suggestions", "Просмотреть предложенные автоматизации (принять/отклонить)",
+    CommandDef("suggestions", "Review suggested automations (accept/dismiss)",
                "Tools & Skills", aliases=("suggest",), args_hint="[accept|dismiss N | catalog]",
                subcommands=("accept", "dismiss", "catalog", "clear")),
-    CommandDef("blueprint", "Настроить автоматизацию из шаблона blueprint",
+    CommandDef("blueprint", "Set up an automation from a blueprint template",
                "Tools & Skills", aliases=("bp",), args_hint="[name] [slot=value ...]"),
-    CommandDef("curator", "Фоновое обслуживание навыков (статус, запуск, закрепление, архив)",
+    CommandDef("curator", "Background skill maintenance (status, run, pin, archive, list-archived)",
                "Tools & Skills", args_hint="[subcommand]",
                subcommands=("status", "run", "pause", "resume", "pin", "unpin", "restore", "list-archived")),
-    CommandDef("kanban", "Доска совместной работы (задачи, ссылки, комментарии)",
+    CommandDef("kanban", "Multi-profile collaboration board (tasks, links, comments)",
                "Tools & Skills", args_hint="[subcommand]",
                subcommands=("init", "boards", "create", "list", "ls", "show", "assign",
                             "reclaim", "reassign", "diagnostics", "diag", "link", "unlink",
@@ -198,46 +210,48 @@ COMMAND_REGISTRY: list[CommandDef] = [
                             "archive", "tail", "dispatch", "stats", "notify-subscribe",
                             "notify-list", "notify-unsubscribe", "log", "runs",
                             "heartbeat", "assignees", "context", "specify", "gc")),
-    CommandDef("reload", "Перезагрузить переменные .env в текущий сеанс", "Tools & Skills",
+    CommandDef("reload", "Reload .env variables into the running session", "Tools & Skills",
                cli_only=True),
-    CommandDef("reload-mcp", "Перезагрузить MCP-серверы из конфига", "Tools & Skills",
+    CommandDef("reload-mcp", "Reload MCP servers from config", "Tools & Skills",
                aliases=("reload_mcp",)),
-    CommandDef("reload-skills", "Пересканировать ~/.ruslan/skills/ на новые/удалённые навыки",
+    CommandDef("reload-skills", "Re-scan ~/.ruslan/skills/ for newly installed or removed skills",
                "Tools & Skills", aliases=("reload_skills",)),
-    CommandDef("browser", "Подключить браузерные инструменты через CDP", "Tools & Skills",
+    CommandDef("browser", "Connect browser tools to your live Chromium-family browser via CDP", "Tools & Skills",
                cli_only=True, args_hint="[connect|disconnect|status]",
                subcommands=("connect", "disconnect", "status")),
-    CommandDef("plugins", "Показать установленные плагины и их статус",
+    CommandDef("plugins", "List installed plugins and their status",
                "Tools & Skills", cli_only=True),
 
     # Info
-    CommandDef("commands", "Просмотреть все команды и навыки (постранично)", "Info",
+    CommandDef("commands", "Browse all commands and skills (paginated)", "Info",
                gateway_only=True, args_hint="[page]"),
-    CommandDef("help", "Показать доступные команды", "Info"),
-    CommandDef("restart", "Перезапустить шлюз после завершения активных задач", "Session",
+    CommandDef("help", "Show available commands", "Info"),
+    CommandDef("restart", "Gracefully restart the gateway after draining active runs", "Session",
                gateway_only=True),
-    CommandDef("usage", "Показать использование токенов и лимиты сеанса", "Info"),
-    CommandDef("credits", "Показать баланс кредитов Nous и пополнить", "Info"),
-    CommandDef("billing", "Управление биллингом Nous — покупка кредитов, автопополнение, лимиты", "Info",
+    CommandDef("usage", "Show token usage and rate limits; `reset` redeems a banked Codex limit reset", "Info",
+               args_hint="[reset [--force]]"),
+    CommandDef("credits", "Show Nous credit balance and top up", "Info"),
+    CommandDef("billing", "Manage Nous terminal billing — buy credits, auto-reload, limits", "Info",
                cli_only=True),
-    CommandDef("insights", "Показать статистику использования", "Info",
+    CommandDef("insights", "Show usage insights and analytics", "Info",
                args_hint="[days]"),
-    CommandDef("platforms", "Показать статус шлюза/мессенджеров", "Info",
+    CommandDef("platforms", "Show gateway/messaging platform status", "Info",
                cli_only=True, aliases=("gateway",)),
-    CommandDef("platform", "Приостановить/возобновить/показать проблемные платформы шлюза", "Info",
+    CommandDef("platform", "Pause, resume, or list a failing gateway platform", "Info",
                gateway_only=True, args_hint="<pause|resume|list> [name]"),
-    CommandDef("copy", "Скопировать последний ответ ассистента в буфер обмена", "Info",
+    CommandDef("copy", "Copy the last assistant response to clipboard", "Info",
                cli_only=True, args_hint="[number]"),
-    CommandDef("paste", "Прикрепить изображение из буфера обмена", "Info",
+    CommandDef("paste", "Attach clipboard image from your clipboard", "Info",
                cli_only=True),
-    CommandDef("image", "Прикрепить локальный файл изображения для следующего промпта", "Info",
+    CommandDef("image", "Attach a local image file for your next prompt", "Info",
                cli_only=True, args_hint="<path>"),
-    CommandDef("update", "Обновить Руслана до последней версии", "Info"),
-    CommandDef("version", "Показать версию Руслана", "Info", aliases=("v",)),
-    CommandDef("debug", "Загрузить отчёт отладки (инфо о системе + логи) и получить ссылки", "Info"),
+    CommandDef("update", "Update Ruslan Agent to the latest version", "Info"),
+    CommandDef("version", "Show Ruslan Agent version", "Info", aliases=("v",)),
+    CommandDef("debug", "Upload debug report (system info + logs) and get shareable links", "Info",
+               args_hint="[nous|local]"),
 
     # Exit
-    CommandDef("quit", "Выйти из CLI (--delete также удалит историю сеанса)", "Exit",
+    CommandDef("quit", "Exit the CLI (use --delete to also remove session history)", "Exit",
                cli_only=True, aliases=("exit",), args_hint="[--delete]"),
 ]
 
@@ -446,55 +460,21 @@ def _requires_argument(args_hint: str) -> bool:
 
 
 def gateway_help_lines() -> list[str]:
-    """Generate gateway help text lines from the registry, grouped by category."""
+    """Generate gateway help text lines from the registry."""
     overrides = _resolve_config_gates()
-    
-    # Category emoji and display order
-    category_config: list[tuple[str, str]] = [
-        ("Session",         "🚀 **Сеанс**"),
-        ("Configuration",   "⚙️ **Настройки**"),
-        ("Tools & Skills",  "🛠️ **Инструменты и навыки**"),
-        ("Info",            "📚 **Информация**"),
-        ("Exit",            "🚪 **Выход**"),
-    ]
-    
-    # Build a list of (category, line) tuples
-    entries: list[tuple[str, str]] = []
+    lines: list[str] = []
     for cmd in COMMAND_REGISTRY:
         if not _is_gateway_available(cmd, overrides):
             continue
         args = f" {cmd.args_hint}" if cmd.args_hint else ""
         alias_parts: list[str] = []
         for a in cmd.aliases:
+            # Skip internal aliases like reload_mcp (underscore variant)
             if a.replace("-", "_") == cmd.name.replace("-", "_") and a != cmd.name:
                 continue
             alias_parts.append(f"`/{a}`")
         alias_note = f" (alias: {', '.join(alias_parts)})" if alias_parts else ""
-        entries.append((cmd.category, f"`/{cmd.name}{args}` — {cmd.description}{alias_note}"))
-    
-    # Build category-order lookup
-    cat_order = {cat: i for i, (cat, _) in enumerate(category_config)}
-    cat_labels = dict(category_config)
-    
-    # Sort by category order, then by name
-    def sort_key(item: tuple[str, str]) -> tuple[int, str]:
-        cat, line = item
-        return (cat_order.get(cat, 99), line)
-    
-    entries.sort(key=sort_key)
-    
-    # Assemble output with category headers
-    lines: list[str] = []
-    current_cat: str | None = None
-    for cat, line in entries:
-        if cat != current_cat:
-            current_cat = cat
-            label = cat_labels.get(cat, f"**{cat}**")
-            if lines:  # Don't add blank line before first category
-                lines.append("")
-            lines.append(label)
-        lines.append(line)
-    
+        lines.append(f"`/{cmd.name}{args}` -- {cmd.description}{alias_note}")
     return lines
 
 
@@ -564,6 +544,14 @@ def telegram_bot_commands() -> list[tuple[str, str]]:
     return result
 
 
+# Telegram allows up to 100 BotCommands. Ruslan ships ~50 built-in commands;
+# a 60-slot default keeps every built-in plus common skill commands visible in
+# the `/` menu while staying comfortably under Telegram's ~4KB payload limit.
+# Users can tune this via platforms.telegram.extra.command_menu.max_commands.
+_DEFAULT_TELEGRAM_MENU_MAX_COMMANDS = 60
+_TELEGRAM_BOT_API_MAX_COMMANDS = 100
+_TELEGRAM_PRIORITY_MODES = {"prepend", "append", "replace"}
+
 _TELEGRAM_MENU_PRIORITY = (
     # Most-typed everyday commands first.
     "help",
@@ -601,12 +589,92 @@ need to survive the visible menu cap ahead of lower-priority built-ins.
 """
 
 
+def _nested_mapping(root: Mapping[str, Any], *path: str) -> Mapping[str, Any]:
+    node: Any = root
+    for key in path:
+        if not isinstance(node, Mapping):
+            return {}
+        node = node.get(key)
+    return node if isinstance(node, Mapping) else {}
+
+
+def _telegram_command_menu_config() -> dict[str, Any]:
+    """Return normalized Telegram command-menu config with safe defaults.
+
+    Canonical user-facing path:
+    ``platforms.telegram.extra.command_menu``.
+    """
+    try:
+        from ruslan_cli.config import read_raw_config
+        raw_cfg = read_raw_config() or {}
+    except Exception:
+        raw_cfg = {}
+    if not isinstance(raw_cfg, Mapping):
+        raw_cfg = {}
+
+    menu_cfg = dict(_nested_mapping(raw_cfg, "platforms", "telegram", "extra", "command_menu"))
+
+    max_commands = menu_cfg.get("max_commands", _DEFAULT_TELEGRAM_MENU_MAX_COMMANDS)
+    try:
+        max_commands = int(max_commands)
+    except (TypeError, ValueError):
+        max_commands = _DEFAULT_TELEGRAM_MENU_MAX_COMMANDS
+    max_commands = max(1, min(_TELEGRAM_BOT_API_MAX_COMMANDS, max_commands))
+
+    priority_mode = str(menu_cfg.get("priority_mode") or "prepend").strip().lower()
+    if priority_mode not in _TELEGRAM_PRIORITY_MODES:
+        priority_mode = "prepend"
+
+    raw_priority = menu_cfg.get("priority")
+    if isinstance(raw_priority, list):
+        priority = [str(item) for item in raw_priority if str(item).strip()]
+    else:
+        priority = []
+
+    return {
+        "max_commands": max_commands,
+        "priority_mode": priority_mode,
+        "priority": priority,
+    }
+
+
+def telegram_menu_max_commands() -> int:
+    """Return configured Telegram BotCommand menu cap with safe bounds."""
+    return int(_telegram_command_menu_config()["max_commands"])
+
+
+def _dedupe_sanitized_names(raw_names: list[str] | tuple[str, ...]) -> tuple[str, ...]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for raw_name in raw_names:
+        name = _sanitize_telegram_name(str(raw_name))
+        if name and name not in seen:
+            seen.add(name)
+            result.append(name)
+    return tuple(result)
+
+
+def _telegram_effective_priority() -> tuple[str, ...]:
+    menu_cfg = _telegram_command_menu_config()
+    configured = list(_dedupe_sanitized_names(menu_cfg["priority"]))
+    defaults = list(_dedupe_sanitized_names(_TELEGRAM_MENU_PRIORITY))
+
+    if menu_cfg["priority_mode"] == "replace":
+        raw_priority = configured
+    elif menu_cfg["priority_mode"] == "append":
+        raw_priority = defaults + configured
+    else:
+        raw_priority = configured + defaults
+
+    return _dedupe_sanitized_names(raw_priority)
+
+
 def _prioritize_telegram_menu_commands(
     commands: list[tuple[str, str]],
 ) -> list[tuple[str, str]]:
     priority = {
-        _sanitize_telegram_name(name): index
-        for index, name in enumerate(_TELEGRAM_MENU_PRIORITY)
+        name: index
+        for index, name in enumerate(_telegram_effective_priority())
     }
     return [
         command
@@ -1093,8 +1161,10 @@ _SLACK_PRIORITY_ALIASES = ("btw", "bg")
 # "Slack-via-/ruslan" decision, not a silent clamp.
 #   - credits: the billing/top-up surface; reached via /ruslan credits on Slack.
 #   - billing: the terminal-billing surface (buy/auto-reload/limit); /ruslan billing.
+#   - moa: high-cost slash mode, available through /ruslan moa to avoid
+#     displacing existing native Slack slash commands at the 50-command cap.
 #   - debug: the log/report upload surface; reached via /ruslan debug on Slack.
-_SLACK_VIA_RUSLAN_ONLY = frozenset({"credits", "billing", "debug"})
+_SLACK_VIA_RUSLAN_ONLY = frozenset({"credits", "billing", "moa", "debug"})
 
 
 def _sanitize_slack_name(raw: str) -> str:
@@ -1285,6 +1355,77 @@ class SlashCommandCompleter(Completer):
             return self._skill_bundles_provider() or {}
         except Exception:
             return {}
+
+    # -- stacked slash-skill completion helpers ---------------------------
+
+    @staticmethod
+    def _normalize_skill_token(token: str) -> str:
+        """Canonicalize a typed skill token to its hyphenated /slug form.
+
+        Mirrors resolve_skill_command_key() in agent/skill_commands.py:
+        underscores (Telegram bot-command form) are interchangeable with
+        hyphens.
+        """
+        return "/" + token.lstrip("/").replace("_", "-").lower()
+
+    def _is_skill_command(self, token: str) -> bool:
+        return self._normalize_skill_token(token) in self._iter_skill_commands()
+
+    def _stacked_skill_completions(self, text: str):
+        """Offer skill-command completions for stacked invocations.
+
+        After ``/skill-a `` the user may chain more leading skills
+        (``/skill-a /skill-b do XYZ``). While every whitespace-delimited
+        token so far resolves to a distinct skill command and the current
+        word under the cursor starts with ``/``, keep offering the remaining
+        skill commands. The moment the chain is broken (a non-skill token
+        appears, the cap is reached, or the user is typing plain instruction
+        text) we offer nothing — instruction text must never be polluted
+        with skill suggestions.
+        """
+        try:
+            from agent.skill_commands import _MAX_STACKED_SKILLS as _cap
+        except Exception:
+            _cap = 5
+
+        tokens = text.split()
+        if text.endswith(" "):
+            completed, current_word = tokens, ""
+        else:
+            completed, current_word = tokens[:-1], tokens[-1]
+
+        # The chain must be unbroken: every completed token is a distinct
+        # skill command, and there's room left under the cap.
+        seen: set[str] = set()
+        for token in completed:
+            key = self._normalize_skill_token(token)
+            if key not in self._iter_skill_commands() or key in seen:
+                return
+            seen.add(key)
+        if len(seen) >= _cap:
+            return
+
+        # Only suggest while the user is typing another /token — a bare
+        # space after the chain means they may be starting the instruction.
+        if not current_word.startswith("/"):
+            return
+
+        word_key = self._normalize_skill_token(current_word)
+        for cmd, info in self._iter_skill_commands().items():
+            if cmd in seen or not cmd.startswith(word_key):
+                continue
+            description = str(info.get("description", "Skill command"))
+            short_desc = description[:50] + ("..." if len(description) > 50 else "")
+            # Exact match: append a trailing space so the dropdown stays
+            # visible and the next stacked token can be typed immediately
+            # (mirrors _completion_text semantics).
+            replacement = f"{cmd} " if cmd == word_key else cmd
+            yield Completion(
+                replacement,
+                start_position=-len(current_word),
+                display=cmd,
+                display_meta=f"⚡ {short_desc}",
+            )
 
     # Commands that open pickers when run without arguments.
     # These should NOT receive a trailing space in completions because:
@@ -1820,6 +1961,15 @@ class SlashCommandCompleter(Completer):
             sub_text = parts[1] if len(parts) > 1 else ""
             sub_lower = sub_text.lower()
 
+            # Stacked slash-skill invocations: after `/skill-a ` the user may
+            # chain more skills (`/skill-a /skill-b …`), so keep offering
+            # skill-command completions while the leading-skill chain is
+            # unbroken (see split_stacked_skill_commands in
+            # agent/skill_commands.py).
+            if self._is_skill_command(base_cmd):
+                yield from self._stacked_skill_completions(text)
+                return
+
             # Dynamic completions for commands with runtime lists
             if " " not in sub_text:
                 if base_cmd == "/skin":
@@ -1953,6 +2103,20 @@ class SlashCommandAutoSuggest(AutoSuggest):
         # Command is complete — suggest subcommands
         sub_text = parts[1] if len(parts) > 1 else ""
         sub_lower = sub_text.lower()
+
+        # Stacked slash-skill invocations: while the leading tokens form an
+        # unbroken skill chain and the user is typing another /token,
+        # ghost-suggest the rest of the next skill name. Otherwise fall
+        # through to the history fallback for instruction text.
+        if (
+            self._completer is not None
+            and self._completer._is_skill_command(base_cmd)
+        ):
+            for completion in self._completer._stacked_skill_completions(text):
+                remainder = completion.text[-completion.start_position:] \
+                    if completion.start_position else completion.text
+                if remainder.strip():
+                    return Suggestion(remainder)
 
         # Static subcommands
         if self._completer is not None and not self._completer._command_allowed(base_cmd):

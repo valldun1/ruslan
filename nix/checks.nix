@@ -7,7 +7,7 @@
   perSystem = { pkgs, lib, self', ... }:
     let
       ruslan-agent = self'.packages.default;
-      hermesVenv = ruslan-agent.hermesVenv;
+      ruslanVenv = ruslan-agent.ruslanVenv;
 
       configMergeScript = pkgs.callPackage ./configMergeScript.nix { };
 
@@ -15,7 +15,7 @@
       configKeys = pkgs.runCommand "ruslan-config-keys" {} ''
         set -euo pipefail
         export HOME=$TMPDIR
-        ${hermesVenv}/bin/python3 -c '
+        ${ruslanVenv}/bin/python3 -c '
 import json, sys
 from ruslan_cli.config import DEFAULT_CONFIG
 
@@ -127,13 +127,24 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
           test -d ${ruslan-agent}/share/ruslan-agent/skills || (echo "FAIL: skills directory missing"; exit 1)
           echo "PASS: skills directory exists"
 
-          SKILL_COUNT=$(find ${ruslan-agent}/share/ruslan-agent/skills -name "SKILL.md" | wc -l)
+          # -L: skills/ is a symlink to the filtered source store path
+          SKILL_COUNT=$(find -L ${ruslan-agent}/share/ruslan-agent/skills -name "SKILL.md" | wc -l)
           test "$SKILL_COUNT" -gt 0 || (echo "FAIL: no SKILL.md files found in skills directory"; exit 1)
           echo "PASS: $SKILL_COUNT bundled skills found"
 
           grep -q "RUSLAN_BUNDLED_SKILLS" ${ruslan-agent}/bin/ruslan || \
             (echo "FAIL: RUSLAN_BUNDLED_SKILLS not in wrapper"; exit 1)
           echo "PASS: RUSLAN_BUNDLED_SKILLS set in wrapper"
+
+          # Optional skills ship via the wrapper too (pythonSrc excludes
+          # them from the wheel, so the env var is the only path in nix).
+          test -d ${ruslan-agent}/share/ruslan-agent/optional-skills || \
+            (echo "FAIL: optional-skills directory missing"; exit 1)
+          OPT_COUNT=$(find -L ${ruslan-agent}/share/ruslan-agent/optional-skills -name "SKILL.md" | wc -l)
+          test "$OPT_COUNT" -gt 0 || (echo "FAIL: no SKILL.md files in optional-skills"; exit 1)
+          grep -q "RUSLAN_OPTIONAL_SKILLS" ${ruslan-agent}/bin/ruslan || \
+            (echo "FAIL: RUSLAN_OPTIONAL_SKILLS not in wrapper"; exit 1)
+          echo "PASS: $OPT_COUNT optional skills found, RUSLAN_OPTIONAL_SKILLS set in wrapper"
 
           echo "=== All bundled skills checks passed ==="
           mkdir -p $out
@@ -169,7 +180,8 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
           test -d ${ruslan-agent}/share/ruslan-agent/locales || (echo "FAIL: locales directory missing"; exit 1)
           echo "PASS: locales directory exists"
 
-          LOC_COUNT=$(find ${ruslan-agent}/share/ruslan-agent/locales -name "*.yaml" | wc -l)
+          # -L: locales/ is a symlink to the source store path
+          LOC_COUNT=$(find -L ${ruslan-agent}/share/ruslan-agent/locales -name "*.yaml" | wc -l)
           test "$LOC_COUNT" -ge 16 || (echo "FAIL: expected >=16 catalogs, found $LOC_COUNT"; exit 1)
           echo "PASS: $LOC_COUNT locale catalogs found"
 
@@ -183,7 +195,7 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
           echo "=== Rendering via the wrapper override (RUSLAN_BUNDLED_LOCALES) ==="
           export HOME=$(mktemp -d)
           RENDERED=$(cd "$HOME" && RUSLAN_BUNDLED_LOCALES=${ruslan-agent}/share/ruslan-agent/locales \
-            ${hermesVenv}/bin/python3 -c "from agent import i18n; print(i18n.t('gateway.reset.header_default', lang='en'))")
+            ${ruslanVenv}/bin/python3 -c "from agent import i18n; print(i18n.t('gateway.reset.header_default', lang='en'))")
           echo "rendered: $RENDERED"
           test "$RENDERED" != "gateway.reset.header_default" || (echo "FAIL: i18n returned the raw key with RUSLAN_BUNDLED_LOCALES set"; exit 1)
           echo "PASS: i18n renders a human string via the wrapper override"
@@ -194,8 +206,8 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
           # the wrapper override above would mask the regression at runtime while
           # `pip install`/other sealed paths silently break — this catches it.
           echo "=== Rendering WITHOUT the env var (data-files materialization) ==="
-          BARE_DIR=$(cd "$HOME" && ${hermesVenv}/bin/python3 -c "from agent import i18n; print(i18n._locales_dir())")
-          BARE=$(cd "$HOME" && ${hermesVenv}/bin/python3 -c "from agent import i18n; print(i18n.t('gateway.reset.header_default', lang='en'))")
+          BARE_DIR=$(cd "$HOME" && ${ruslanVenv}/bin/python3 -c "from agent import i18n; print(i18n._locales_dir())")
+          BARE=$(cd "$HOME" && ${ruslanVenv}/bin/python3 -c "from agent import i18n; print(i18n.t('gateway.reset.header_default', lang='en'))")
           echo "resolved dir (no env var): $BARE_DIR"
           echo "rendered: $BARE"
           test "$BARE" != "gateway.reset.header_default" || \
@@ -276,18 +288,18 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
         # Verify extraPythonPackages PYTHONPATH injection
         extra-python-packages = let
           testPkg = pkgs.python312Packages.pyfiglet;
-          hermesWithExtra = ruslan-agent.override {
+          ruslanWithExtra = ruslan-agent.override {
             extraPythonPackages = [ testPkg ];
           };
         in pkgs.runCommand "ruslan-extra-python-packages" { } ''
           set -e
           echo "=== Checking extraPythonPackages PYTHONPATH injection ==="
 
-          grep -q "PYTHONPATH" ${hermesWithExtra}/bin/ruslan || \
+          grep -q "PYTHONPATH" ${ruslanWithExtra}/bin/ruslan || \
             (echo "FAIL: PYTHONPATH not in wrapper"; exit 1)
           echo "PASS: PYTHONPATH present in wrapper"
 
-          grep -q "${testPkg}" ${hermesWithExtra}/bin/ruslan || \
+          grep -q "${testPkg}" ${ruslanWithExtra}/bin/ruslan || \
             (echo "FAIL: test package path not in PYTHONPATH"; exit 1)
           echo "PASS: test package path found in wrapper"
 
@@ -304,7 +316,7 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
 
         # Verify extraDependencyGroups passes through to python.nix
         extra-dependency-groups = let
-          hermesWithGroups = ruslan-agent.override {
+          ruslanWithGroups = ruslan-agent.override {
             extraDependencyGroups = [ "honcho" ];
           };
         in pkgs.runCommand "ruslan-extra-dependency-groups" { } ''
@@ -314,8 +326,8 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
           # Eval-only: verify the override produces valid derivation paths
           # without building the full venv (which is expensive and redundant
           # since the mechanism is just list concatenation into python.nix).
-          echo "derivation: ${hermesWithGroups}"
-          echo "venv: ${hermesWithGroups.hermesVenv}"
+          echo "derivation: ${ruslanWithGroups}"
+          echo "venv: ${ruslanWithGroups.ruslanVenv}"
           echo "PASS: extraDependencyGroups override evaluates cleanly"
 
           echo "=== All extraDependencyGroups checks passed ==="
@@ -329,7 +341,7 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
         messaging-variant = pkgs.runCommand "ruslan-messaging-variant" { } ''
           set -e
           echo "=== Checking discord.py importable from messaging variant ==="
-          ${self'.packages.messaging.hermesVenv}/bin/python3 -c \
+          ${self'.packages.messaging.ruslanVenv}/bin/python3 -c \
             "import discord; print(discord.__version__)"
           echo "PASS: discord.py importable from messaging variant venv"
           mkdir -p $out
@@ -410,7 +422,7 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
             local ruslan_home="$1"
             export RUSLAN_HOME="$ruslan_home"
             ${configMergeScript} ${nixSettings} "$ruslan_home/config.yaml"
-            ${hermesVenv}/bin/python3 -c '
+            ${ruslanVenv}/bin/python3 -c '
 import json, sys
 from ruslan_cli.config import load_config
 json.dump(load_config(), sys.stdout, default=str)

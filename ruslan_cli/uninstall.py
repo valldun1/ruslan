@@ -327,7 +327,7 @@ def _ruslan_path_markers(ruslan_home: Path) -> list[str]:
     markers = [root + "\\ruslan-agent", root + "\\git", root + "\\node", root + "\\venv"]
     # Also match if RUSLAN_HOME was customised to somewhere else — find-and-nuke
     # any entry whose path component contains "ruslan".  We don't want to catch
-    # unrelated entries like "chermes-foo" or "ephermeral", so we look for
+    # unrelated entries like "cruslan-foo" or "ephermeral", so we look for
     # backslash-ruslan as a word-ish boundary.
     return markers
 
@@ -512,7 +512,7 @@ def run_gui_uninstall(args):
 
     print()
     print(color("┌─────────────────────────────────────────────────────────┐", Colors.MAGENTA, Colors.BOLD))
-    print(color("│             🛡️ Ruslan Chat GUI Uninstaller              │", Colors.MAGENTA, Colors.BOLD))
+    print(color("│         ⚕ Ruslan Chat GUI Uninstaller                  │", Colors.MAGENTA, Colors.BOLD))
     print(color("└─────────────────────────────────────────────────────────┘", Colors.MAGENTA, Colors.BOLD))
     print()
 
@@ -546,7 +546,7 @@ def run_gui_uninstall(args):
             return
         if confirm != "yes":
             print()
-            print("Удаление отменено.")
+            print("Uninstall cancelled.")
             return
 
     print()
@@ -575,6 +575,14 @@ def run_uninstall(args):
     project_root = get_project_root()
     ruslan_home = get_ruslan_home()
 
+    if bool(getattr(args, "dry_run", False)):
+        _print_uninstall_dry_run(
+            project_root=project_root,
+            ruslan_home=ruslan_home,
+            full_uninstall=bool(getattr(args, "full", False)),
+        )
+        return
+
     # Detect named profiles when uninstalling from the default root —
     # offer to clean them up too instead of leaving zombie RUSLAN_HOMEs
     # and systemd units behind.
@@ -601,7 +609,7 @@ def run_uninstall(args):
 
     print()
     print(color("┌─────────────────────────────────────────────────────────┐", Colors.MAGENTA, Colors.BOLD))
-    print(color("│               🛡️ Ruslan Agent Uninstaller               │", Colors.MAGENTA, Colors.BOLD))
+    print(color("│            ⚕ Ruslan Agent Uninstaller                  │", Colors.MAGENTA, Colors.BOLD))
     print(color("└─────────────────────────────────────────────────────────┘", Colors.MAGENTA, Colors.BOLD))
     print()
     
@@ -641,7 +649,7 @@ def run_uninstall(args):
     
     if choice == "3" or choice.lower() in {"c", "cancel", "q", "quit", "n", "no"}:
         print()
-        print("Удаление отменено.")
+        print("Uninstall cancelled.")
         return
     
     full_uninstall = (choice == "2")
@@ -680,7 +688,7 @@ def run_uninstall(args):
                 Colors.RED
             ))
     else:
-        print("Это удалит код Ruslan, но сохранит вашу конфигурацию и данные.")
+        print("This will remove the Ruslan code but keep your configuration and data.")
     
     print()
     try:
@@ -692,7 +700,7 @@ def run_uninstall(args):
     
     if confirm != "yes":
         print()
-        print("Удаление отменено.")
+        print("Uninstall cancelled.")
         return
 
     _perform_uninstall(
@@ -702,6 +710,30 @@ def run_uninstall(args):
         remove_profiles=remove_profiles,
         named_profiles=named_profiles,
     )
+
+
+def _print_uninstall_dry_run(*, project_root: Path, ruslan_home: Path, full_uninstall: bool) -> None:
+    """Print the uninstall plan without stopping services or deleting files."""
+    print()
+    print(color("Dry run: no files, services, or environment entries will be changed.", Colors.CYAN, Colors.BOLD))
+    print()
+    print(color("Would inspect/remove:", Colors.YELLOW, Colors.BOLD))
+    print("  • Gateway services and standalone gateway processes")
+    print("  • Ruslan PATH entries from shell configs / Windows User PATH")
+    print("  • Ruslan wrapper scripts and Ruslan-managed node/npm/npx symlinks")
+    print("  • Desktop Chat GUI artifacts")
+    print(f"  • Code checkout: {project_root}")
+    if full_uninstall:
+        print(f"  • Ruslan config/data: {ruslan_home}")
+        if _is_default_ruslan_home(ruslan_home):
+            profiles = _discover_named_profiles()
+            if profiles:
+                print("  • Named profiles (interactive uninstall asks before removing):")
+                for prof in profiles:
+                    print(f"    - {prof.name}: {prof.path}")
+    else:
+        print(f"  • Keep Ruslan config/data: {ruslan_home}")
+    print()
 
 
 def _perform_uninstall(
@@ -727,7 +759,7 @@ def _perform_uninstall(
     # 1. Stop and uninstall gateway service + kill standalone processes
     log_info("Checking for running gateway...")
     if not uninstall_gateway_service():
-        log_info("Служба шлюза или процессы не найдены")
+        log_info("No gateway service or processes found")
     
     # 2. Remove PATH entries from shell configs (POSIX) AND from the Windows
     #    User-scope registry.  Both helpers no-op on the wrong platform so we
@@ -738,10 +770,10 @@ def _perform_uninstall(
         for config in removed_configs:
             log_success(f"Updated {config}")
     else:
-        log_info("Записи PATH для удаления в rc-файлах оболочки не найдены")
+        log_info("No PATH entries found to remove in shell rc files")
 
     if _is_windows():
-        log_info("Удаление записей PATH из пользовательской среды Windows...")
+        log_info("Removing PATH entries from Windows User environment...")
         # Expand %LOCALAPPDATA% etc. in ruslan_home so the marker matching is
         # against fully resolved paths — installer writes literal strings
         # like C:\Users\<u>\AppData\Local\ruslan\git\cmd, not %LOCALAPPDATA%.
@@ -750,15 +782,15 @@ def _perform_uninstall(
             for entry in removed_path_entries:
                 log_success(f"Removed from User PATH: {entry}")
         else:
-            log_info("Записи PATH, принадлежащие Ruslan, в пользовательской среде отсутствуют")
+            log_info("No Ruslan-owned PATH entries in User environment")
 
-        log_info("Удаление переменных среды пользователя RUSLAN_HOME / RUSLAN_GIT_BASH_PATH...")
+        log_info("Removing RUSLAN_HOME / RUSLAN_GIT_BASH_PATH User env vars...")
         removed_env = remove_ruslan_env_vars_windows()
         if removed_env:
             for name in removed_env:
                 log_success(f"Removed User env var: {name}")
         else:
-            log_info("Переменные среды пользователя, установленные Ruslan, для удаления отсутствуют")
+            log_info("No Ruslan-set User env vars to remove")
     
     # 3. Remove wrapper script
     log_info("Removing ruslan command...")
@@ -767,7 +799,7 @@ def _perform_uninstall(
         for wrapper in removed_wrappers:
             log_success(f"Removed {wrapper}")
     else:
-        log_info("Скрипт-обёртка не найден")
+        log_info("No wrapper script found")
 
     # 3b. Remove node/npm/npx symlinks the installer left in ~/.local/bin
     #     (only when they still point into this Ruslan home's node dir, so we
@@ -778,7 +810,7 @@ def _perform_uninstall(
         for link in removed_node_links:
             log_success(f"Removed {link}")
     else:
-        log_info("Символические ссылки node/npm/npx, управляемые Ruslan, не найдены")
+        log_info("No Ruslan-managed node/npm/npx symlinks found")
 
     # 3c. Remove the desktop Chat GUI's artifacts too (built renderer/release,
     #     node_modules, the packaged app bundle, and the Electron userData
@@ -794,7 +826,7 @@ def _perform_uninstall(
         from ruslan_cli.gui_uninstall import uninstall_gui
         gui_removed = uninstall_gui(ruslan_home)
         if not gui_removed:
-            log_info("Артефакты графического интерфейса рабочего стола не найдены")
+            log_info("No desktop GUI artifacts found")
     except Exception as e:
         log_warn(f"Could not remove desktop GUI artifacts: {e}")
 
@@ -815,7 +847,7 @@ def _perform_uninstall(
                 log_success(f"Removed {project_root}")
     except Exception as e:
         log_warn(f"Could not fully remove {project_root}: {e}")
-        log_info("Возможно, вам потребуется удалить его вручную")
+        log_info("You may need to manually remove it")
 
     # 4b. Remove Windows-only installer artifacts that are NOT user data:
     #     PortableGit, bundled Node, gateway-service dir.  Installer put them
@@ -824,13 +856,13 @@ def _perform_uninstall(
     #     the step-5 rmtree(ruslan_home) would sweep them anyway; calling
     #     this helper there is a no-op since they'll already be gone.
     if _is_windows():
-        log_info("Удаление артефактов установщика Windows (PortableGit, Node, gateway-service)...")
+        log_info("Removing Windows installer artifacts (PortableGit, Node, gateway-service)...")
         removed_artifacts = remove_portable_tooling_windows(ruslan_home)
         if removed_artifacts:
             for path in removed_artifacts:
                 log_success(f"Removed {path}")
         else:
-            log_info("Артефакты установщика Windows для удаления отсутствуют")
+            log_info("No Windows installer artifacts to remove")
     
     # 5. Optionally remove ~/.ruslan/ data directory (and named profiles)
     if full_uninstall:
@@ -843,14 +875,14 @@ def _perform_uninstall(
             for prof in named_profiles:
                 _uninstall_profile(prof)
 
-        log_info("Удаление конфигурации и данных...")
+        log_info("Removing configuration and data...")
         try:
             if ruslan_home.exists():
                 shutil.rmtree(ruslan_home)
                 log_success(f"Removed {ruslan_home}")
         except Exception as e:
             log_warn(f"Could not fully remove {ruslan_home}: {e}")
-            log_info("Возможно, вам потребуется удалить его вручную")
+            log_info("You may need to manually remove it")
     else:
         log_info(f"Keeping configuration and data in {ruslan_home}")
     
@@ -865,11 +897,11 @@ def _perform_uninstall(
         print(color("Your configuration and data have been preserved:", Colors.CYAN))
         print(f"  {ruslan_home}/")
         print()
-        print("Чтобы переустановить позже с вашими текущими настройками:")
+        print("To reinstall later with your existing settings:")
         if _is_windows():
-            print(color("  iex (irm https://ruslan.team/install.ps1)", Colors.DIM))
+            print(color("  iex (irm https://ruslan-agent.nousresearch.com/install.ps1)", Colors.DIM))
         else:
-            print(color("  curl -fsSL https://ruslan.team/install.sh | bash", Colors.DIM))
+            print(color("  curl -fsSL https://ruslan-agent.nousresearch.com/install.sh | bash", Colors.DIM))
         print()
 
     if _is_windows():
@@ -877,9 +909,9 @@ def _perform_uninstall(
         print(color("the updated User PATH and environment variables.", Colors.YELLOW))
     else:
         print(color("Reload your shell to complete the process:", Colors.YELLOW))
-        print("source ~/.bashrc  # или ~/.zshrc")
+        print("  source ~/.bashrc  # or ~/.zshrc")
     print()
-    print("Thank you for using Ruslan Agent! 🛡️")
+    print("Thank you for using Ruslan Agent! ⚕")
     print()
 
 

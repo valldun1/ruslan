@@ -38,12 +38,17 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Callable, Dict, FrozenSet, List, Optional, Tuple
+from typing import Any, Callable, Dict, FrozenSet, Iterable, List, Optional, Tuple
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
 
-from ruslan_cli.config import get_ruslan_home, get_config_path, read_raw_config
+from ruslan_cli.config import (
+    get_ruslan_home,
+    get_config_path,
+    read_raw_config,
+    require_readable_config_before_write,
+)
 from ruslan_constants import OPENROUTER_BASE_URL, secure_parent_dir
 from agent.credential_persistence import sanitize_borrowed_credential_payload
 from utils import atomic_replace, atomic_yaml_write, env_float, is_truthy_value
@@ -96,14 +101,17 @@ STEPFUN_STEP_PLAN_INTL_BASE_URL = "https://api.stepfun.ai/step_plan/v1"
 STEPFUN_STEP_PLAN_CN_BASE_URL = "https://api.stepfun.com/step_plan/v1"
 CODEX_OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 CODEX_OAUTH_TOKEN_URL = "https://auth.openai.com/oauth/token"
+try:  # Version tag for the Codex token-endpoint User-Agent; fall back if unavailable.
+    from ruslan_cli import __version__ as _RUSLAN_CLI_VERSION
+except Exception:  # pragma: no cover - version import should always succeed
+    _RUSLAN_CLI_VERSION = "unknown"
+CODEX_OAUTH_USER_AGENT = f"ruslan-cli/{_RUSLAN_CLI_VERSION}"
 CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS = 120
 XAI_OAUTH_ISSUER = "https://auth.x.ai"
 XAI_OAUTH_DISCOVERY_URL = f"{XAI_OAUTH_ISSUER}/.well-known/openid-configuration"
 XAI_OAUTH_CLIENT_ID = "b1a00492-073a-47ea-816f-4c329264a828"
 XAI_OAUTH_SCOPE = "openid profile email offline_access grok-cli:access api:access"
-XAI_OAUTH_REDIRECT_HOST = "127.0.0.1"
-XAI_OAUTH_REDIRECT_PORT = 56121
-XAI_OAUTH_REDIRECT_PATH = "/callback"
+XAI_OAUTH_DEVICE_CODE_URL = f"{XAI_OAUTH_ISSUER}/oauth2/device/code"
 # xAI/Grok OAuth access tokens are intentionally short-lived (about 6h in
 # current SuperGrok flows). A two-minute refresh window is too narrow for
 # gateway/cron workloads that may only touch the provider every 30 minutes,
@@ -116,12 +124,11 @@ QWEN_ACCESS_TOKEN_REFRESH_SKEW_SECONDS = 120
 DEFAULT_SPOTIFY_ACCOUNTS_BASE_URL = "https://accounts.spotify.com"
 DEFAULT_SPOTIFY_API_BASE_URL = "https://api.spotify.com/v1"
 DEFAULT_SPOTIFY_REDIRECT_URI = "http://127.0.0.1:43827/spotify/callback"
-SPOTIFY_DOCS_URL = "https://ruslan.team/docs/user-guide/features/spotify"
+SPOTIFY_DOCS_URL = "https://ruslan-agent.nousresearch.com/docs/user-guide/features/spotify"
 SPOTIFY_DASHBOARD_URL = "https://developer.spotify.com/dashboard"
 SPOTIFY_ACCESS_TOKEN_REFRESH_SKEW_SECONDS = 120
 
-XAI_OAUTH_DOCS_URL = "https://ruslan.team/docs/guides/xai-grok-oauth"
-OAUTH_OVER_SSH_DOCS_URL = "https://ruslan.team/docs/guides/oauth-over-ssh"
+OAUTH_OVER_SSH_DOCS_URL = "https://ruslan-agent.nousresearch.com/docs/guides/oauth-over-ssh"
 DEFAULT_SPOTIFY_SCOPE = " ".join((
     "user-modify-playback-state",
     "user-read-playback-state",
@@ -479,16 +486,18 @@ except Exception:
 def get_anthropic_key() -> str:
     """Return the first usable Anthropic credential, or ``""``.
 
-    Checks both the ``.env`` file (via ``get_env_value``) and the process
-    environment (``os.getenv``).  The fallback order mirrors the
-    ``PROVIDER_REGISTRY["anthropic"].api_key_env_vars`` tuple:
+    Checks both the ``.env`` file and the process environment, preferring
+    ``~/.ruslan/.env`` so a deliberate key rotation isn't shadowed by a stale
+    shell export (matches the api-key resolution path — see #20591).  The
+    order mirrors the ``PROVIDER_REGISTRY["anthropic"].api_key_env_vars``
+    tuple:
 
         ANTHROPIC_API_KEY -> ANTHROPIC_TOKEN -> CLAUDE_CODE_OAUTH_TOKEN
     """
-    from ruslan_cli.config import get_env_value
+    from ruslan_cli.config import get_env_value_prefer_dotenv
 
     for var in PROVIDER_REGISTRY["anthropic"].api_key_env_vars:
-        value = get_env_value(var) or os.getenv(var, "")
+        value = get_env_value_prefer_dotenv(var) or ""
         if value:
             return value
     return ""
@@ -566,17 +575,20 @@ def _resolve_api_key_provider_secret(
             from ruslan_cli.copilot_auth import resolve_copilot_token, get_copilot_api_token
             token, source = resolve_copilot_token()
             if token:
-                return get_copilot_api_token(token), source
+                api_token, _base_url = get_copilot_api_token(token)
+                return api_token, source
         except ValueError as exc:
-            logger.warning("Не удалось проверить токен Copilot: %s", exc)
+            logger.warning("Copilot token validation failed: %s", exc)
         except Exception:
             pass
         return "", ""
 
-    from ruslan_cli.config import get_env_value
+    from ruslan_cli.config import get_env_value_prefer_dotenv
     for env_var in pconfig.api_key_env_vars:
-        # Check both os.environ and ~/.ruslan/.env file
-        val = (get_env_value(env_var) or "").strip()
+        # Prefer ~/.ruslan/.env over os.environ so a deliberate key rotation
+        # in the user's .env file isn't shadowed by a stale shell export
+        # inherited from a parent process (Codex CLI, test runners, etc.).
+        val = (get_env_value_prefer_dotenv(env_var) or "").strip()
         if has_usable_secret(val):
             return val, env_var
 
@@ -689,19 +701,50 @@ def _resolve_zai_base_url(api_key: str, default_url: str, env_override: str) -> 
     if detected and detected.get("base_url"):
         # Persist the detection result keyed on the API key hash.
         key_hash = hashlib.sha256(api_key.encode()).hexdigest()[:16]
-        state["detected_endpoint"] = {
+        detected_endpoint = {
             "base_url": detected["base_url"],
             "endpoint_id": detected.get("id", ""),
             "model": detected.get("model", ""),
             "label": detected.get("label", ""),
             "key_hash": key_hash,
         }
-        _save_provider_state(auth_store, "zai", state)
-        logger.info("Z.AI: автоматически обнаружен конечный пункт %s (%s)", detected["label"], detected["base_url"])
+        # Persist failure (disk full, permissions, lock timeout) must not
+        # break resolution — detection already succeeded; worst case the
+        # next start re-probes.
+        try:
+            with _auth_store_lock():
+                # Reload auth_store under lock to avoid overwriting concurrent changes
+                auth_store = _load_auth_store()
+                state_under_lock = _load_provider_state(auth_store, "zai") or {}
+                state_under_lock["detected_endpoint"] = detected_endpoint
+                # set_active=False: this runs from credential-pool env seeding
+                # (agent/credential_pool.py) for ANY user with a Z.AI key in env,
+                # and caching a probe result must not flip their active provider.
+                _store_provider_state(auth_store, "zai", state_under_lock, set_active=False)
+                _save_auth_store(auth_store)
+        except Exception as exc:
+            logger.warning("Z.AI: could not persist detected endpoint (%s); will re-probe next start", exc)
+        logger.info("Z.AI: auto-detected endpoint %s (%s)", detected["label"], detected["base_url"])
         return detected["base_url"]
 
     logger.debug("Z.AI: probe failed, falling back to default %s", default_url)
     return default_url
+
+
+def _normalize_lmstudio_runtime_base_url(base_url: str) -> str:
+    """Return the OpenAI-compatible LM Studio runtime base URL.
+
+    LM Studio's native management API lives under ``/api/v1`` while its
+    OpenAI-compatible chat endpoint lives under ``/v1``. Users often paste
+    either form into ``LM_BASE_URL`` or ``model.base_url``; normalize before
+    the OpenAI SDK appends ``/chat/completions``.
+    """
+    root = str(base_url or "").strip().rstrip("/")
+    for suffix in ("/api/v1", "/api", "/v1"):
+        if root.endswith(suffix):
+            root = root[: -len(suffix)].rstrip("/")
+            break
+    return (root or "http://127.0.0.1:1234") + "/v1"
 
 
 # =============================================================================
@@ -941,7 +984,25 @@ def _auth_lock_path() -> Path:
     return _auth_file_path().with_suffix(".lock")
 
 
-_auth_lock_holder = threading.local()
+_auth_target_lock_holders: Dict[str, threading.local] = {}
+_auth_target_lock_holders_guard = threading.Lock()
+
+
+def _same_path(left: Path, right: Path) -> bool:
+    try:
+        return left.resolve(strict=False) == right.resolve(strict=False)
+    except Exception:
+        return left == right
+
+
+def _auth_lock_holder_for(target_path: Path) -> threading.local:
+    """Return a reentrancy tracker keyed to one canonical auth-store path."""
+    try:
+        key = str(target_path.resolve(strict=False))
+    except Exception:
+        key = str(target_path)
+    with _auth_target_lock_holders_guard:
+        return _auth_target_lock_holders.setdefault(key, threading.local())
 
 
 @contextmanager
@@ -1017,8 +1078,16 @@ def _file_lock(
 
 
 @contextmanager
-def _auth_store_lock(timeout_seconds: float = AUTH_LOCK_TIMEOUT_SECONDS):
-    """Cross-process advisory lock for auth.json reads+writes.  Reentrant.
+def _auth_store_lock(
+    timeout_seconds: float = AUTH_LOCK_TIMEOUT_SECONDS,
+    *,
+    target_path: Optional[Path] = None,
+):
+    """Cross-process advisory lock for one auth.json read/write transaction.
+
+    ``target_path`` is required for profile-to-global write-throughs. A profile
+    lock does not protect the distinct global auth store; each path therefore
+    uses its own reentrancy tracker and kernel lock.
 
     Lock ordering invariant: when this lock is held together with
     ``_nous_shared_store_lock``, acquire ``_auth_store_lock`` FIRST
@@ -1026,9 +1095,11 @@ def _auth_store_lock(timeout_seconds: float = AUTH_LOCK_TIMEOUT_SECONDS):
     refresh paths follow this order; violating it risks deadlock
     against a concurrent import on the shared store.
     """
+    auth_path = target_path if target_path is not None else _auth_file_path()
+    lock_path = auth_path.with_suffix(".lock") if target_path is not None else _auth_lock_path()
     with _file_lock(
-        _auth_lock_path(),
-        _auth_lock_holder,
+        lock_path,
+        _auth_lock_holder_for(auth_path),
         timeout_seconds,
         "Timed out waiting for auth store lock",
     ):
@@ -1061,6 +1132,8 @@ def _load_auth_store(auth_file: Optional[Path] = None) -> Dict[str, Any]:
         or isinstance(raw.get("credential_pool"), dict)
     ):
         raw.setdefault("providers", {})
+        if isinstance(raw.get("providers"), dict):
+            _migrate_stale_nous_portal_url(raw["providers"])
         return raw
 
     # Migrate from PR's "systems" format if present
@@ -1129,6 +1202,67 @@ def _save_auth_store(auth_store: Dict[str, Any], target_path: Optional[Path] = N
     return auth_file
 
 
+def _load_provider_state_with_source(
+    auth_store: Dict[str, Any],
+    provider_id: str,
+) -> tuple[Optional[Dict[str, Any]], Optional[Path]]:
+    """Return a provider state plus the auth.json path it came from.
+
+    Most callers only need the state, but refresh paths that rotate single-use
+    OAuth refresh tokens must write the updated token chain back to the same
+    store they read. In profile mode ``_load_provider_state`` can read a
+    global-root fallback state; persisting a rotated Nous refresh token only to
+    the profile would leave the global/root store stale and cause the next
+    process to replay an already-consumed refresh token.
+    """
+    providers = auth_store.get("providers")
+    if isinstance(providers, dict):
+        state = providers.get(provider_id)
+        if isinstance(state, dict):
+            return dict(state), _auth_file_path()
+
+    global_path = _global_auth_file_path()
+    global_store = _load_global_auth_store()
+    if global_store:
+        global_providers = global_store.get("providers")
+        if isinstance(global_providers, dict):
+            global_state = global_providers.get(provider_id)
+            if isinstance(global_state, dict):
+                return dict(global_state), global_path
+    return None, None
+
+
+@contextmanager
+def _provider_state_transaction(provider_id: str):
+    """Lock the active auth store and any global fallback source in order.
+
+    Profile-backed refresh paths must take the global auth-store lock before
+    any provider-specific shared-store lock. Re-reading the source after the
+    target lock is acquired prevents both stale refreshes and whole-file lost
+    updates without inverting the documented auth -> shared lock order.
+    """
+    with _auth_store_lock():
+        auth_store = _load_auth_store()
+        state, source_path = _load_provider_state_with_source(
+            auth_store,
+            provider_id,
+        )
+        active_path = _auth_file_path()
+        if source_path is None or _same_path(source_path, active_path):
+            yield auth_store, state, source_path
+            return
+
+        with _auth_store_lock(target_path=source_path):
+            source_store = _load_auth_store(source_path)
+            source_providers = source_store.get("providers")
+            source_state = None
+            if isinstance(source_providers, dict):
+                raw_state = source_providers.get(provider_id)
+                if isinstance(raw_state, dict):
+                    source_state = dict(raw_state)
+            yield auth_store, source_state, source_path
+
+
 def _load_provider_state(auth_store: Dict[str, Any], provider_id: str) -> Optional[Dict[str, Any]]:
     """Return a provider's persisted state.
 
@@ -1140,22 +1274,8 @@ def _load_provider_state(auth_store: Dict[str, Any], provider_id: str) -> Option
     the profile, the profile state fully shadows the global state on the next
     read. See issue #18594 follow-up.
     """
-    providers = auth_store.get("providers")
-    if isinstance(providers, dict):
-        state = providers.get(provider_id)
-        if isinstance(state, dict):
-            return dict(state)
-
-    # Read-only fallback to the global-root auth store (profile mode only;
-    # returns empty dict in classic mode so this is a no-op).
-    global_store = _load_global_auth_store()
-    if global_store:
-        global_providers = global_store.get("providers")
-        if isinstance(global_providers, dict):
-            global_state = global_providers.get(provider_id)
-            if isinstance(global_state, dict):
-                return dict(global_state)
-    return None
+    state, _source_path = _load_provider_state_with_source(auth_store, provider_id)
+    return state
 
 
 def _save_provider_state(auth_store: Dict[str, Any], provider_id: str, state: Dict[str, Any]) -> None:
@@ -1165,6 +1285,33 @@ def _save_provider_state(auth_store: Dict[str, Any], provider_id: str, state: Di
         providers = auth_store["providers"]
     providers[provider_id] = state
     auth_store["active_provider"] = provider_id
+
+
+def _save_provider_state_to_source(
+    auth_store: Dict[str, Any],
+    provider_id: str,
+    state: Dict[str, Any],
+    source_path: Optional[Path],
+) -> None:
+    """Persist provider state back to the auth store it was read from."""
+    active_path = _auth_file_path()
+    if source_path is None:
+        source_path = active_path
+    try:
+        same_store = source_path.resolve(strict=False) == active_path.resolve(strict=False)
+    except Exception:
+        same_store = source_path == active_path
+    if same_store:
+        _save_provider_state(auth_store, provider_id, state)
+        _save_auth_store(auth_store)
+        return
+
+    _persist_provider_state_to_store(
+        provider_id,
+        state,
+        source_path,
+        set_active=True,
+    )
 
 
 def _store_provider_state(
@@ -1181,6 +1328,25 @@ def _store_provider_state(
     providers[provider_id] = state
     if set_active:
         auth_store["active_provider"] = provider_id
+
+
+def _persist_provider_state_to_store(
+    provider_id: str,
+    state: Dict[str, Any],
+    target_path: Path,
+    *,
+    set_active: bool = False,
+) -> Path:
+    """Merge one provider into a specific auth store under that store's lock."""
+    with _auth_store_lock(target_path=target_path):
+        auth_store = _load_auth_store(target_path)
+        _store_provider_state(
+            auth_store,
+            provider_id,
+            dict(state),
+            set_active=set_active,
+        )
+        return _save_auth_store(auth_store, target_path=target_path)
 
 
 def mark_provider_active_if_unset(provider_id: str) -> None:
@@ -1211,6 +1377,27 @@ def get_auth_provider_display_name(provider_id: str) -> str:
     if normalized in PROVIDER_REGISTRY:
         return PROVIDER_REGISTRY[normalized].name
     return SERVICE_PROVIDER_NAMES.get(normalized, provider_id)
+
+
+def is_runtime_provider_routable(provider_id: str) -> bool:
+    """Return whether runtime resolution recognizes a provider identity.
+
+    This is a capability check, not a credential check. It follows the same
+    alias/plugin-aware normalization as ``resolve_provider`` while preserving
+    special runtime identities that intentionally live outside the registry.
+    """
+    normalized = (provider_id or "").strip().lower()
+    if not normalized:
+        return False
+    if normalized in {"auto", "openrouter", "custom", "moa"}:
+        return True
+    if normalized.startswith("custom:"):
+        return True
+    try:
+        resolve_provider(normalized)
+    except AuthError:
+        return False
+    return True
 
 
 def read_credential_pool(provider_id: Optional[str] = None) -> Dict[str, Any]:
@@ -1260,24 +1447,54 @@ def read_credential_pool(provider_id: Optional[str] = None) -> Dict[str, Any]:
     return list(global_entries) if isinstance(global_entries, list) else []
 
 
-def write_credential_pool(provider_id: str, entries: List[Dict[str, Any]]) -> Path:
+def write_credential_pool(
+    provider_id: str,
+    entries: List[Dict[str, Any]],
+    *,
+    removed_ids: Optional[Iterable[str]] = None,
+) -> Path:
     """Persist one provider's credential pool under auth.json.
 
     This is the final disk-boundary guard for borrowed/reference-only
     credentials. Callers may pass raw dictionaries, so sanitize here even when
     ``PooledCredential.to_dict()`` already did the same work upstream.
+
+    Re-read the on-disk pool under the same lock and merge entries present on
+    disk but missing from ``entries``. Those were added by another process after
+    the caller loaded its in-memory snapshot; without this merge a later
+    rotation/exhaustion rewrite drops the concurrent credential.
+
+    Pass ``removed_ids`` for entries the caller intentionally removed, so the
+    merge does not resurrect them from the on-disk copy.
     """
+    removed = {rid for rid in (removed_ids or ()) if rid}
     with _auth_store_lock():
         auth_store = _load_auth_store()
         pool = auth_store.get("credential_pool")
         if not isinstance(pool, dict):
             pool = {}
             auth_store["credential_pool"] = pool
-        pool[provider_id] = [
+        sanitized_entries = [
             sanitize_borrowed_credential_payload(entry, provider_id)
             if isinstance(entry, dict) else entry
             for entry in entries
         ]
+        existing = pool.get(provider_id)
+        existing_list = existing if isinstance(existing, list) else []
+        new_ids = {
+            entry.get("id")
+            for entry in sanitized_entries
+            if isinstance(entry, dict) and entry.get("id")
+        }
+        merged: List[Dict[str, Any]] = list(sanitized_entries)
+        for disk_entry in existing_list:
+            if not isinstance(disk_entry, dict):
+                continue
+            disk_id = disk_entry.get("id")
+            if not disk_id or disk_id in new_ids or disk_id in removed:
+                continue
+            merged.append(sanitize_borrowed_credential_payload(disk_entry, provider_id))
+        pool[provider_id] = merged
         return _save_auth_store(auth_store)
 
 
@@ -1395,6 +1612,33 @@ def is_provider_explicitly_configured(provider_id: str) -> bool:
             if has_usable_secret(os.getenv(env_var, "")):
                 return True
 
+    # 4. Check persisted credential-pool entries that came from EXPLICIT flows
+    # the user initiated inside Ruslan (manual add / device-code / PKCE), plus
+    # env-backed pool entries. This intentionally excludes ambient borrowed
+    # sources like gh_cli / claude_code / qwen-cli.
+    try:
+        for entry in read_credential_pool(normalized):
+            if not isinstance(entry, dict):
+                continue
+            source = str(entry.get("source") or "").strip().lower()
+            if not source:
+                continue
+            if source.startswith("env:"):
+                # A stale env-seeded pool entry survives in auth.json after
+                # the user deletes the env var (#55790) — only count it when
+                # the referenced var still resolves to a usable secret NOW.
+                env_var = entry.get("source", "").split(":", 1)[1].strip()
+                if env_var and has_usable_secret(os.getenv(env_var, "")):
+                    return True
+                continue
+            if (
+                source in {"device_code", "loopback_pkce", "ruslan_pkce", "manual"}
+                or source.startswith("manual:")
+            ):
+                return True
+    except Exception:
+        pass
+
     return False
 
 
@@ -1489,12 +1733,16 @@ def resolve_provider(
     """
     Determine which inference provider to use.
 
-    Priority (when requested="auto" or None):
-    1. active_provider in auth.json with valid credentials
-    2. Explicit CLI api_key/base_url -> "openrouter"
-    3. OPENAI_API_KEY or OPENROUTER_API_KEY env vars -> "openrouter"
-    4. Provider-specific API keys (GLM, Kimi, MiniMax) -> that provider
-    5. Fallback: "openrouter"
+    Priority (when requested="auto" or None) — explicit user intent wins over a
+    stale logged-in OAuth provider (#29285):
+    1. Explicit CLI api_key/base_url -> "openrouter"
+    2. config.yaml `model.provider`
+    3. OPENAI_API_KEY / OPENROUTER_API_KEY env vars -> "openrouter"
+    4. OpenRouter credential pool
+    5. Provider-specific API keys (GLM, Kimi, MiniMax, ...) -> that provider
+    6. auth.json `active_provider` (logged-in OAuth) — last-resort fallback
+    7. AWS Bedrock credential chain
+    8. Error (no provider configured)
     """
     normalized = (requested or "auto").strip().lower()
 
@@ -1566,16 +1814,26 @@ def resolve_provider(
     if explicit_api_key or explicit_base_url:
         return "openrouter"
 
-    # Check auth store for an active OAuth provider
+    # Provider precedence for the auto-path (#29285): explicit user intent must
+    # win over a stale logged-in OAuth `active_provider`. Order matches the
+    # docstring: 1. explicit CLI creds  2. config.yaml `model.provider`
+    # 3. OPENAI/OPENROUTER env keys  4. OpenRouter pool  5. provider-specific
+    # env keys  6. auth.json `active_provider` (OAuth)  7. Bedrock  8. error.
+    # The normal chat/gateway path resolves config.provider upstream in
+    # resolve_requested_provider() before ever reaching "auto"; this duplicate
+    # check is the safety net for the lone direct caller (main.py resolve_provider
+    # ("auto")) and any future bypass of that stage.
+    _model_cfg: Any = None
     try:
-        auth_store = _load_auth_store()
-        active = auth_store.get("active_provider")
-        if active and active in PROVIDER_REGISTRY:
-            status = get_auth_status(active)
-            if status.get("logged_in"):
-                return active
+        from ruslan_cli.config import load_config
+
+        _model_cfg = (load_config() or {}).get("model")
+        if isinstance(_model_cfg, dict):
+            _cfg_provider = _model_cfg.get("provider")
+            if isinstance(_cfg_provider, str) and _cfg_provider.strip().lower() in PROVIDER_REGISTRY:
+                return _cfg_provider.strip().lower()
     except Exception as e:
-        logger.debug("Could not detect active auth provider: %s", e)
+        logger.debug("Could not read config.yaml model.provider for auto-resolution: %s", e)
 
     if has_usable_secret(os.getenv("OPENAI_API_KEY")) or has_usable_secret(os.getenv("OPENROUTER_API_KEY")):
         return "openrouter"
@@ -1595,6 +1853,18 @@ def resolve_provider(
     except Exception as e:
         logger.debug("Could not check OpenRouter credential pool: %s", e)
 
+    # Determine the logged-in OAuth provider up front so the env-key loop below
+    # can WARN when an exported API key preempts it (#29285 transparency). The
+    # actual OAuth fallback (tier 6) still happens later if nothing else matches.
+    _oauth_active: Optional[str] = None
+    try:
+        _store = _load_auth_store()
+        _maybe = _store.get("active_provider")
+        if _maybe and _maybe in PROVIDER_REGISTRY and get_auth_status(_maybe).get("logged_in"):
+            _oauth_active = _maybe
+    except Exception as e:
+        logger.debug("Could not pre-read active auth provider: %s", e)
+
     # Auto-detect API-key providers by checking their env vars
     for pid, pconfig in PROVIDER_REGISTRY.items():
         if pconfig.auth_type != "api_key":
@@ -1609,7 +1879,36 @@ def resolve_provider(
             continue
         for env_var in pconfig.api_key_env_vars:
             if has_usable_secret(os.getenv(env_var, "")):
+                # An exported API key now wins over a logged-in OAuth provider
+                # (the #29285 fix). Surface that so a user who deliberately uses
+                # OAuth but has a stale key in ~/.ruslan/.env isn't silently
+                # switched without knowing why.
+                if _oauth_active and _oauth_active != pid:
+                    logger.warning(
+                        "Provider resolved to %r via %s, preempting your "
+                        "logged-in OAuth provider %r. If you meant to use the "
+                        "OAuth login, unset %s or set `model.provider` "
+                        "explicitly.",
+                        pid, env_var, _oauth_active, env_var,
+                    )
                 return pid
+
+    # Logged-in OAuth provider (auth.json `active_provider`) — a LAST-RESORT
+    # fallback, chosen only when the user expressed no other preference above.
+    # Previously this sat ABOVE the env-var/config checks, so a stale OAuth
+    # login silently overrode an explicit `model.provider` or an exported API
+    # key (#29285). Demoted here so explicit intent always wins.
+    if _oauth_active:
+        # Surface the silent-override case the issue reported: a populated
+        # `model` config that lacks a `provider` key falls through to OAuth.
+        if isinstance(_model_cfg, dict) and _model_cfg and not _model_cfg.get("provider"):
+            logger.warning(
+                "Provider resolved to logged-in OAuth provider %r because "
+                "config.yaml `model` has no `provider` key. If you meant a "
+                "different provider, set `model.provider` explicitly.",
+                _oauth_active,
+            )
+        return _oauth_active
 
     # AWS Bedrock — detect via boto3 credential chain (IAM roles, SSO, env vars).
     # This runs after API-key providers so explicit keys always win.
@@ -1671,6 +1970,35 @@ def _optional_base_url(value: Any) -> Optional[str]:
     return cleaned if cleaned else None
 
 
+_NOUS_STALE_PORTAL_HOSTS: FrozenSet[str] = frozenset({
+    "api.nousresearch.com",
+})
+
+# Allowlist of valid Nous Portal hosts. A portal_base_url outside this
+# set is treated as a misconfiguration and falls back to the default.
+# "localhost" / "127.0.0.1" are valid for local development and testing.
+_NOUS_PORTAL_ALLOWED_HOSTS: FrozenSet[str] = frozenset({
+    "portal.nousresearch.com",
+    "localhost",
+    "127.0.0.1",
+})
+
+
+def _migrate_stale_nous_portal_url(providers: Dict[str, Any]) -> None:
+    nous = providers.get("nous")
+    if not isinstance(nous, dict):
+        return
+    stored = (nous.get("portal_base_url") or "").strip()
+    if stored:
+        parsed = urlparse(stored)
+        if parsed.hostname in _NOUS_STALE_PORTAL_HOSTS:
+            logger.warning(
+                "auth: migrating stale nous portal_base_url %s -> %s",
+                stored, DEFAULT_NOUS_PORTAL_URL,
+            )
+            nous["portal_base_url"] = DEFAULT_NOUS_PORTAL_URL
+
+
 # Allowlist of hosts the Nous Portal proxy is willing to forward inference
 # JWTs to. Sending a bearer anywhere else would leak it.
 #
@@ -1717,7 +2045,7 @@ def _validate_nous_inference_url_from_network(url: Optional[str]) -> Optional[st
         return None
     if parsed.scheme != "https":
         logger.warning(
-            "nous: отказ от схемы URL-адреса вывода %r без https из ответа Portal",
+            "nous: refusing non-https inference URL scheme %r from Portal response",
             parsed.scheme,
         )
         return None
@@ -1729,6 +2057,41 @@ def _validate_nous_inference_url_from_network(url: Optional[str]) -> Optional[st
         )
         return None
     return cleaned.rstrip("/")
+
+
+def _nous_inference_env_override() -> Optional[str]:
+    """Return the user-set ``NOUS_INFERENCE_BASE_URL`` override, if any.
+
+    This is the documented dev/staging escape hatch. The env source is
+    trusted (the OS user set it themselves), so it is intentionally NOT
+    gated by the network host allowlist — unlike Portal-returned URLs.
+
+    Returns a trailing-slash-stripped non-empty string, or ``None`` when
+    the env var is unset/blank.
+    """
+    return _optional_base_url(os.getenv("NOUS_INFERENCE_BASE_URL"))
+
+
+def _nous_portal_env_override() -> Optional[str]:
+    """Return the user/deployment-set Portal base URL override, if any.
+
+    Mirrors ``_nous_inference_env_override()``: ``RUSLAN_PORTAL_BASE_URL`` /
+    ``NOUS_PORTAL_BASE_URL`` are the documented dev/staging escape hatch for
+    pointing Ruslan at a non-production Nous Portal (e.g. a hosted agent
+    provisioned on nous-account-service's `staging` environment, which stamps
+    ``RUSLAN_PORTAL_BASE_URL=https://portal.staging-nousresearch.com`` into
+    the container env). The env source is trusted (the OS user/deployment
+    set it themselves), so — like the inference override — it must NOT be
+    gated by ``_NOUS_PORTAL_ALLOWED_HOSTS``: that allowlist exists to reject
+    an untrusted NETWORK-provided value (a poisoned portal_base_url
+    persisted to auth.json), not a value the operator explicitly configured.
+
+    Returns a trailing-slash-stripped non-empty string, or ``None`` when
+    neither env var is set/blank.
+    """
+    return _optional_base_url(
+        os.getenv("RUSLAN_PORTAL_BASE_URL") or os.getenv("NOUS_PORTAL_BASE_URL")
+    )
 
 
 def _decode_jwt_claims(token: Any) -> Dict[str, Any]:
@@ -1834,7 +2197,7 @@ def _log_nous_invoke_jwt_selected(
     access_token: Any,
     sequence_id: Optional[str] = None,
 ) -> None:
-    logger.info("Nous inference auth: используется NAS invoke JWT")
+    logger.info("Nous inference auth: using NAS invoke JWT")
     _oauth_trace(
         "nous_invoke_jwt_selected",
         sequence_id=sequence_id,
@@ -2380,256 +2743,6 @@ def _spotify_wait_for_callback(
     )
 
 
-def _xai_validate_loopback_redirect_uri(redirect_uri: str) -> tuple[str, int, str]:
-    parsed = urlparse(redirect_uri)
-    if parsed.scheme != "http":
-        raise AuthError(
-            "xAI OAuth redirect_uri must use http://127.0.0.1.",
-            provider="xai-oauth",
-            code="xai_redirect_invalid",
-        )
-    host = parsed.hostname or ""
-    if host != XAI_OAUTH_REDIRECT_HOST:
-        raise AuthError(
-            "xAI OAuth redirect_uri must point to 127.0.0.1.",
-            provider="xai-oauth",
-            code="xai_redirect_invalid",
-        )
-    if not parsed.port:
-        raise AuthError(
-            "xAI OAuth redirect_uri must include an explicit localhost port.",
-            provider="xai-oauth",
-            code="xai_redirect_invalid",
-        )
-    return host, parsed.port, parsed.path or "/"
-
-
-def _xai_callback_cors_origin(origin: Optional[str]) -> str:
-    # CORS allowlist for the loopback callback.  Only xAI's own auth origins
-    # are accepted; the redirect_uri itself is bound to 127.0.0.1 and gated by
-    # PKCE+state, so additional dev/3p origins are not needed here.
-    allowed = {
-        "https://accounts.x.ai",
-        "https://auth.x.ai",
-    }
-    return origin if origin in allowed else ""
-
-
-def _make_xai_callback_handler(expected_path: str) -> tuple[type[BaseHTTPRequestHandler], dict[str, Any]]:
-    result: dict[str, Any] = {
-        "code": None,
-        "state": None,
-        "error": None,
-        "error_description": None,
-    }
-    result_lock = threading.Lock()
-
-    class _XAICallbackHandler(BaseHTTPRequestHandler):
-        def _maybe_write_cors_headers(self) -> None:
-            origin = self.headers.get("Origin")
-            allow_origin = _xai_callback_cors_origin(origin)
-            if allow_origin:
-                self.send_header("Access-Control-Allow-Origin", allow_origin)
-                self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
-                self.send_header("Access-Control-Allow-Headers", "Content-Type")
-                self.send_header("Access-Control-Allow-Private-Network", "true")
-                self.send_header("Vary", "Origin")
-
-        def do_OPTIONS(self) -> None:  # noqa: N802
-            self.send_response(204)
-            self._maybe_write_cors_headers()
-            self.end_headers()
-
-        def do_GET(self) -> None:  # noqa: N802
-            parsed = urlparse(self.path)
-            if parsed.path != expected_path:
-                self.send_response(404)
-                self.end_headers()
-                self.wfile.write(b"Not found.")
-                return
-
-            params = parse_qs(parsed.query)
-            incoming = {
-                "code": params.get("code", [None])[0],
-                "state": params.get("state", [None])[0],
-                "error": params.get("error", [None])[0],
-                "error_description": params.get("error_description", [None])[0],
-            }
-
-            # Diagnostic logging — emits at INFO so reporters of loopback bugs
-            # (#27385 — "callback received but Ruslan times out") can produce
-            # actionable evidence without a code change.  Logged values are
-            # fingerprints / booleans only; no actual code/state strings leak
-            # into the log file.  Run with ``RUSLAN_LOG_LEVEL=INFO`` (or check
-            # ``~/.ruslan/logs/agent.log`` which captures INFO+ unconditionally).
-            try:
-                logger.info(
-                    "xAI loopback callback received: path=%s has_code=%s has_state=%s has_error=%s "
-                    "ua=%s",
-                    parsed.path,
-                    incoming["code"] is not None,
-                    incoming["state"] is not None,
-                    incoming["error"] is not None,
-                    (self.headers.get("User-Agent") or "")[:80],
-                )
-                if incoming["error"]:
-                    logger.info(
-                        "Обратный вызов loopback xAI содержит error=%s error_description=%s",
-                        incoming["error"],
-                        (incoming["error_description"] or "")[:200],
-                    )
-            except Exception:
-                # Logging must never break the OAuth flow.
-                pass
-
-            # Treat a hit on the callback path with neither `code` nor `error`
-            # as a missing OAuth callback (e.g. xAI's auth backend failed to
-            # redirect and the user navigated to the bare loopback URL by hand).
-            # Show an explicit "not received" page rather than the success page —
-            # otherwise the browser claims authorization succeeded while the CLI
-            # is still waiting for a real callback and eventually times out.
-            if incoming["code"] is None and incoming["error"] is None:
-                self.send_response(400)
-                self._maybe_write_cors_headers()
-                self.send_header("Content-Type", "text/html; charset=utf-8")
-                self.end_headers()
-                body = (
-                    "<html><body>"
-                    "<h1>xAI authorization not received.</h1>"
-                    "<p>No authorization code was present in this callback URL. "
-                    "Return to the terminal and re-run "
-                    "<code>ruslan auth add xai-oauth</code> to retry.</p>"
-                    "</body></html>"
-                )
-                self.wfile.write(body.encode("utf-8"))
-                return
-
-            # ThreadingHTTPServer allows a fallback/manual callback to complete
-            # while a browser connection is stuck.  Once we have a terminal
-            # OAuth result (code or error), keep the first one so a later
-            # concurrent/invalid callback cannot overwrite state before
-            # validation in _xai_oauth_loopback_login().
-            with result_lock:
-                if not (result["code"] or result["error"]):
-                    result.update(incoming)
-
-            self.send_response(200)
-            self._maybe_write_cors_headers()
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.end_headers()
-            if incoming["error"]:
-                body = "<html><body><h1>xAI authorization failed.</h1>You can close this tab.</body></html>"
-            else:
-                body = "<html><body><h1>xAI authorization received.</h1>You can close this tab.</body></html>"
-            self.wfile.write(body.encode("utf-8"))
-
-        def log_message(self, format: str, *args: Any) -> None:  # noqa: A003
-            return
-
-    return _XAICallbackHandler, result
-
-
-def _xai_start_callback_server(
-    preferred_port: int = XAI_OAUTH_REDIRECT_PORT,
-) -> tuple[HTTPServer, threading.Thread, dict[str, Any], str]:
-    host = XAI_OAUTH_REDIRECT_HOST
-    expected_path = XAI_OAUTH_REDIRECT_PATH
-    handler_cls, result = _make_xai_callback_handler(expected_path)
-
-    class _ReuseHTTPServer(ThreadingHTTPServer):
-        allow_reuse_address = True
-        daemon_threads = True
-
-    ports_to_try = [preferred_port]
-    if preferred_port != 0:
-        ports_to_try.append(0)
-    server = None
-    last_error: Optional[OSError] = None
-    for port in ports_to_try:
-        try:
-            server = _ReuseHTTPServer((host, port), handler_cls)
-            break
-        except OSError as exc:
-            last_error = exc
-    if server is None:
-        raise AuthError(
-            f"Could not bind xAI callback server on {host}:{preferred_port}: {last_error}",
-            provider="xai-oauth",
-            code="xai_callback_bind_failed",
-        ) from last_error
-
-    actual_port = int(server.server_address[1])
-    redirect_uri = f"http://{host}:{actual_port}{expected_path}"
-    thread = threading.Thread(
-        target=server.serve_forever,
-        kwargs={"poll_interval": 0.1},
-        daemon=True,
-    )
-    thread.start()
-    return server, thread, result, redirect_uri
-
-
-def _xai_wait_for_callback(
-    server: HTTPServer,
-    thread: threading.Thread,
-    result: dict[str, Any],
-    *,
-    timeout_seconds: float = 180.0,
-    manual_paste_redirect_uri: Optional[str] = None,
-) -> dict[str, Any]:
-    deadline = time.monotonic() + max(5.0, timeout_seconds)
-    if manual_paste_redirect_uri and sys.stdin.isatty():
-        print()
-        print("Если xAI показывает код Grok Build вместо перенаправления,")
-        print("вставьте этот код здесь и нажмите Enter.")
-    try:
-        while time.monotonic() < deadline:
-            if result["code"] or result["error"]:
-                return result
-            if manual_paste_redirect_uri:
-                raw_paste = _read_ready_stdin_line()
-                if raw_paste and raw_paste.strip():
-                    pasted = _parse_pasted_callback(raw_paste)
-                    pasted["_manual_paste"] = True
-                    return pasted
-            time.sleep(0.1)
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=1.0)
-    # Diagnostic: distinguish "no callback ever arrived" from "callback
-    # arrived but result wasn't populated" (#27385).  The per-hit handler
-    # also logs at INFO; if neither line appears, xAI's IDP never reached
-    # the loopback at all (firewall, port-binding, IPv6/IPv4 mismatch).
-    logger.info(
-        "xAI loopback wait timed out after %.0fs with no usable callback "
-        "(result.code=%s result.error=%s)",
-        max(5.0, timeout_seconds),
-        result["code"] is not None,
-        result["error"] is not None,
-    )
-    raise AuthError(
-        "xAI authorization timed out waiting for the local callback.",
-        provider="xai-oauth",
-        code="xai_callback_timeout",
-    )
-
-
-def _read_ready_stdin_line() -> Optional[str]:
-    """Return one pending stdin line without blocking, if the terminal has one."""
-    try:
-        if not sys.stdin.isatty():
-            return None
-        import select
-
-        ready, _, _ = select.select([sys.stdin], [], [], 0)
-        if not ready:
-            return None
-        return sys.stdin.readline()
-    except Exception:
-        return None
-
-
 def _spotify_token_payload_to_state(
     token_payload: Dict[str, Any],
     *,
@@ -2876,25 +2989,25 @@ def _spotify_interactive_setup(redirect_uri_hint: str) -> str:
 
     print()
     print("=" * 70)
-    print("Первоначальная настройка Spotify")
+    print("Spotify first-time setup")
     print("=" * 70)
     print()
-    print("Spotify требует от каждого пользователя зарегистрировать свое собственное легковесное")
-    print("приложение разработчика. Это занимает около двух минут и должно быть выполнено")
-    print("только один раз на машине.")
+    print("Spotify requires every user to register their own lightweight")
+    print("developer app. This takes about two minutes and only has to be")
+    print("done once per machine.")
     print()
     print(f"Full guide: {SPOTIFY_DOCS_URL}")
     print()
-    print("Шаги:")
+    print("Steps:")
     print(f"  1. Opening {SPOTIFY_DASHBOARD_URL} in your browser...")
-    print("2. Click 'Create app' and fill in:")
-    print("App name:     anything (e.g. ruslan-agent)")
-    print("Description:  anything")
+    print("  2. Click 'Create app' and fill in:")
+    print("       App name:     anything (e.g. ruslan-agent)")
+    print("       Description:  anything")
     print(f"       Redirect URI: {redirect_uri_hint}")
-    print("API/SDK:      Веб-API")
-    print("Согласитесь с условиями, нажмите Сохранить.")
-    print("Откройте страницу настроек приложения и скопируйте Client ID.")
-    print("Вставьте его ниже.")
+    print("       API/SDK:      Web API")
+    print("  3. Agree to the terms, click Save.")
+    print("  4. Open the app's Settings page and copy the Client ID.")
+    print("  5. Paste it below.")
     print()
 
     if not _is_remote_session():
@@ -2904,7 +3017,7 @@ def _spotify_interactive_setup(redirect_uri_hint: str) -> str:
             pass
 
     try:
-        raw = input("Spotify Client ID:").strip()
+        raw = input("Spotify Client ID: ").strip()
     except (EOFError, KeyboardInterrupt):
         print()
         raise SystemExit("Spotify setup cancelled.")
@@ -2922,7 +3035,7 @@ def _spotify_interactive_setup(redirect_uri_hint: str) -> str:
         save_env_value("RUSLAN_SPOTIFY_REDIRECT_URI", redirect_uri_hint)
 
     print()
-    print("Сохранено RUSLAN_SPOTIFY_CLIENT_ID в ~/.ruslan/.env")
+    print("Saved RUSLAN_SPOTIFY_CLIENT_ID to ~/.ruslan/.env")
     print()
     return raw
 
@@ -2961,12 +3074,12 @@ def login_spotify_command(args) -> None:
         accounts_base_url=accounts_base_url,
     )
 
-    print("Запуск Spotify PKCE входа...")
+    print("Starting Spotify PKCE login...")
     print(f"Client ID: {client_id}")
     print(f"Redirect URI: {redirect_uri}")
-    print("Убедитесь, что этот redirect URI добавлен в белый список в настройках вашего приложения Spotify.")
+    print("Make sure this redirect URI is allow-listed in your Spotify app settings.")
     print()
-    print("Откройте этот URL для авторизации Ruslan:")
+    print("Open this URL to authorize Ruslan:")
     print(authorize_url)
     print()
     print(f"Full setup guide: {SPOTIFY_DOCS_URL}")
@@ -2980,9 +3093,9 @@ def login_spotify_command(args) -> None:
         except Exception:
             opened = False
         if opened:
-            print("Браузер открыт для авторизации Spotify.")
+            print("Browser opened for Spotify authorization.")
         else:
-            print("Не удалось открыть браузер автоматически; используйте URL выше.")
+            print("Could not open the browser automatically; use the URL above.")
 
     callback = _spotify_wait_for_callback(
         redirect_uri,
@@ -3016,9 +3129,9 @@ def login_spotify_command(args) -> None:
         _store_provider_state(auth_store, "spotify", spotify_state, set_active=False)
         saved_to = _save_auth_store(auth_store)
 
-    print("Вход в Spotify выполнен успешно!")
+    print("Spotify login successful!")
     print(f"  Auth state: {saved_to}")
-    print("Состояние провайдера сохранено в providers.spotify")
+    print("  Provider state saved under providers.spotify")
     print(f"  Docs: {SPOTIFY_DOCS_URL}")
 
 # =============================================================================
@@ -3060,8 +3173,8 @@ def _is_remote_session() -> bool:
 # it hijacks the user's TTY with an unusable text browser (the xAI OAuth
 # "Account Management" page rendered in w3m, reported May 2026) instead of
 # letting them copy the URL to a real browser.  When the resolved browser is
-# one of these we refuse to auto-open and fall back to the print-the-URL /
-# manual-paste path, same as a remote session.
+# one of these we refuse to auto-open and fall back to the print-the-URL
+# path, same as a remote session.
 _CONSOLE_BROWSER_NAMES: FrozenSet[str] = frozenset(
     {
         "w3m",
@@ -3132,83 +3245,6 @@ def _can_open_graphical_browser() -> bool:
     return True
 
 
-def _parse_pasted_callback(raw: str) -> dict:
-    """Parse a pasted callback URL / query string into the loopback shape.
-
-    Accepts any of:
-
-    * full URL:  ``http://127.0.0.1:56121/callback?code=abc&state=xyz``
-    * bare query string:  ``?code=abc&state=xyz``  or  ``code=abc&state=xyz``
-    * bare code (no state, only used when the upstream omits state):
-      ``abc-the-code-value``
-
-    Returns ``{"code", "state", "error", "error_description"}`` with
-    missing keys set to ``None`` so the loopback callsites can keep
-    using the same validation path (state check, error check, etc.)
-    they already use for the HTTP server output.  Regression for
-    #26923 — formalises the curl-the-callback-URL workaround the
-    reporter used while waiting for upstream support.
-    """
-    stripped = raw.strip()
-    result: dict = {
-        "code": None,
-        "state": None,
-        "error": None,
-        "error_description": None,
-    }
-    if not stripped:
-        return result
-    query = ""
-    if stripped.startswith(("http://", "https://")):
-        try:
-            parsed = urlparse(stripped)
-        except Exception:
-            return result
-        query = parsed.query or ""
-    elif stripped.startswith("?"):
-        query = stripped[1:]
-    elif "=" in stripped:
-        # Looks like a bare query fragment (``code=...&state=...``).
-        query = stripped
-    else:
-        # Treat as a bare opaque code value with no state.
-        result["code"] = stripped
-        return result
-    params = parse_qs(query, keep_blank_values=False)
-    for key in ("code", "state", "error", "error_description"):
-        values = params.get(key)
-        if values:
-            result[key] = values[0]
-    return result
-
-
-def _prompt_manual_callback_paste(redirect_uri: str) -> dict:
-    """Read a callback URL from stdin as a fallback for browser-only remotes.
-
-    Used when ``--manual-paste`` is set or when the loopback listener
-    cannot bind.  Returns the parsed callback dict (same shape as the
-    HTTP handler output) so the existing state / error validation in
-    the caller works unchanged.  See #26923.
-    """
-    print()
-    print("─── Вставка ручного обратного вызова ─────────────────────────────────────")
-    print("После подтверждения в вашем браузере, ваш браузер попытается загрузить")
-    print(f"  {redirect_uri}")
-    print("что не удается (прослушиватель loopback находится на этой удаленной машине,")
-    print("не на вашем ноутбуке) — это ожидаемо. Скопируйте ПОЛНЫЙ URL")
-    print("from your browser's address bar of that failed page and paste")
-    print("его ниже. Также подойдет простой фрагмент '?code=...&state=...'.")
-    print("Если страница согласия показывает код авторизации на странице")
-    print("(текущее поведение xAI) вместо перенаправления, вставьте")
-    print("просто значение кода отдельно.")
-    print("───────────────────────────────────────────────────────────────")
-    try:
-        raw = input("URL обратного вызова:")
-    except (EOFError, KeyboardInterrupt):
-        raw = ""
-    return _parse_pasted_callback(raw)
-
-
 def _ssh_user_at_host() -> str:
     """Return best-effort 'user@hostname' for the SSH tunnel hint command.
 
@@ -3226,16 +3262,16 @@ def _ssh_user_at_host() -> str:
 
 def _print_loopback_ssh_hint(redirect_uri: str, *, docs_url: str | None = None) -> None:
     """Print an SSH tunnel hint when running a loopback-redirect OAuth flow on a
-    remote host. The auth server (xAI, Spotify, ...) will redirect the user's
-    browser to ``127.0.0.1:<port>/callback``. If the browser is on a different
-    machine than the loopback listener (the usual SSH case), the redirect can't
-    reach the listener without a local port forward.
+    remote host. The auth server (Spotify, MCP servers, ...) will redirect the
+    user's browser to ``127.0.0.1:<port>/callback``. If the browser is on a
+    different machine than the loopback listener (the usual SSH case), the
+    redirect can't reach the listener without a local port forward.
 
     The hint is best-effort: silent if we don't think we're remote, or if we
     can't parse a host/port out of the redirect URI.
 
-    Pass ``docs_url`` for a provider-specific guide (e.g. the xAI Grok OAuth
-    page); the generic OAuth-over-SSH guide is always shown after it.
+    Pass ``docs_url`` for a provider-specific guide; the generic OAuth-over-SSH
+    guide is always shown after it.
     """
     if not _is_remote_session():
         return
@@ -3250,19 +3286,15 @@ def _print_loopback_ssh_hint(redirect_uri: str, *, docs_url: str | None = None) 
     divider = "-" * 60
     print()
     print(divider)
-    print("Обнаружена удаленная сессия — требуется SSH-туннель")
+    print("Remote session detected — SSH tunnel required")
     print(divider)
     print(f"Ruslan is waiting for the OAuth callback on {redirect_uri}")
-    print("но ваш браузер находится на другом компьютере. Выполните эту команду")
-    print("в НОВОМ терминале на вашем локальном компьютере ПЕРЕД открытием URL:")
+    print("but your browser is on a different machine. Run this command")
+    print("in a NEW terminal on your local machine BEFORE opening the URL:")
     print()
     print(f"  ssh -N -L {port}:127.0.0.1:{port} {_ssh_user_at_host()}")
     print()
-    print("Затем откройте URL авторизации выше в вашем локальном браузере.")
-    print()
-    print("Нет SSH-клиента (Cloud Shell / Codespaces / веб-IDE)? Перезапустите с")
-    print("`--manual-paste`, чтобы пропустить прослушиватель loopback и вставить неудавшийся")
-    print("URL обратного вызова напрямую.")
+    print("Then open the authorize URL above in your local browser.")
     if docs_url:
         print(f"Provider docs:      {docs_url}")
     print(f"SSH/jump-box guide: {OAUTH_OVER_SSH_DOCS_URL}")
@@ -3292,7 +3324,7 @@ def _read_codex_tokens(*, _lock: bool = True) -> Dict[str, Any]:
     state = _load_provider_state(auth_store, "openai-codex")
     if not state:
         raise AuthError(
-            "Нет сохранённых данных Codex. Выполните `ruslan auth` для входа.",
+            "No Codex credentials stored. Run `ruslan auth` to authenticate.",
             provider="openai-codex",
             code="codex_auth_missing",
             relogin_required=True,
@@ -3467,7 +3499,7 @@ def _recover_codex_tokens_from_cli(reason: str) -> Optional[Dict[str, str]]:
         and str(imported.get("refresh_token", "") or "").strip()
     ):
         return None
-    logger.info("Аутентификация Codex восстановлена из Codex CLI auth.json (%s).", reason)
+    logger.info("Codex auth recovered from Codex CLI auth.json (%s).", reason)
     _save_codex_tokens(imported)
     return dict(imported)
 
@@ -3489,7 +3521,13 @@ def refresh_codex_oauth_pure(
         )
 
     timeout = httpx.Timeout(max(5.0, float(timeout_seconds)))
-    with httpx.Client(timeout=timeout, headers={"Accept": "application/json"}) as client:
+    with httpx.Client(
+        timeout=timeout,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": CODEX_OAUTH_USER_AGENT,
+        },
+    ) as client:
         response = client.post(
             CODEX_OAUTH_TOKEN_URL,
             headers={"Content-Type": "application/x-www-form-urlencoded"},
@@ -3751,7 +3789,7 @@ def resolve_codex_runtime_credentials(
         if read_error is not None:
             raise read_error
         raise AuthError(
-            "Нет сохранённых данных Codex. Выполните `ruslan auth` для входа.",
+            "No Codex credentials stored. Run `ruslan auth` to authenticate.",
             provider="openai-codex",
             code="codex_auth_missing",
             relogin_required=True,
@@ -3971,7 +4009,7 @@ def _read_xai_oauth_tokens(*, _lock: bool = True) -> Dict[str, Any]:
             state = global_state
     if not state:
         raise AuthError(
-            "Нет сохранённых данных xAI OAuth. Выберите xAI Grok OAuth в `ruslan model`.",
+            "No xAI OAuth credentials stored. Select xAI Grok OAuth (SuperGrok / Premium+) in `ruslan model`.",
             provider="xai-oauth",
             code="xai_auth_missing",
             relogin_required=True,
@@ -4052,14 +4090,12 @@ def _write_through_xai_oauth_to_global_root(state: Dict[str, Any]) -> None:
             except Exception:
                 return
     try:
-        if global_path.exists():
-            global_store = _load_auth_store(global_path)
-        else:
-            global_store = {}
-        if not isinstance(global_store, dict):
-            return
-        _store_provider_state(global_store, "xai-oauth", dict(state), set_active=False)
-        _save_auth_store(global_store, global_path)
+        _persist_provider_state_to_store(
+            "xai-oauth",
+            state,
+            global_path,
+            set_active=False,
+        )
     except Exception as exc:  # pragma: no cover - best effort
         logger.debug("xAI OAuth: write-through to global root failed: %s", exc)
 
@@ -4070,6 +4106,7 @@ def _save_xai_oauth_tokens(
     discovery: Optional[Dict[str, Any]] = None,
     redirect_uri: str = "",
     last_refresh: Optional[str] = None,
+    auth_mode: str = "oauth_device_code",
 ) -> None:
     if last_refresh is None:
         last_refresh = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -4083,7 +4120,7 @@ def _save_xai_oauth_tokens(
         state = _load_provider_state(auth_store, "xai-oauth") or {}
         state["tokens"] = tokens
         state["last_refresh"] = last_refresh
-        state["auth_mode"] = "oauth_pkce"
+        state["auth_mode"] = auth_mode
         if discovery:
             state["discovery"] = discovery
         if redirect_uri:
@@ -4110,6 +4147,40 @@ def _xai_access_token_is_expiring(access_token: str, skew_seconds: int = 0) -> b
         return float(exp) <= (time.time() + max(0, int(skew_seconds)))
     except Exception:
         return False
+
+
+def _xai_proactive_refresh_skew_seconds(access_token: str) -> int:
+    """How far before JWT ``exp`` to proactively refresh xAI OAuth tokens.
+
+    SuperGrok sessions can still ship multi-hour access tokens, where the
+    gateway-oriented :data:`XAI_ACCESS_TOKEN_REFRESH_SKEW_SECONDS` window
+    makes sense. Device-code logins often return ~15-minute JWTs; applying
+    the full hour-long skew to those forces a refresh on *every* credential
+    resolution (chat turn, Imagine tool call, ``ruslan auth status``, …),
+    which burns single-use refresh tokens and races concurrent callers into
+    ``invalid_grant`` quarantine.
+    """
+    max_skew = XAI_ACCESS_TOKEN_REFRESH_SKEW_SECONDS
+    if not isinstance(access_token, str) or "." not in access_token:
+        return max_skew
+    try:
+        parts = access_token.split(".")
+        if len(parts) < 2:
+            return max_skew
+        payload_b64 = parts[1]
+        payload_b64 += "=" * (-len(payload_b64) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(payload_b64.encode("ascii")).decode("utf-8"))
+        exp = payload.get("exp")
+        if not isinstance(exp, (int, float)):
+            return max_skew
+        remaining = float(exp) - time.time()
+        if remaining <= 0:
+            return max_skew
+        if remaining <= 45 * 60:
+            return min(120, max_skew)
+        return max_skew
+    except Exception:
+        return max_skew
 
 
 def _xai_validate_oauth_endpoint(url: str, *, field: str) -> str:
@@ -4179,7 +4250,7 @@ def _xai_validate_inference_base_url(value: str, *, fallback: str) -> str:
         parsed = urlparse(candidate)
     except Exception:
         logger.warning(
-            "Игнорирование некорректного переопределения base_url xAI %r; используется %s.",
+            "Ignoring malformed xAI base_url override %r; using %s instead.",
             candidate, fallback,
         )
         return fallback
@@ -4193,7 +4264,7 @@ def _xai_validate_inference_base_url(value: str, *, fallback: str) -> str:
     host = (parsed.hostname or "").lower()
     if not host:
         logger.warning(
-            "Игнорирование переопределения base_url xAI %r без имени хоста; вместо этого используется %s.",
+            "Ignoring xAI base_url override %r with no hostname; using %s instead.",
             candidate, fallback,
         )
         return fallback
@@ -4363,6 +4434,14 @@ def _refresh_xai_oauth_tokens(
     redirect_uri: str = "",
     timeout_seconds: float,
 ) -> Dict[str, Any]:
+    # Re-persist whatever auth_mode is already stored (legacy pre-device-code
+    # logins may still carry ``oauth_pkce``): the refresh hot path must not
+    # relabel how the grant was originally obtained.
+    try:
+        state = _load_provider_state(_load_auth_store(), "xai-oauth") or {}
+        auth_mode = str(state.get("auth_mode") or "oauth_device_code")
+    except Exception:
+        auth_mode = "oauth_device_code"
     refreshed = refresh_xai_oauth_pure(
         str(tokens.get("access_token", "") or ""),
         str(tokens.get("refresh_token", "") or ""),
@@ -4383,6 +4462,7 @@ def _refresh_xai_oauth_tokens(
         discovery={"token_endpoint": token_endpoint},
         redirect_uri=redirect_uri,
         last_refresh=refreshed["last_refresh"],
+        auth_mode=auth_mode,
     )
     return updated_tokens
 
@@ -4391,7 +4471,7 @@ def resolve_xai_oauth_runtime_credentials(
     *,
     force_refresh: bool = False,
     refresh_if_expiring: bool = True,
-    refresh_skew_seconds: int = XAI_ACCESS_TOKEN_REFRESH_SKEW_SECONDS,
+    refresh_skew_seconds: Optional[int] = None,
 ) -> Dict[str, Any]:
     data = _read_xai_oauth_tokens()
     tokens = dict(data["tokens"])
@@ -4401,9 +4481,14 @@ def resolve_xai_oauth_runtime_credentials(
     token_endpoint = str(discovery.get("token_endpoint", "") or "").strip()
     redirect_uri = str(data.get("redirect_uri", "") or "").strip()
 
+    effective_skew = (
+        int(refresh_skew_seconds)
+        if refresh_skew_seconds is not None
+        else _xai_proactive_refresh_skew_seconds(access_token)
+    )
     should_refresh = bool(force_refresh)
     if (not should_refresh) and refresh_if_expiring:
-        should_refresh = _xai_access_token_is_expiring(access_token, refresh_skew_seconds)
+        should_refresh = _xai_access_token_is_expiring(access_token, effective_skew)
     if should_refresh:
         with _auth_store_lock(timeout_seconds=max(float(AUTH_LOCK_TIMEOUT_SECONDS), refresh_timeout_seconds + 5.0)):
             data = _read_xai_oauth_tokens(_lock=False)
@@ -4412,9 +4497,14 @@ def resolve_xai_oauth_runtime_credentials(
             discovery = dict(data.get("discovery") or {})
             token_endpoint = str(discovery.get("token_endpoint", "") or "").strip()
             redirect_uri = str(data.get("redirect_uri", "") or "").strip()
+            effective_skew = (
+                int(refresh_skew_seconds)
+                if refresh_skew_seconds is not None
+                else _xai_proactive_refresh_skew_seconds(access_token)
+            )
             should_refresh = bool(force_refresh)
             if (not should_refresh) and refresh_if_expiring:
-                should_refresh = _xai_access_token_is_expiring(access_token, refresh_skew_seconds)
+                should_refresh = _xai_access_token_is_expiring(access_token, effective_skew)
             if should_refresh:
                 if not token_endpoint:
                     token_endpoint = _xai_oauth_discovery(refresh_timeout_seconds)["token_endpoint"]
@@ -4465,7 +4555,10 @@ def resolve_xai_oauth_runtime_credentials(
         "api_key": access_token,
         "source": "ruslan-auth-store",
         "last_refresh": data.get("last_refresh"),
-        "auth_mode": "oauth_pkce",
+        # Display/telemetry only. Device-code is the only supported xAI OAuth
+        # flow, so report it unconditionally — auth.json may still carry a
+        # legacy ``oauth_pkce`` label, which the refresh path preserves as-is.
+        "auth_mode": "oauth_device_code",
     }
 
 
@@ -4518,7 +4611,7 @@ def _resolve_verify(
         ca_path = str(effective_ca)
         if not os.path.isfile(ca_path):
             logger.warning(
-                "Путь к пакету CA не существует: %s — возврат к сертификатам по умолчанию",
+                "CA bundle path does not exist: %s — falling back to default certificates",
                 ca_path,
             )
             return _default_verify()
@@ -4909,6 +5002,58 @@ def _quarantine_nous_oauth_state(
     reason: str,
 ) -> None:
     """Keep routing metadata but remove dead OAuth material so it is not replayed."""
+    # Forensic logging BEFORE we clear the token material. A hosted agent
+    # can take a terminal invalid_grant and get quarantined here silently: the
+    # only downstream signal is a "No access token found" WARNING once the pool
+    # is already empty, which is too late to root-cause. A managed log drain may
+    # be WARNING-only, so this MUST be logger.warning (INFO never reaches it).
+    #
+    # Redaction safety: emit ONLY the 12-char SHA-256 hex prefix of the refresh
+    # token (correlates to NAS's refreshTokenHash without leaking the secret) plus
+    # sizes/booleans. NEVER pass a raw token/agent_key into the log call — Ruslan
+    # has a known bug class where credential-shaped literals get corrupted in logs.
+    forensic: Dict[str, Any] = {
+        "reason": reason,
+        "error_code": error.code,
+        # No session_id field exists on Nous state; provenance is client_id +
+        # agent_key_id (both non-secret routing identifiers).
+        "client_id": state.get("client_id"),
+        "agent_key_id": state.get("agent_key_id"),
+        "refresh_token_fp": _token_fingerprint(state.get("refresh_token")),
+    }
+
+    # On-disk integrity of the auth store at the moment of quarantine.
+    try:
+        auth_path = _auth_file_path()
+        forensic["auth_json_path"] = str(auth_path)
+        try:
+            st = os.stat(auth_path)
+            forensic["auth_json_size"] = st.st_size
+            forensic["auth_json_mtime"] = st.st_mtime
+            forensic["auth_json_exists"] = True
+        except FileNotFoundError:
+            forensic["auth_json_exists"] = False
+    except Exception as exc:  # pragma: no cover - never let logging break quarantine
+        forensic["auth_json_stat_error"] = repr(exc)
+
+    # Was the token already past its own expiry when it was rejected?
+    already_expired: Optional[bool] = None
+    expires_at_raw = state.get("expires_at")
+    if isinstance(expires_at_raw, str) and expires_at_raw:
+        try:
+            parsed = datetime.fromisoformat(expires_at_raw)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            already_expired = parsed < datetime.now(timezone.utc)
+        except ValueError:
+            already_expired = None
+    forensic["token_already_expired"] = already_expired
+
+    logger.warning(
+        "Nous OAuth state quarantined (terminal auth death): %s",
+        json.dumps(forensic, sort_keys=True, ensure_ascii=False),
+    )
+
     for key in (
         "access_token",
         "refresh_token",
@@ -5174,9 +5319,11 @@ def resolve_nous_access_token(
     refresh_skew_seconds: int = ACCESS_TOKEN_REFRESH_SKEW_SECONDS,
 ) -> str:
     """Resolve a refresh-aware Nous Portal access token for managed tool gateways."""
-    with _auth_store_lock():
-        auth_store = _load_auth_store()
-        state = _load_provider_state(auth_store, "nous")
+    with _provider_state_transaction("nous") as (
+        auth_store,
+        state,
+        state_source_path,
+    ):
 
         if not state:
             raise AuthError(
@@ -5185,12 +5332,30 @@ def resolve_nous_access_token(
                 relogin_required=True,
             )
 
-        portal_base_url = (
-            _optional_base_url(state.get("portal_base_url"))
-            or os.getenv("RUSLAN_PORTAL_BASE_URL")
-            or os.getenv("NOUS_PORTAL_BASE_URL")
-            or DEFAULT_NOUS_PORTAL_URL
-        ).rstrip("/")
+        # RUSLAN_PORTAL_BASE_URL / NOUS_PORTAL_BASE_URL is the trusted
+        # operator/deployment override (mirrors NOUS_INFERENCE_BASE_URL) and
+        # must win OUTRIGHT — including over a stored value — and bypass the
+        # host allowlist entirely, since the allowlist exists to reject an
+        # untrusted network-provided value, not one the operator configured.
+        # Only fall through to the stored/default value + allowlist gate when
+        # no override is set.
+        env_portal_override = _nous_portal_env_override()
+        if env_portal_override:
+            portal_base_url = env_portal_override.rstrip("/")
+        else:
+            portal_base_url = (
+                _optional_base_url(state.get("portal_base_url"))
+                or DEFAULT_NOUS_PORTAL_URL
+            ).rstrip("/")
+
+            parsed_portal_url = urlparse(portal_base_url)
+            if parsed_portal_url.hostname and parsed_portal_url.hostname not in _NOUS_PORTAL_ALLOWED_HOSTS:
+                logger.warning(
+                    "auth: ignoring invalid portal_base_url %r (host %r not in allowlist), using default",
+                    portal_base_url, parsed_portal_url.hostname,
+                )
+                portal_base_url = DEFAULT_NOUS_PORTAL_URL
+
         client_id = str(state.get("client_id") or DEFAULT_NOUS_CLIENT_ID)
         verify = _resolve_verify(insecure=insecure, ca_bundle=ca_bundle, auth_state=state)
 
@@ -5207,8 +5372,7 @@ def resolve_nous_access_token(
 
             if not _is_expiring(state.get("expires_at"), refresh_skew_seconds):
                 if merged_shared:
-                    _save_provider_state(auth_store, "nous", state)
-                    _save_auth_store(auth_store)
+                    _save_provider_state_to_source(auth_store, "nous", state, state_source_path)
                 return access_token
 
             if not isinstance(refresh_token, str) or not refresh_token:
@@ -5243,8 +5407,7 @@ def resolve_nous_access_token(
                             exc,
                             reason="managed_access_token_refresh_failure",
                         )
-                        _save_provider_state(auth_store, "nous", state)
-                        _save_auth_store(auth_store)
+                        _save_provider_state_to_source(auth_store, "nous", state, state_source_path)
                     raise
 
             now = datetime.now(timezone.utc)
@@ -5265,8 +5428,7 @@ def resolve_nous_access_token(
                 "insecure": verify is False,
                 "ca_bundle": verify if isinstance(verify, str) else None,
             }
-            _save_provider_state(auth_store, "nous", state)
-            _save_auth_store(auth_store)
+            _save_provider_state_to_source(auth_store, "nous", state, state_source_path)
             _write_shared_nous_state(state)
             return state["access_token"]
 
@@ -5490,9 +5652,11 @@ def resolve_nous_runtime_credentials(
     """
     sequence_id = uuid.uuid4().hex[:12]
 
-    with _auth_store_lock():
-        auth_store = _load_auth_store()
-        state = _load_provider_state(auth_store, "nous")
+    with _provider_state_transaction("nous") as (
+        auth_store,
+        state,
+        state_source_path,
+    ):
 
         if not state:
             raise AuthError("Ruslan is not logged into Nous Portal.",
@@ -5501,18 +5665,72 @@ def resolve_nous_runtime_credentials(
         persisted_state = dict(state)
         state_persisted = False
 
-        portal_base_url = (
-            _optional_base_url(state.get("portal_base_url"))
-            or os.getenv("RUSLAN_PORTAL_BASE_URL")
-            or os.getenv("NOUS_PORTAL_BASE_URL")
-            or DEFAULT_NOUS_PORTAL_URL
-        ).rstrip("/")
-        inference_base_url = (
-            _optional_base_url(state.get("inference_base_url"))
-            or os.getenv("NOUS_INFERENCE_BASE_URL")
-            or DEFAULT_NOUS_INFERENCE_URL
-        ).rstrip("/")
-        client_id = str(state.get("client_id") or DEFAULT_NOUS_CLIENT_ID)
+        def _resolve_effective_routing_metadata() -> tuple[str, str, str, str]:
+            """Resolve every routing value that shared OAuth state can replace."""
+            portal_url = (
+                _optional_base_url(state.get("portal_base_url"))
+                or os.getenv("RUSLAN_PORTAL_BASE_URL")
+                or os.getenv("NOUS_PORTAL_BASE_URL")
+                or DEFAULT_NOUS_PORTAL_URL
+            ).rstrip("/")
+
+            # A persisted/stale portal_base_url is where the refresh token gets
+            # POSTed on refresh — reject any host outside the allowlist so a
+            # poisoned value can't exfiltrate the bearer, healing to the default.
+            # Trusted operator env overrides bypass this network-value gate.
+            env_portal_override = _nous_portal_env_override()
+            if env_portal_override:
+                portal_url = env_portal_override.rstrip("/")
+            else:
+                parsed_portal_url = urlparse(portal_url)
+                portal_host = parsed_portal_url.hostname
+                loopback_http = (
+                    parsed_portal_url.scheme == "http"
+                    and portal_host in {"localhost", "127.0.0.1"}
+                )
+                trusted_scheme = (
+                    parsed_portal_url.scheme == "https" or loopback_http
+                )
+                if (
+                    not portal_host
+                    or portal_host not in _NOUS_PORTAL_ALLOWED_HOSTS
+                    or not trusted_scheme
+                ):
+                    logger.warning(
+                        "auth: ignoring invalid portal_base_url %r "
+                        "(host %r or scheme not allowed), using default",
+                        portal_url,
+                        portal_host,
+                    )
+                    portal_url = DEFAULT_NOUS_PORTAL_URL
+
+            # Re-validate persisted network-provenance on every shared merge.
+            # The env override is runtime-only and must never be persisted.
+            stored_inference_url = (
+                _validate_nous_inference_url_from_network(
+                    _optional_base_url(state.get("inference_base_url"))
+                )
+                or DEFAULT_NOUS_INFERENCE_URL
+            )
+            effective_inference_url = (
+                _nous_inference_env_override() or stored_inference_url
+            )
+            effective_client_id = str(
+                state.get("client_id") or DEFAULT_NOUS_CLIENT_ID
+            )
+            return (
+                portal_url,
+                stored_inference_url,
+                effective_inference_url,
+                effective_client_id,
+            )
+
+        (
+            portal_base_url,
+            stored_inference_base_url,
+            inference_base_url,
+            client_id,
+        ) = _resolve_effective_routing_metadata()
 
         def _persist_state(reason: str) -> None:
             nonlocal persisted_state, state_persisted
@@ -5529,8 +5747,7 @@ def resolve_nous_runtime_credentials(
                 )
                 return
             try:
-                _save_provider_state(auth_store, "nous", state)
-                _save_auth_store(auth_store)
+                _save_provider_state_to_source(auth_store, "nous", state, state_source_path)
             except Exception as exc:
                 _oauth_trace(
                     "nous_state_persist_failed",
@@ -5567,6 +5784,21 @@ def resolve_nous_runtime_credentials(
             refresh_token = state.get("refresh_token")
 
             if not isinstance(access_token, str) or not access_token:
+                with _nous_shared_store_lock(
+                    timeout_seconds=max(timeout_seconds + 5.0, AUTH_LOCK_TIMEOUT_SECONDS)
+                ):
+                    if _merge_shared_nous_oauth_state(state):
+                        access_token = state.get("access_token")
+                        refresh_token = state.get("refresh_token")
+                        (
+                            portal_base_url,
+                            stored_inference_base_url,
+                            inference_base_url,
+                            client_id,
+                        ) = _resolve_effective_routing_metadata()
+                        _persist_state("runtime_shared_merge_missing_access_token")
+
+            if not isinstance(access_token, str) or not access_token:
                 raise AuthError("No access token found for Nous Portal login.",
                                 provider="nous", relogin_required=True)
 
@@ -5580,6 +5812,12 @@ def resolve_nous_runtime_credentials(
                     if _merge_shared_nous_oauth_state(state):
                         access_token = state.get("access_token")
                         refresh_token = state.get("refresh_token")
+                        (
+                            portal_base_url,
+                            stored_inference_base_url,
+                            inference_base_url,
+                            client_id,
+                        ) = _resolve_effective_routing_metadata()
                         invoke_jwt_status = _nous_invoke_jwt_status(
                             access_token,
                             scope=state.get("scope"),
@@ -5635,10 +5873,20 @@ def resolve_nous_runtime_credentials(
                         # Heal a poisoned stored value (see refresh_nous_oauth_pure):
                         # reject → reset to production default, don't keep a stale
                         # staging host that re-validates to None every refresh.
-                        # The local inference_base_url is persisted to state below
-                        # (and used for the client), so healing it here suffices.
+                        # This (validated, network-provenance) value is what gets
+                        # persisted to auth.json below. The NOUS_INFERENCE_BASE_URL
+                        # env override is layered on for the client/return value
+                        # only (see below) — it is never persisted.
                         refreshed_url = _validate_nous_inference_url_from_network(refreshed.get("inference_base_url"))
-                        inference_base_url = refreshed_url or DEFAULT_NOUS_INFERENCE_URL
+                        stored_inference_base_url = refreshed_url or DEFAULT_NOUS_INFERENCE_URL
+                        inference_base_url = (
+                            _nous_inference_env_override() or stored_inference_base_url
+                        )
+                        # Persist network-derived routing with rotated tokens so
+                        # a later JWT validation failure cannot leave the profile
+                        # and shared stores on stale metadata. Never persist the
+                        # operator-only env overlay.
+                        state["inference_base_url"] = stored_inference_base_url
                         state["obtained_at"] = now.isoformat()
                         state["expires_in"] = access_ttl
                         state["expires_at"] = datetime.fromtimestamp(
@@ -5667,8 +5915,11 @@ def resolve_nous_runtime_credentials(
             )
 
             # Persist routing and TLS metadata for non-interactive refresh.
+            # Persist the validated, network-provenance URL — NEVER the env
+            # override (which is a runtime-only overlay; persisting it would
+            # leak a dev/staging host into auth.json and survive unsetting it).
             state["portal_base_url"] = portal_base_url
-            state["inference_base_url"] = inference_base_url
+            state["inference_base_url"] = stored_inference_base_url
             state["client_id"] = client_id
             state["tls"] = {
                 "insecure": verify is False,
@@ -5701,7 +5952,11 @@ def resolve_nous_runtime_credentials(
         "expires_at": expires_at,
         "expires_in": expires_in,
         "source": NOUS_AUTH_PATH_INVOKE_JWT,
+        # Preserve the public semantic source label while exposing the concrete
+        # store separately for diagnostics. Refresh persistence uses
+        # state_source_path internally and must not overload this field.
         "auth_path": NOUS_AUTH_PATH_INVOKE_JWT,
+        "state_path": str(state_source_path or _auth_file_path()),
     }
 
 
@@ -5905,6 +6160,75 @@ def _compute_nous_auth_status() -> Dict[str, Any]:
     return _snapshot_nous_pool_status()
 
 
+# Enum values reported on the dashboard /api/status as ``nous_session_valid``.
+# NAS's health sweep re-mints the bootstrap session ONLY on "terminal"; "valid"
+# and "unknown" are no-ops. Keep this set small and stable — NAS parses it with
+# a permissive schema, so new members are non-breaking but should stay rare.
+NOUS_SESSION_VALID = "valid"
+NOUS_SESSION_TERMINAL = "terminal"
+NOUS_SESSION_UNKNOWN = "unknown"
+
+
+def get_nous_session_validity() -> str:
+    """Classify the Nous bootstrap session for the dashboard /api/status probe.
+
+    Returns one of:
+      - ``"valid"``    — a usable Nous credential is present (login healthy).
+      - ``"terminal"`` — the Nous session has taken a terminal auth failure
+        (invalid_grant / quarantined / relogin required). This is the sole
+        signal NAS acts on to re-mint a hosted-agent bootstrap session.
+      - ``"unknown"``  — indeterminate (no Nous provider state, or a transient/
+        non-terminal error). Never triggers a re-mint.
+
+    Determinable with NO working token — it reads local auth-store state only,
+    which is exactly the condition a dead hosted box is in.
+
+    ANTI-FLAP CONTRACT: only a *terminal* failure maps to "terminal". A normal
+    mid-rotation blip, a transient network error, or a merely-expiring token
+    must NOT report "terminal" (that would trigger a spurious NAS re-mint on a
+    healthy box). We key "terminal" on the auth layer's own terminal signal
+    (`relogin_required`) plus a persisted quarantine marker, never on a bare
+    "not logged in".
+    """
+    # A persisted quarantine marker is the strongest, most stable terminal
+    # signal: the refresh path writes `last_auth_error.relogin_required=True`
+    # into the Nous provider state when it clears dead tokens (the exact path
+    # that produced the incident's "No access token found"). Read it directly
+    # so we report "terminal" even after the in-memory AuthError is long gone.
+    try:
+        state = get_provider_auth_state("nous")
+    except Exception:
+        state = None
+
+    if state:
+        last_err = state.get("last_auth_error")
+        if isinstance(last_err, dict) and last_err.get("relogin_required"):
+            # Only terminal while there is no usable credential left. If a later
+            # successful login repopulated tokens, the stale marker must not
+            # keep reporting terminal.
+            if not (state.get("access_token") or state.get("refresh_token")):
+                return NOUS_SESSION_TERMINAL
+
+    try:
+        status = get_nous_auth_status()
+    except Exception:
+        # Status computation itself failed — indeterminate, not terminal.
+        return NOUS_SESSION_UNKNOWN
+
+    if status.get("logged_in"):
+        return NOUS_SESSION_VALID
+
+    # Not logged in. Distinguish a terminal (relogin-required) failure from a
+    # transient / indeterminate one. Only the former is actionable by NAS.
+    if status.get("relogin_required"):
+        return NOUS_SESSION_TERMINAL
+
+    # No Nous provider state at all, or a non-terminal not-logged-in condition
+    # (e.g. a transient refresh error that did not set relogin_required). Treat
+    # as unknown so a healthy box mid-blip never triggers a re-mint.
+    return NOUS_SESSION_UNKNOWN
+
+
 def get_codex_auth_status() -> Dict[str, Any]:
     """Status snapshot for Codex auth.
     
@@ -5987,7 +6311,10 @@ def get_xai_oauth_auth_status() -> Dict[str, Any]:
                         "logged_in": True,
                         "auth_store": str(_auth_file_path()),
                         "last_refresh": getattr(entry, "last_refresh", None),
-                        "auth_mode": "oauth_pkce",
+                        # Display/telemetry only. Device-code is the only xAI
+                        # OAuth flow, so report it unconditionally (auth.json
+                        # may still carry a legacy ``oauth_pkce`` label).
+                        "auth_mode": "oauth_device_code",
                         "source": f"pool:{getattr(entry, 'label', 'unknown')}",
                         "api_key": api_key,
                     }
@@ -6125,7 +6452,7 @@ def _get_azure_foundry_auth_status() -> Dict[str, Any]:
     """
     info: Dict[str, Any] = {"provider": "azure-foundry"}
     try:
-        from ruslan_cli.config import load_config, get_env_value
+        from ruslan_cli.config import load_config, get_env_value_prefer_dotenv
         cfg = load_config()
     except Exception:
         cfg = {}
@@ -6178,7 +6505,7 @@ def _get_azure_foundry_auth_status() -> Dict[str, Any]:
 
     # api_key mode (default)
     try:
-        api_key = get_env_value("AZURE_FOUNDRY_API_KEY") or os.getenv("AZURE_FOUNDRY_API_KEY", "")
+        api_key = get_env_value_prefer_dotenv("AZURE_FOUNDRY_API_KEY") or ""
     except Exception:
         api_key = os.getenv("AZURE_FOUNDRY_API_KEY", "")
     info["logged_in"] = has_usable_secret(api_key)
@@ -6217,9 +6544,38 @@ def resolve_api_key_provider_credentials(provider_id: str) -> Dict[str, Any]:
         base_url = _resolve_kimi_base_url(api_key, pconfig.inference_base_url, env_url)
     elif provider_id == "zai":
         base_url = _resolve_zai_base_url(api_key, pconfig.inference_base_url, env_url)
+    elif provider_id == "copilot":
+        # Resolve the Copilot API base URL from the token-exchange response
+        # (endpoints.api, with a proxy-ep fallback), which is authoritative
+        # for Enterprise / proxied accounts. Falls back to the registry
+        # default and is guarded non-empty below so chat inference never
+        # resolves an empty base URL (#50252).
+        base_url = env_url.rstrip("/") if env_url else pconfig.inference_base_url
+        try:
+            from ruslan_cli.copilot_auth import (
+                resolve_copilot_token,
+                get_copilot_api_token,
+            )
+            raw_token, _ = resolve_copilot_token()
+            if raw_token:
+                _, resolved = get_copilot_api_token(raw_token)
+                resolved = (resolved or "").strip()
+                if resolved:
+                    base_url = resolved
+        except Exception as exc:
+            logger.debug("Copilot base URL resolution fell back to default: %s", exc)
     elif env_url:
         base_url = env_url.rstrip("/")
     else:
+        base_url = pconfig.inference_base_url
+
+    if provider_id == "lmstudio":
+        base_url = _normalize_lmstudio_runtime_base_url(base_url)
+
+    # Last-resort guard: an API-key provider must never hand back an empty
+    # base URL (a set-but-empty COPILOT_API_BASE_URL or similar env override
+    # otherwise wedges chat inference — #50252).
+    if not (isinstance(base_url, str) and base_url.strip()):
         base_url = pconfig.inference_base_url
 
     return {
@@ -6297,6 +6653,7 @@ def _update_config_for_provider(
     # Update config.yaml model section
     config_path = get_config_path()
     config_path.parent.mkdir(parents=True, exist_ok=True)
+    require_readable_config_before_write(config_path)
 
     config = read_raw_config()
 
@@ -6389,6 +6746,7 @@ def _reset_config_provider() -> Path:
     config_path = get_config_path()
     if not config_path.exists():
         return config_path
+    require_readable_config_before_write(config_path)
 
     config = read_raw_config()
     if not config:
@@ -6430,7 +6788,7 @@ def _confirm_expensive_model_selection(
     print(warning.message)
     print("=" * 72)
     try:
-        response = input("Все равно переключить? [y/N]:").strip().lower()
+        response = input("Switch anyway? [y/N]: ").strip().lower()
     except (KeyboardInterrupt, EOFError):
         print()
         return False
@@ -6590,7 +6948,7 @@ def _prompt_model_selection(
             return _confirmed_selection(ordered[idx])
         elif idx == len(ordered):
             try:
-                custom = input("Введите имя модели:").strip()
+                custom = input("Enter model name: ").strip()
             except (EOFError, KeyboardInterrupt):
                 return None
             return _confirmed_selection(custom) if custom else None
@@ -6627,13 +6985,13 @@ def _prompt_model_selection(
             if 1 <= idx <= n:
                 return _confirmed_selection(ordered[idx - 1])
             elif idx == n + 1:
-                custom = input("Введите имя модели:").strip()
+                custom = input("Enter model name: ").strip()
                 return _confirmed_selection(custom) if custom else None
             elif idx == n + 2:
                 return None
             print(f"Please enter 1-{n + 2}")
         except ValueError:
-            print("Пожалуйста, введите число")
+            print("Please enter a number")
         except (KeyboardInterrupt, EOFError):
             return None
 
@@ -6657,9 +7015,9 @@ def _save_model_choice(model_id: str) -> None:
 
 def login_command(args) -> None:
     """Deprecated: use 'ruslan model' or 'ruslan setup' instead."""
-    print("Команда 'ruslan login' была удалена.")
-    print("Используйте 'ruslan auth' для управления учетными данными,")
-    print("'ruslan model' для выбора провайдера, или 'ruslan setup' для полной настройки.")
+    print("The 'ruslan login' command has been removed.")
+    print("Use 'ruslan auth' to manage credentials,")
+    print("'ruslan model' to select a provider, or 'ruslan setup' for full setup.")
     raise SystemExit(0)
 
 
@@ -6683,19 +7041,19 @@ def _login_openai_codex(
             # the user "Login successful!".
             _resolved_key = existing.get("api_key", "")
             if isinstance(_resolved_key, str) and _resolved_key and not _codex_access_token_is_expiring(_resolved_key, 60):
-                print("Существующие учетные данные Codex найдены в хранилище аутентификации Ruslan.")
+                print("Existing Codex credentials found in Ruslan auth store.")
                 try:
-                    reuse = input("Использовать существующие учетные данные? [Y/n]:").strip().lower()
+                    reuse = input("Use existing credentials? [Y/n]: ").strip().lower()
                 except (EOFError, KeyboardInterrupt):
                     reuse = "y"
                 if reuse in {"", "y", "yes"}:
                     config_path = _update_config_for_provider("openai-codex", existing.get("base_url", DEFAULT_CODEX_BASE_URL))
                     print()
-                    print("Вход выполнен успешно!")
+                    print("Login successful!")
                     print(f"  Config updated: {config_path} (model.provider=openai-codex)")
                     return
             else:
-                print("Срок действия существующих учетных данных Codex истек. Начинается новый вход...")
+                print("Existing Codex credentials are expired. Starting fresh login...")
         except AuthError:
             pass
 
@@ -6703,10 +7061,10 @@ def _login_openai_codex(
     if not force_new_login:
         cli_tokens = _import_codex_cli_tokens()
         if cli_tokens:
-            print("Найдены существующие учетные данные Codex CLI в ~/.codex/auth.json")
-            print("Ruslan создаст свой собственный сеанс, чтобы избежать конфликтов с Codex CLI / VS Code.")
+            print("Found existing Codex CLI credentials at ~/.codex/auth.json")
+            print("Ruslan will create its own session to avoid conflicts with Codex CLI / VS Code.")
             try:
-                do_import = input("Импортировать эти учетные данные? (рекомендуется отдельный вход) [y/N]:").strip().lower()
+                do_import = input("Import these credentials? (a separate login is recommended) [y/N]: ").strip().lower()
             except (EOFError, KeyboardInterrupt):
                 do_import = "n"
             if do_import in {"y", "yes"}:
@@ -6714,15 +7072,15 @@ def _login_openai_codex(
                 base_url = os.getenv("RUSLAN_CODEX_BASE_URL", "").strip().rstrip("/") or DEFAULT_CODEX_BASE_URL
                 config_path = _update_config_for_provider("openai-codex", base_url)
                 print()
-                print("Учетные данные импортированы. Примечание: если Codex CLI обновит свой токен,")
-                print("Ruslan продолжит работу независимо со своим собственным сеансом.")
+                print("Credentials imported. Note: if Codex CLI refreshes its token,")
+                print("Ruslan will keep working independently with its own session.")
                 print(f"  Config updated: {config_path} (model.provider=openai-codex)")
                 return
 
     # Run a fresh device code flow — Ruslan gets its own OAuth session
     print()
-    print("Выполняется вход в OpenAI Codex...")
-    print("(Ruslan создает свою собственную сессию — не повлияет на Codex CLI или VS Code)")
+    print("Signing in to OpenAI Codex...")
+    print("(Ruslan creates its own session — won't affect Codex CLI or VS Code)")
     print()
 
     creds = _codex_device_code_login()
@@ -6731,7 +7089,7 @@ def _login_openai_codex(
     _save_codex_tokens(creds["tokens"], creds.get("last_refresh"))
     config_path = _update_config_for_provider("openai-codex", creds.get("base_url", DEFAULT_CODEX_BASE_URL))
     print()
-    print("Вход выполнен успешно!")
+    print("Login successful!")
     from ruslan_constants import display_ruslan_home as _dhh
     print(f"  Auth state: {_dhh()}/auth.json")
     print(f"  Config updated: {config_path} (model.provider=openai-codex)")
@@ -6750,9 +7108,9 @@ def _login_xai_oauth(
             existing = resolve_xai_oauth_runtime_credentials()
             api_key = existing.get("api_key", "")
             if isinstance(api_key, str) and api_key and not _xai_access_token_is_expiring(api_key, 60):
-                print("Существующие учетные данные xAI OAuth найдены в хранилище аутентификации Ruslan.")
+                print("Existing xAI OAuth credentials found in Ruslan auth store.")
                 try:
-                    reuse = input("Использовать существующие учетные данные? [Y/n]:").strip().lower()
+                    reuse = input("Use existing credentials? [Y/n]: ").strip().lower()
                 except (EOFError, KeyboardInterrupt):
                     reuse = "y"
                 if reuse in {"", "y", "yes"}:
@@ -6761,374 +7119,214 @@ def _login_xai_oauth(
                         existing.get("base_url", DEFAULT_XAI_OAUTH_BASE_URL),
                     )
                     print()
-                    print("Вход выполнен успешно!")
+                    print("Login successful!")
                     print(f"  Config updated: {config_path} (model.provider=xai-oauth)")
                     return
         except AuthError:
             pass
 
     print()
-    print("Вход в xAI Grok OAuth (SuperGrok / Premium+)...")
-    print("(Ruslan создает свою собственную локальную OAuth-сессию)")
+    print("Signing in to xAI Grok OAuth (SuperGrok / Premium+)...")
+    print("(Ruslan creates its own local OAuth session)")
     print()
 
     timeout_seconds = float(getattr(args, "timeout", None) or 20.0)
     open_browser = not getattr(args, "no_browser", False)
     if _is_remote_session():
         open_browser = False
-    manual_paste = bool(getattr(args, "manual_paste", False))
 
-    creds = _xai_oauth_loopback_login(
+    creds = _xai_oauth_device_code_login(
         timeout_seconds=timeout_seconds,
         open_browser=open_browser,
-        manual_paste=manual_paste,
     )
     _save_xai_oauth_tokens(
         creds["tokens"],
         discovery=creds.get("discovery"),
         redirect_uri=creds.get("redirect_uri", ""),
         last_refresh=creds.get("last_refresh"),
+        auth_mode="oauth_device_code",
     )
+    # An explicit interactive re-login is a strong signal the user wants the
+    # xAI credential re-enabled. ``ruslan auth remove xai-oauth`` leaves a
+    # ``device_code`` suppression marker that otherwise stops the singleton
+    # seed from re-creating the pool entry, so ``ruslan auth list`` would show
+    # nothing even though the agent still works via the singleton fallback.
+    # Clear it here (same helper ``auth_add_command`` uses). This is kept OUT
+    # of ``_save_xai_oauth_tokens`` on purpose — that helper is shared with the
+    # refresh hot path, which must never mutate suppression state.
+    unsuppress_credential_source("xai-oauth", "device_code")
     config_path = _update_config_for_provider("xai-oauth", creds.get("base_url", DEFAULT_XAI_OAUTH_BASE_URL))
     print()
-    print("Вход выполнен успешно!")
+    print("Login successful!")
     from ruslan_constants import display_ruslan_home as _dhh
     print(f"  Auth state: {_dhh()}/auth.json")
     print(f"  Config updated: {config_path} (model.provider=xai-oauth)")
 
 
-def _xai_oauth_build_authorize_url(
+def _xai_oauth_request_device_code(
+    client: httpx.Client,
     *,
-    authorization_endpoint: str,
-    redirect_uri: str,
-    code_challenge: str,
-    state: str,
-    nonce: str,
-) -> str:
-    # `plan=generic` opts the consent screen into xAI's generic OAuth plan
-    # tier instead of falling back to the per-account default. Without it,
-    # accounts.x.ai rejects loopback OAuth from non-allowlisted clients.
-    # `referrer=ruslan-agent` lets xAI attribute Ruslan-originated logins
-    # in their OAuth server logs (we still impersonate the upstream Grok-CLI
-    # client_id; this is best-effort attribution until xAI mints us our own).
-    authorize_params = {
-        "response_type": "code",
-        "client_id": XAI_OAUTH_CLIENT_ID,
-        "redirect_uri": redirect_uri,
-        "scope": XAI_OAUTH_SCOPE,
-        "code_challenge": code_challenge,
-        "code_challenge_method": "S256",
-        "state": state,
-        "nonce": nonce,
-        "plan": "generic",
-        "referrer": "ruslan-agent",
-    }
-    return f"{authorization_endpoint}?{urlencode(authorize_params)}"
+    scope: str = XAI_OAUTH_SCOPE,
+) -> Dict[str, Any]:
+    response = client.post(
+        XAI_OAUTH_DEVICE_CODE_URL,
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+        },
+        data={
+            "client_id": XAI_OAUTH_CLIENT_ID,
+            "scope": scope,
+        },
+    )
+    if response.status_code != 200:
+        raise AuthError(
+            f"xAI device-code request failed (HTTP {response.status_code})."
+            + (f" Response: {response.text.strip()}" if response.text else ""),
+            provider="xai-oauth",
+            code="device_code_request_failed",
+        )
+    payload = response.json()
+    required = (
+        "device_code",
+        "user_code",
+        "verification_uri",
+        "verification_uri_complete",
+        "expires_in",
+        "interval",
+    )
+    missing = [key for key in required if key not in payload]
+    if missing:
+        raise AuthError(
+            f"xAI device-code response missing fields: {', '.join(missing)}",
+            provider="xai-oauth",
+            code="device_code_invalid",
+        )
+    return payload
 
 
-def _xai_oauth_exchange_code_for_tokens(
+def _xai_oauth_poll_device_token(
+    client: httpx.Client,
     *,
     token_endpoint: str,
-    code: str,
-    redirect_uri: str,
-    code_verifier: str,
-    code_challenge: str,
-    timeout_seconds: float = 20.0,
+    device_code: str,
+    expires_in: int,
+    poll_interval: int,
 ) -> Dict[str, Any]:
-    """POST the authorization code to xAI's token endpoint and return
-    the parsed JSON payload.
-
-    Sends ``code_verifier`` as required by RFC 7636 §4.5.  Also echoes
-    ``code_challenge`` + ``code_challenge_method`` in the request body
-    as a defense-in-depth measure for OAuth servers (xAI's among them,
-    per #26990) that re-validate the challenge at the token step
-    instead of relying solely on server-side session state captured
-    during the authorize step.  Echoing the challenge is harmless for
-    strict RFC-compliant servers — RFC 7636 doesn't forbid additional
-    parameters at the token endpoint — and decisively fixes the
-    ``code_challenge is required`` failure mode users hit on the
-    loopback flow.
-
-    Raises :class:`AuthError` on any non-2xx response or transport
-    failure; the error message embeds the HTTP status code and the
-    full response body so users can disambiguate cause at a glance.
-    """
-    # Paranoia: if upstream call sites ever drop ``code_verifier`` we
-    # want to surface a precise, local error rather than send a
-    # missing-PKCE request to xAI and receive their generic "code
-    # challenge required" message back.
-    if not code_verifier:
-        raise AuthError(
-            "xAI token exchange refused locally: PKCE code_verifier is empty. "
-            "This is a bug in Ruslan — please report at "
-            "https://github.com/valldun1/ruslan/issues/26990.",
-            provider="xai-oauth",
-            code="xai_pkce_verifier_missing",
-        )
-
-    data = {
-        "grant_type": "authorization_code",
-        "code": code,
-        "redirect_uri": redirect_uri,
-        "client_id": XAI_OAUTH_CLIENT_ID,
-        "code_verifier": code_verifier,
-    }
-    # Defense-in-depth: include the original ``code_challenge`` and
-    # ``code_challenge_method``.  Some OAuth servers (including xAI's
-    # auth.x.ai implementation, per the symptom reported in #26990)
-    # validate these at the token endpoint instead of relying purely on
-    # state captured during the authorize step — without them, xAI
-    # rejects the exchange with ``code_challenge is required`` even
-    # though we sent a valid ``code_verifier``.
-    if code_challenge:
-        data["code_challenge"] = code_challenge
-        data["code_challenge_method"] = "S256"
-
-    try:
-        response = httpx.post(
+    deadline = time.monotonic() + max(1, int(expires_in))
+    current_interval = max(1, int(poll_interval))
+    while time.monotonic() < deadline:
+        response = client.post(
             token_endpoint,
             headers={
                 "Content-Type": "application/x-www-form-urlencoded",
                 "Accept": "application/json",
             },
-            data=data,
-            timeout=max(20.0, timeout_seconds),
+            data={
+                "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                "client_id": XAI_OAUTH_CLIENT_ID,
+                "device_code": device_code,
+            },
         )
-    except Exception as exc:
-        raise AuthError(
-            f"xAI token exchange failed: {exc}",
-            provider="xai-oauth",
-            code="xai_token_exchange_failed",
-        ) from exc
+        if response.status_code == 200:
+            payload = response.json()
+            if not payload.get("access_token"):
+                raise AuthError(
+                    "xAI device-code token response did not include an access_token.",
+                    provider="xai-oauth",
+                    code="xai_device_token_invalid",
+                )
+            if not payload.get("refresh_token"):
+                raise AuthError(
+                    "xAI device-code token response did not include a refresh_token.",
+                    provider="xai-oauth",
+                    code="xai_device_token_invalid",
+                )
+            return payload
 
-    if response.status_code != 200:
-        body = response.text.strip()
-        # See ``refresh_xai_oauth_pure`` — token-exchange 403 also
-        # surfaces tier/entitlement gating from xAI's backend.  Avoid
-        # the misleading "re-authenticate" hint and point at the API
-        # key fallback.  See #26847.
-        if response.status_code == 403:
+        try:
+            error_payload = response.json()
+        except Exception:
+            response.raise_for_status()
             raise AuthError(
-                f"xAI token exchange failed (HTTP 403)."
-                + (f" Response: {body}" if body else "")
-                + " This OAuth account is not authorized for xAI API"
-                  " access — xAI may be restricting API/OAuth use to"
-                  " specific SuperGrok tiers despite the in-app"
-                  " subscription being active. Set ``XAI_API_KEY``"
-                  " and switch to ``provider: xai`` (API-key path) if"
-                  " available, or upgrade your subscription at"
-                  " https://x.ai/grok.",
+                "xAI device-code token polling returned a non-JSON error response.",
                 provider="xai-oauth",
-                code="xai_oauth_tier_denied",
-                relogin_required=False,
+                code="xai_device_token_failed",
             )
-        raise AuthError(
-            f"xAI token exchange failed (HTTP {response.status_code})."
-            + (f" Response: {body}" if body else ""),
-            provider="xai-oauth",
-            code="xai_token_exchange_failed",
+        error_code = str(error_payload.get("error") or "")
+        if error_code == "authorization_pending":
+            time.sleep(current_interval)
+            continue
+        if error_code == "slow_down":
+            current_interval = min(current_interval + 1, 30)
+            time.sleep(current_interval)
+            continue
+        description = (
+            error_payload.get("error_description")
+            or error_payload.get("error")
+            or response.text
         )
-
-    try:
-        payload = response.json()
-    except Exception as exc:
         raise AuthError(
-            f"xAI token exchange returned invalid JSON: {exc}",
+            f"xAI device-code token polling failed: {description}",
             provider="xai-oauth",
-            code="xai_token_exchange_invalid",
-        ) from exc
-    if not isinstance(payload, dict):
-        raise AuthError(
-            "xAI token exchange response was not a JSON object.",
-            provider="xai-oauth",
-            code="xai_token_exchange_invalid",
+            code="xai_device_token_failed",
         )
-    return payload
+    raise AuthError(
+        "Timed out waiting for xAI device authorization.",
+        provider="xai-oauth",
+        code="device_code_timeout",
+    )
 
 
-def _xai_oauth_loopback_login(
+def _xai_oauth_device_code_login(
     *,
     timeout_seconds: float = 20.0,
     open_browser: bool = True,
-    manual_paste: bool = False,
 ) -> Dict[str, Any]:
-    """Run the xAI OAuth PKCE flow.
-
-    When ``manual_paste=True`` the loopback HTTP listener is skipped
-    entirely and the user is prompted to paste the failed callback
-    URL into stdin (regression fix for #26923 — browser-only remote
-    consoles like GCP Cloud Shell / GitHub Codespaces / EC2 Instance
-    Connect, where the laptop's browser can't reach 127.0.0.1 on the
-    remote VM).  The same PKCE verifier, ``state``, and ``nonce`` are
-    used for both paths so the upstream-side OAuth flow is identical.
-    """
-    def _stdin_supports_manual_paste() -> bool:
-        try:
-            return bool(getattr(sys.stdin, "isatty", lambda: False)())
-        except Exception:
-            return False
-
     discovery = _xai_oauth_discovery(timeout_seconds)
-    authorization_endpoint = discovery["authorization_endpoint"]
     token_endpoint = discovery["token_endpoint"]
-
-    allow_missing_state = False
-    if manual_paste:
-        # No HTTP listener — synthesize a redirect_uri matching what
-        # the server would have bound to so the authorize URL the user
-        # opens (and the redirect_uri sent in the token exchange) stay
-        # byte-identical to the loopback path.  xAI's token endpoint
-        # cross-checks redirect_uri against the authorize request.
-        redirect_uri = (
-            f"http://{XAI_OAUTH_REDIRECT_HOST}:{XAI_OAUTH_REDIRECT_PORT}"
-            f"{XAI_OAUTH_REDIRECT_PATH}"
+    timeout = httpx.Timeout(max(20.0, timeout_seconds))
+    with httpx.Client(timeout=timeout, headers={"Accept": "application/json"}) as client:
+        device_data = _xai_oauth_request_device_code(client)
+        verification_url = str(
+            device_data.get("verification_uri_complete")
+            or device_data["verification_uri"]
         )
-        _xai_validate_loopback_redirect_uri(redirect_uri)
-        code_verifier = _oauth_pkce_code_verifier()
-        code_challenge = _oauth_pkce_code_challenge(code_verifier)
-        state = uuid.uuid4().hex
-        nonce = uuid.uuid4().hex
-        authorize_url = _xai_oauth_build_authorize_url(
-            authorization_endpoint=authorization_endpoint,
-            redirect_uri=redirect_uri,
-            code_challenge=code_challenge,
-            state=state,
-            nonce=nonce,
-        )
+        user_code = str(device_data["user_code"])
+        expires_in = int(device_data["expires_in"])
+        interval = int(device_data["interval"])
 
-        print("Откройте этот URL для авторизации Ruslan с xAI:")
-        print(authorize_url)
-        callback = _prompt_manual_callback_paste(redirect_uri)
-        allow_missing_state = True
-    else:
-        server, thread, callback_result, redirect_uri = _xai_start_callback_server()
-        try:
-            _xai_validate_loopback_redirect_uri(redirect_uri)
-            code_verifier = _oauth_pkce_code_verifier()
-            code_challenge = _oauth_pkce_code_challenge(code_verifier)
-            state = uuid.uuid4().hex
-            nonce = uuid.uuid4().hex
-            authorize_url = _xai_oauth_build_authorize_url(
-                authorization_endpoint=authorization_endpoint,
-                redirect_uri=redirect_uri,
-                code_challenge=code_challenge,
-                state=state,
-                nonce=nonce,
-            )
-
-            print("Откройте этот URL для авторизации Ruslan с xAI:")
-            print(authorize_url)
-            print()
-            print(f"Waiting for callback on {redirect_uri}")
-
-            _print_loopback_ssh_hint(redirect_uri, docs_url=XAI_OAUTH_DOCS_URL)
-
-            if open_browser and not _is_remote_session() and _can_open_graphical_browser():
-                try:
-                    opened = webbrowser.open(authorize_url)
-                except Exception:
-                    opened = False
-                if opened:
-                    print("Браузер открыт для авторизации xAI.")
-                else:
-                    print("Не удалось открыть браузер автоматически; используйте URL выше.")
-
+        print()
+        print("To continue:")
+        print(f"  1. Open: {verification_url}")
+        print(f"  2. If prompted, enter code: {user_code}")
+        if open_browser and not _is_remote_session() and _can_open_graphical_browser():
             try:
-                callback = _xai_wait_for_callback(
-                    server,
-                    thread,
-                    callback_result,
-                    timeout_seconds=max(30.0, timeout_seconds * 9),
-                    manual_paste_redirect_uri=redirect_uri,
-                )
-            except AuthError as exc:
-                if (
-                    getattr(exc, "code", "") != "xai_callback_timeout"
-                    or not _stdin_supports_manual_paste()
-                ):
-                    raise
-                print()
-                print("Время ожидания обратного вызова loopback xAI истекло.")
-                print("Если ваш браузер перешел на страницу обратного вызова 127.0.0.1 с ошибкой,")
-                print("вставьте этот ПОЛНЫЙ URL обратного вызова ниже, чтобы продолжить этот вход.")
-                print("Вы также можете повторно запустить с `--manual-paste`, чтобы пропустить")
-                print("прослушиватель loopback с самого начала.")
-                callback = _prompt_manual_callback_paste(redirect_uri)
-                if callback.get("code") is None and callback.get("error") is None:
-                    raise exc
-                allow_missing_state = True
-        except Exception:
-            try:
-                server.shutdown()
-                server.server_close()
+                opened = webbrowser.open(verification_url)
             except Exception:
-                pass
-            try:
-                thread.join(timeout=1.0)
-            except Exception:
-                pass
-            raise
+                opened = False
+            if opened:
+                print("  (Opened browser for verification)")
+            else:
+                print("  Could not open browser automatically -- use the URL above.")
+        print(f"Waiting for approval (polling every {max(1, interval)}s)...")
 
-    if callback.get("error"):
-        detail = callback.get("error_description") or callback["error"]
-        raise AuthError(
-            f"xAI authorization failed: {detail}",
-            provider="xai-oauth",
-            code="xai_authorization_failed",
-        )
-    callback_state = callback.get("state")
-    # Manual bare-code paths: when a user pastes only the opaque
-    # authorization code (no ``code=``/``state=`` query parameters),
-    # ``_parse_pasted_callback`` returns ``state=None``.  xAI's consent
-    # page renders the code in-page rather than redirecting through the
-    # 127.0.0.1 callback, so on many remote setups (Cloud Shell, headless
-    # VPS, container consoles) the bare code is the only thing the user
-    # can obtain.  PKCE (code_verifier) still binds the exchange to this
-    # client, so the local state-equality check is redundant on the
-    # bare-code paths — we substitute the locally generated state to keep
-    # the rest of the validation chain (and the token exchange) unchanged.
-    # See #26923 (AccursedGalaxy comment, 2026-05-20).
-    if callback.get("_manual_paste"):
-        allow_missing_state = True
-    if callback_state is None and (manual_paste or allow_missing_state):
-        callback_state = state
-    if callback_state != state:
-        raise AuthError(
-            "xAI authorization failed: state mismatch.",
-            provider="xai-oauth",
-            code="xai_state_mismatch",
-        )
-    code = str(callback.get("code") or "").strip()
-    if not code:
-        raise AuthError(
-            "xAI authorization failed: missing authorization code.",
-            provider="xai-oauth",
-            code="xai_code_missing",
+        payload = _xai_oauth_poll_device_token(
+            client,
+            token_endpoint=token_endpoint,
+            device_code=str(device_data["device_code"]),
+            expires_in=expires_in,
+            poll_interval=interval,
         )
 
-    payload = _xai_oauth_exchange_code_for_tokens(
-        token_endpoint=token_endpoint,
-        code=code,
-        redirect_uri=redirect_uri,
-        code_verifier=code_verifier,
-        code_challenge=code_challenge,
-        timeout_seconds=timeout_seconds,
-    )
     access_token = str(payload.get("access_token", "") or "").strip()
     refresh_token = str(payload.get("refresh_token", "") or "").strip()
-    if not access_token:
+    if not access_token or not refresh_token:
         raise AuthError(
-            "xAI token exchange did not return an access_token.",
+            "xAI device-code token response was missing required tokens.",
             provider="xai-oauth",
-            code="xai_token_exchange_invalid",
+            code="xai_device_token_invalid",
         )
-    if not refresh_token:
-        raise AuthError(
-            "xAI token exchange did not return a refresh_token.",
-            provider="xai-oauth",
-            code="xai_token_exchange_invalid",
-        )
-
     base_url = _xai_validate_inference_base_url(
         os.getenv("RUSLAN_XAI_BASE_URL", "").strip().rstrip("/")
         or os.getenv("XAI_BASE_URL", "").strip().rstrip("/"),
@@ -7143,10 +7341,10 @@ def _xai_oauth_loopback_login(
             "token_type": str(payload.get("token_type") or "Bearer").strip() or "Bearer",
         },
         "discovery": discovery,
-        "redirect_uri": redirect_uri,
+        "redirect_uri": "",
         "base_url": base_url,
         "last_refresh": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "source": "oauth-loopback",
+        "source": "oauth-device-code",
     }
 
 
@@ -7228,11 +7426,11 @@ def _codex_device_code_login() -> Dict[str, Any]:
 
     # Step 2: Show user the code
     print("To continue, follow these steps:\n")
-    print("1. Откройте этот URL в вашем браузере:")
+    print("  1. Open this URL in your browser:")
     print(f"     \033[94m{issuer}/codex/device\033[0m\n")
-    print("2. Введите этот код:")
+    print("  2. Enter this code:")
     print(f"     \033[94m{user_code}\033[0m\n")
-    print("Ожидание входа... (нажмите Ctrl+C для отмены)")
+    print("Waiting for sign-in... (press Ctrl+C to cancel)")
 
     # Step 3: Poll for authorization code
     max_wait = 15 * 60  # 15 minutes
@@ -7520,18 +7718,18 @@ def _minimax_oauth_login(
         user_code = str(code_data["user_code"])
 
         print()
-        print("Чтобы продолжить:")
+        print("To continue:")
         print(f"  1. Open: {verification_url}")
         print(f"  2. If prompted, enter code: {user_code}")
         if open_browser and _can_open_graphical_browser():
             if webbrowser.open(verification_url):
-                print("(Браузер открыт для проверки)")
+                print("  (Opened browser for verification)")
             else:
-                print("Не удалось открыть браузер автоматически -- используйте URL выше.")
+                print("  Could not open browser automatically -- use the URL above.")
 
         interval_raw = code_data.get("interval")
         interval_ms = int(interval_raw) if interval_raw is not None else None
-        print("Ожидание подтверждения...")
+        print("Waiting for approval...")
 
         token_data = _minimax_poll_token(
             client, portal_base_url=portal_base_url,
@@ -7817,7 +8015,7 @@ def _nous_device_code_login(
     print(f"Starting Ruslan login via {pconfig.name}...")
     print(f"Portal: {portal_base_url}")
     if insecure:
-        print("Проверка TLS: отключена (--insecure)")
+        print("TLS verification: disabled (--insecure)")
     elif ca_bundle:
         print(f"TLS verification: custom CA bundle ({ca_bundle})")
 
@@ -7835,16 +8033,16 @@ def _nous_device_code_login(
         interval = int(device_data["interval"])
 
         print()
-        print("Чтобы продолжить:")
+        print("To continue:")
         print(f"  1. Open: {verification_url}")
         print(f"  2. If prompted, enter code: {user_code}")
 
         if open_browser:
             opened = webbrowser.open(verification_url)
             if opened:
-                print("(Браузер открыт для проверки)")
+                print("  (Opened browser for verification)")
             else:
-                print("Не удалось открыть браузер автоматически — используйте URL выше.")
+                print("  Could not open browser automatically — use the URL above.")
 
         # Surface the verification URL/code to an out-of-band consumer (e.g. the
         # TUI gateway, whose stdout is a JSON-RPC pipe — a plain print() there is
@@ -7916,7 +8114,7 @@ def _nous_device_code_login(
             print(message)
             print(f"  Subscribe here: {portal_url}/billing")
             print()
-            print("После подписки снова запустите `ruslan model`, чтобы завершить настройку.")
+            print("After subscribing, run `ruslan model` again to finish setup.")
             raise SystemExit(1)
         raise
 
@@ -8032,18 +8230,18 @@ def _login_nous(args, pconfig: ProviderConfig) -> None:
             if shared_path:
                 print(f"Found existing Nous OAuth credentials at {shared_path}")
             else:
-                print("Найдены существующие общие учетные данные Nous OAuth")
+                print("Found existing shared Nous OAuth credentials")
             try:
-                do_import = input("Импортировать эти учетные данные? [Y/n]:").strip().lower()
+                do_import = input("Import these credentials? [Y/n]: ").strip().lower()
             except (EOFError, KeyboardInterrupt):
                 do_import = "y"
             if do_import in {"", "y", "yes"}:
-                print("Восстановление сеанса Nous из общих учетных данных...")
+                print("Rehydrating Nous session from shared credentials...")
                 auth_state = _try_import_shared_nous_state(
                     timeout_seconds=timeout_seconds,
                 )
                 if auth_state is None:
-                    print("Не удалось обновить общие учетные данные — возврат к входу через код устройства.")
+                    print("Could not refresh shared credentials — falling back to device-code login.")
 
         if auth_state is None:
             auth_state = _nous_device_code_login(
@@ -8079,7 +8277,7 @@ def _login_nous(args, pconfig: ProviderConfig) -> None:
         _sync_nous_pool_from_auth_store()
 
         print()
-        print("Вход выполнен успешно!")
+        print("Login successful!")
         print(f"  Auth state: {saved_to}")
 
         # Resolve model BEFORE writing provider to config.yaml so we never
@@ -8163,10 +8361,10 @@ def _login_nous(args, pconfig: ProviderConfig) -> None:
                 )
             elif unavailable_models:
                 _url = (_portal or DEFAULT_NOUS_PORTAL_URL).rstrip("/")
-                print("В настоящее время нет бесплатных моделей.")
+                print("No free models currently available.")
                 print(unavailable_message or f"Upgrade at {_url} to access paid models.")
             else:
-                print("Для Nous Portal нет доступных курируемых моделей.")
+                print("No curated models available for Nous Portal.")
         except Exception as exc:
             message = format_auth_error(exc) if isinstance(exc, AuthError) else str(exc)
             print()
@@ -8190,8 +8388,8 @@ def _login_nous(args, pconfig: ProviderConfig) -> None:
                     auth_store.pop("active_provider", None)
                 _save_auth_store(auth_store)
             print()
-            print("Провайдер не изменен. Учетные данные Nous сохранены для будущего использования.")
-            print("Снова запустите `ruslan model`, чтобы переключиться на Nous Portal.")
+            print("No provider change. Nous credentials saved for future use.")
+            print("  Run `ruslan model` again to switch to Nous Portal.")
             return
 
         config_path = _update_config_for_provider(
@@ -8222,7 +8420,7 @@ def logout_command(args) -> None:
     target = provider_id or active or _logout_default_provider_from_config()
 
     if not target:
-        print("В настоящее время ни один провайдер не выполнил вход.")
+        print("No provider is currently logged in.")
         return
 
     should_reset_config = _should_reset_config_provider_on_logout(target)
@@ -8233,10 +8431,10 @@ def logout_command(args) -> None:
             _reset_config_provider()
         print(f"Logged out of {provider_name}.")
         if should_reset_config and os.getenv("OPENROUTER_API_KEY"):
-            print("Ruslan будет использовать OpenRouter для инференса.")
+            print("Ruslan will use OpenRouter for inference.")
         elif should_reset_config:
-            print("Запустите `ruslan model` или настройте API-ключ для использования Ruslan.")
+            print("Run `ruslan model` or configure an API key to use Ruslan.")
         else:
-            print("Конфигурация поставщика модели не изменилась.")
+            print("Model provider configuration was unchanged.")
     else:
         print(f"No auth state found for {provider_name}.")

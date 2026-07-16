@@ -32,9 +32,9 @@ def test_agent_json_matches_official_registry_required_fields():
     assert re.fullmatch(r"[a-z][a-z0-9-]*", data["id"])
     assert data["name"] == "Ruslan Agent"
     assert data["description"]
-    assert data["repository"] == "https://github.com/valldun1/ruslan"
-    assert data["website"].startswith("https://ruslan.team/")
-    assert data["authors"] == ["Valldun"]
+    assert data["repository"] == "https://github.com/NousResearch/ruslan-agent"
+    assert data["website"].startswith("https://ruslan-agent.nousresearch.com/")
+    assert data["authors"] == ["Nous Research"]
     assert data["license"] == "MIT"
     assert set(data["distribution"]) <= ALLOWED_DISTRIBUTIONS
 

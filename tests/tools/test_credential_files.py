@@ -400,12 +400,22 @@ class TestCacheDirectoryMounts:
         assert mounts[0]["container_path"] == "/root/.ruslan/cache/documents"
 
     def test_legacy_dir_names_resolved(self, tmp_path, monkeypatch):
-        """Old-style dir names (e.g. document_cache) are resolved correctly."""
+        """Old-style dir names (e.g. document_cache) are resolved correctly.
+
+        Populates the legacy dirs with a sentinel file so they count as
+        ``has content`` for ``get_ruslan_dir``'s populated-legacy check
+        (see #27602 — empty legacy stubs are no longer honoured).
+        """
         ruslan_home = tmp_path / ".ruslan"
         ruslan_home.mkdir()
-        # Use legacy dir name — get_ruslan_dir prefers old if it exists
-        (ruslan_home / "document_cache").mkdir()
-        (ruslan_home / "image_cache").mkdir()
+        # Use legacy dir name with content — get_ruslan_dir prefers
+        # populated old over new.
+        legacy_doc = ruslan_home / "document_cache"
+        legacy_img = ruslan_home / "image_cache"
+        legacy_doc.mkdir()
+        legacy_img.mkdir()
+        (legacy_doc / "cached.txt").write_bytes(b"x")
+        (legacy_img / "cached.png").write_bytes(b"x")
         monkeypatch.setenv("RUSLAN_HOME", str(ruslan_home))
 
         mounts = get_cache_directory_mounts()

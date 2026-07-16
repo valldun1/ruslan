@@ -26,20 +26,11 @@ from tools.tool_backend_helpers import managed_nous_tools_enabled
 from utils import base_url_hostname
 from ruslan_constants import get_optional_skills_dir
 
-# Локализация: RU по умолчанию, EN как fallback
-try:
-    from ruslan_cli.locales import t as _t, get_locale as _get_locale
-except Exception:  # pragma: no cover
-    def _t(key, locale="ru", **kwargs):  # type: ignore[no-redef]
-        return key
-    def _get_locale(config=None):  # type: ignore[no-redef]
-        return "ru"
-
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 
-_DOCS_BASE = "https://ruslan.team/docs"
+_DOCS_BASE = "https://ruslan-agent.nousresearch.com/docs"
 
 
 def _model_config_dict(config: Dict[str, Any]) -> Dict[str, Any]:
@@ -101,6 +92,11 @@ _DEFAULT_PROVIDER_MODELS = {
     "gemini": [
         "gemini-3.1-pro-preview", "gemini-3-pro-preview",
         "gemini-3-flash-preview", "gemini-3.1-flash-lite-preview",
+    ],
+    "vertex": [
+        "google/gemini-3.1-pro-preview", "google/gemini-3-pro-preview",
+        "google/gemini-3-flash-preview", "google/gemini-3.1-flash-lite-preview",
+        "google/gemini-2.5-pro", "google/gemini-2.5-flash",
     ],
     "zai": ["glm-5.2", "glm-5.1", "glm-5", "glm-4.7", "glm-4.5", "glm-4.5-flash"],
     "kimi-coding": ["kimi-k2.6", "kimi-k2.5", "kimi-k2-thinking", "kimi-k2-turbo-preview"],
@@ -185,19 +181,19 @@ def is_interactive_stdin() -> bool:
 def print_noninteractive_setup_guidance(reason: str | None = None) -> None:
     """Print guidance for headless/non-interactive setup flows."""
     print()
-    print(color("⚔ Ruslan Setup — Неинтерактивный режим", Colors.CYAN, Colors.BOLD))
+    print(color("⚕ Ruslan Setup — Non-interactive mode", Colors.CYAN, Colors.BOLD))
     print()
     if reason:
         print_info(reason)
-    print_info("Интерактивный мастер не может быть использован здесь.")
+    print_info("The interactive wizard cannot be used here.")
     print()
-    print_info("Настройте Ruslan с помощью переменных окружения или команд конфигурации:")
-    print_info("ruslan config set model.provider custom")
-    print_info("ruslan config set model.base_url http://localhost:8080/v1")
-    print_info("ruslan config set model.default your-model-name")
+    print_info("Configure Ruslan using environment variables or config commands:")
+    print_info("  ruslan config set model.provider custom")
+    print_info("  ruslan config set model.base_url http://localhost:8080/v1")
+    print_info("  ruslan config set model.default your-model-name")
     print()
-    print_info("Или установите OPENROUTER_API_KEY / OPENAI_API_KEY в вашем окружении.")
-    print_info("Запустите 'ruslan setup' в интерактивном терминале для использования полного мастера.")
+    print_info("Or set OPENROUTER_API_KEY / OPENAI_API_KEY in your environment.")
+    print_info("Run 'ruslan setup' in an interactive terminal to use the full wizard.")
     print()
 
 
@@ -247,7 +243,7 @@ def prompt_choice(question: str, choices: list, default: int = 0, description: s
     idx = _curses_prompt_choice(question, choices, default, description=description)
     if idx >= 0:
         if idx == default:
-            print_info("Пропущено (текущее сохранено)")
+            print_info("  Skipped (keeping current)")
             print()
             return default
         print()
@@ -275,14 +271,41 @@ def prompt_choice(question: str, choices: list, default: int = 0, description: s
                 return idx
             print_error(f"Please enter a number between 1 and {len(choices)}")
         except ValueError:
-            print_error("Пожалуйста, введите число")
+            print_error("Please enter a number")
         except (KeyboardInterrupt, EOFError):
             print()
             sys.exit(1)
 
 
+def is_noninteractive() -> bool:
+    """True when no human is available to answer a prompt.
+
+    The dashboard/desktop spawn CLI actions with ``stdin=DEVNULL`` and
+    ``RUSLAN_NONINTERACTIVE=1`` (see ``ruslan_cli/web_server.py``). In that
+    context an ``input()`` raises ``EOFError`` immediately, so a prompt that
+    aborts on EOF kills the spawned action — this is what made the desktop
+    "restart gateway" fail when the Windows gateway service was not yet
+    installed (the start path asks "Install it now?" with no one to answer).
+    Honour the explicit env flag here so callers fall back to their default.
+    """
+    return os.environ.get("RUSLAN_NONINTERACTIVE", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def prompt_yes_no(question: str, default: bool = True) -> bool:
-    """Prompt for yes/no. Ctrl+C exits, empty input returns default."""
+    """Prompt for yes/no. Ctrl+C exits, empty input returns default.
+
+    Non-interactive callers (``RUSLAN_NONINTERACTIVE=1`` or a closed/redirected
+    stdin) have no one to answer, so fall back to ``default`` instead of
+    aborting the whole process.
+    """
+    if is_noninteractive():
+        return default
+
     default_str = "Y/n" if default else "y/N"
 
     while True:
@@ -292,9 +315,15 @@ def prompt_yes_no(question: str, default: bool = True) -> bool:
                 .strip()
                 .lower()
             )
-        except (KeyboardInterrupt, EOFError):
+        except KeyboardInterrupt:
             print()
             sys.exit(1)
+        except EOFError:
+            # No stdin to read (closed/redirected, e.g. a spawned action with
+            # stdin=DEVNULL). Accept the default rather than exit so the caller
+            # can proceed unattended instead of failing the whole command.
+            print()
+            return default
 
         if not value:
             return default
@@ -302,7 +331,7 @@ def prompt_yes_no(question: str, default: bool = True) -> bool:
             return True
         if value in {"n", "no"}:
             return False
-        print_error("Пожалуйста, введите 'y' или 'n'")
+        print_error("Please enter 'y' or 'n'")
 
 
 def prompt_checklist(title: str, items: list, pre_selected: list = None) -> list:
@@ -359,14 +388,14 @@ def _prompt_api_key(var: dict):
         save_env_value(var["name"], value)
         print_success("  ✓ Saved")
     else:
-        print_warning("Пропущено (настройте позже с помощью 'ruslan setup')")
+        print_warning("  Skipped (configure later with 'ruslan setup')")
 
 
 def _print_setup_summary(config: dict, ruslan_home):
     """Print the setup completion summary."""
     # Tool availability summary
     print()
-    print_header("Доступность инструментов")
+    print_header("Tool Availability Summary")
 
     tool_status = []
     subscription_features = get_nous_subscription_features(config)
@@ -384,15 +413,10 @@ def _print_setup_summary(config: dict, ruslan_home):
     else:
         tool_status.append(("Vision (image analysis)", False, "run 'ruslan setup' to configure"))
 
-    # Mixture of Agents — requires OpenRouter specifically (calls multiple models)
-    if get_env_value("OPENROUTER_API_KEY"):
-        tool_status.append(("Mixture of Agents", True, None))
-    else:
-        tool_status.append(("Mixture of Agents", False, "OPENROUTER_API_KEY"))
 
     # Web tools (Exa, Parallel, Firecrawl, or Tavily)
     if subscription_features.web.managed_by_nous:
-        tool_status.append(("Web Search & Extract (Ruslan Tool Gateway)", True, None))
+        tool_status.append(("Web Search & Extract (Nous subscription)", True, None))
     elif subscription_features.web.available:
         label = "Web Search & Extract"
         if subscription_features.web.current_provider:
@@ -404,7 +428,7 @@ def _print_setup_summary(config: dict, ruslan_home):
     # Browser tools (local Chromium, Camofox, Browserbase, Browser Use, or Firecrawl)
     browser_provider = subscription_features.browser.current_provider
     if subscription_features.browser.managed_by_nous:
-        tool_status.append(("Browser Automation (Ruslan Browser Use)", True, None))
+        tool_status.append(("Browser Automation (Nous Browser Use)", True, None))
     elif subscription_features.browser.available:
         label = "Browser Automation"
         if browser_provider:
@@ -434,7 +458,7 @@ def _print_setup_summary(config: dict, ruslan_home):
     # Image generation — FAL (direct or via Nous), or any plugin-registered
     # provider (OpenAI, etc.)
     if subscription_features.image_gen.managed_by_nous:
-        tool_status.append(("Image Generation (Ruslan Tool Gateway)", True, None))
+        tool_status.append(("Image Generation (Nous subscription)", True, None))
     elif subscription_features.image_gen.available:
         tool_status.append(("Image Generation", True, None))
     else:
@@ -466,7 +490,7 @@ def _print_setup_summary(config: dict, ruslan_home):
     # Only show the row when a plugin reports available so we don't badger
     # users who don't care about video gen with a "missing" status line.
     if subscription_features.video_gen.managed_by_nous:
-        tool_status.append(("Video Generation (FAL via Ruslan Tool Gateway)", True, None))
+        tool_status.append(("Video Generation (FAL via Nous subscription)", True, None))
     else:
         try:
             from agent.video_gen_registry import list_providers as _list_video_providers
@@ -488,7 +512,7 @@ def _print_setup_summary(config: dict, ruslan_home):
     # TTS — show configured provider
     tts_provider = cfg_get(config, "tts", "provider", default="edge")
     if subscription_features.tts.managed_by_nous:
-        tool_status.append(("Text-to-Speech (OpenAI via Ruslan Tool Gateway)", True, None))
+        tool_status.append(("Text-to-Speech (OpenAI via Nous subscription)", True, None))
     elif tts_provider == "elevenlabs" and get_env_value("ELEVENLABS_API_KEY"):
         tool_status.append(("Text-to-Speech (ElevenLabs)", True, None))
     elif tts_provider == "openai" and (
@@ -523,14 +547,14 @@ def _print_setup_summary(config: dict, ruslan_home):
         tool_status.append(("Text-to-Speech (Edge TTS)", True, None))
 
     if subscription_features.modal.managed_by_nous:
-        tool_status.append(("Modal Execution (Ruslan Tool Gateway)", True, None))
+        tool_status.append(("Modal Execution (Nous subscription)", True, None))
     elif cfg_get(config, "terminal", "backend") == "modal":
         if subscription_features.modal.direct_override:
             tool_status.append(("Modal Execution (direct Modal)", True, None))
         else:
             tool_status.append(("Modal Execution", False, "run 'ruslan setup terminal'"))
     elif managed_nous_tools_enabled() and subscription_features.nous_auth_present:
-        tool_status.append(("Modal Execution (optional via Ruslan Tool Gateway)", True, None))
+        tool_status.append(("Modal Execution (optional via Nous subscription)", True, None))
 
     # Home Assistant
     if get_env_value("HASS_TOKEN"):
@@ -580,7 +604,7 @@ def _print_setup_summary(config: dict, ruslan_home):
     disabled_tools = [(name, var) for name, avail, var in tool_status if not avail]
     if disabled_tools:
         print_warning(
-            "Некоторые инструменты отключены. Запустите 'ruslan setup tools', чтобы настроить их,"
+            "Some tools are disabled. Run 'ruslan setup tools' to configure them,"
         )
         from ruslan_constants import display_ruslan_home as _dhh
         print_warning(f"or edit {_dhh()}/.env directly to add the missing API keys.")
@@ -595,7 +619,7 @@ def _print_setup_summary(config: dict, ruslan_home):
     )
     print(
         color(
-            "│              ✓ Настройка завершена!                     │", Colors.GREEN
+            "│              ✓ Setup Complete!                          │", Colors.GREEN
         )
     )
     print(
@@ -607,44 +631,44 @@ def _print_setup_summary(config: dict, ruslan_home):
 
     # Show file locations prominently
     from ruslan_constants import display_ruslan_home as _dhh
-    print(color(f"📁 Все ваши файлы в {_dhh()}/:", Colors.CYAN, Colors.BOLD))
+    print(color(f"📁 All your files are in {_dhh()}/:", Colors.CYAN, Colors.BOLD))
     print()
-    print(f"   {color('Настройки:', Colors.YELLOW)}  {get_config_path()}")
-    print(f"   {color('Ключи API:', Colors.YELLOW)}  {get_env_path()}")
+    print(f"   {color('Settings:', Colors.YELLOW)}  {get_config_path()}")
+    print(f"   {color('API Keys:', Colors.YELLOW)}  {get_env_path()}")
     print(
-        f"   {color('Данные:', Colors.YELLOW)}      {ruslan_home}/cron/, sessions/, logs/"
+        f"   {color('Data:', Colors.YELLOW)}      {ruslan_home}/cron/, sessions/, logs/"
     )
     print()
 
     print(color("─" * 60, Colors.DIM))
     print()
-    print(color("📝 Изменение конфигурации:", Colors.CYAN, Colors.BOLD))
+    print(color("📝 To edit your configuration:", Colors.CYAN, Colors.BOLD))
     print()
-    print(f"   {color('ruslan setup', Colors.GREEN)}          Запустить мастер заново")
-    print(f"   {color('ruslan setup model', Colors.GREEN)}    Сменить модель/провайдера")
-    print(f"   {color('ruslan setup terminal', Colors.GREEN)} Сменить бэкенд терминала")
-    print(f"   {color('ruslan setup gateway', Colors.GREEN)}  Настроить мессенджеры")
-    print(f"   {color('ruslan setup tools', Colors.GREEN)}    Настроить инструменты")
+    print(f"   {color('ruslan setup', Colors.GREEN)}          Re-run the full wizard")
+    print(f"   {color('ruslan setup model', Colors.GREEN)}    Change model/provider")
+    print(f"   {color('ruslan setup terminal', Colors.GREEN)} Change terminal backend")
+    print(f"   {color('ruslan setup gateway', Colors.GREEN)}  Configure messaging")
+    print(f"   {color('ruslan setup tools', Colors.GREEN)}    Configure tool providers")
     print()
-    print(f"   {color('ruslan config', Colors.GREEN)}         Показать настройки")
+    print(f"   {color('ruslan config', Colors.GREEN)}         View current settings")
     print(
-        f"   {color('ruslan config edit', Colors.GREEN)}    Открыть конфиг в редакторе"
+        f"   {color('ruslan config edit', Colors.GREEN)}    Open config in your editor"
     )
     print(f"   {color('ruslan config set <key> <value>', Colors.GREEN)}")
-    print("Укажите конкретное значение")
+    print("                          Set a specific value")
     print()
-    print("Или отредактируйте файлы напрямую:")
+    print("   Or edit the files directly:")
     print(f"   {color(f'nano {get_config_path()}', Colors.DIM)}")
     print(f"   {color(f'nano {get_env_path()}', Colors.DIM)}")
     print()
 
     print(color("─" * 60, Colors.DIM))
     print()
-    print(color("🚀 Готово к работе!", Colors.CYAN, Colors.BOLD))
+    print(color("🚀 Ready to go!", Colors.CYAN, Colors.BOLD))
     print()
-    print(f"   {color('ruslan', Colors.GREEN)}              Начать чат")
-    print(f"   {color('ruslan gateway', Colors.GREEN)}      Запустить мессенджер-шлюз")
-    print(f"   {color('ruslan doctor', Colors.GREEN)}       Проверить систему")
+    print(f"   {color('ruslan', Colors.GREEN)}              Start chatting")
+    print(f"   {color('ruslan gateway', Colors.GREEN)}      Start messaging gateway")
+    print(f"   {color('ruslan doctor', Colors.GREEN)}       Check for issues")
     print()
 
 
@@ -653,13 +677,13 @@ def _prompt_container_resources(config: dict):
     terminal = config.setdefault("terminal", {})
 
     print()
-    print_info("Настройки ресурсов контейнера:")
+    print_info("Container Resource Settings:")
 
     # Persistence
     current_persist = terminal.get("container_persistent", True)
     persist_label = "yes" if current_persist else "no"
-    print_info("Постоянная файловая система сохраняет файлы между сеансами.")
-    print_info("Установите 'no' для эфемерных песочниц, которые сбрасываются каждый раз.")
+    print_info("  Persistent filesystem keeps files between sessions.")
+    print_info("  Set to 'no' for ephemeral sandboxes that reset each time.")
     persist_str = prompt(
         "  Persist filesystem across sessions? (yes/no)", persist_label
     )
@@ -713,8 +737,8 @@ def setup_model_provider(config: dict, *, quick: bool = False):
     """
     from ruslan_cli.config import load_config, save_config
 
-    print_header("Провайдер модели")
-    print_info("Выберите провайдера и модель для агента.")
+    print_header("Inference Provider")
+    print_info("Choose how to connect to your main chat model.")
     print_info(f"   Guide: {_DOCS_BASE}/integrations/providers")
     print()
 
@@ -725,11 +749,11 @@ def setup_model_provider(config: dict, *, quick: bool = False):
         select_provider_and_model()
     except (SystemExit, KeyboardInterrupt):
         print()
-        print_info("Настройка провайдера пропущена.")
+        print_info("Provider setup skipped.")
     except Exception as exc:
         logger.debug("select_provider_and_model error during setup: %s", exc)
         print_warning(f"Provider setup encountered an error: {exc}")
-        print_info("Вы можете попробовать снова позже с помощью: ruslan model")
+        print_info("You can try again later with: ruslan model")
 
     # Re-sync the wizard's config dict from what cmd_model saved to disk.
     # This is critical: cmd_model writes to disk via its own load/save cycle,
@@ -775,13 +799,13 @@ def _install_neutts_deps() -> bool:
     # Check espeak-ng
     if not _check_espeak_ng():
         print()
-        print_warning("NeuTTS требует espeak-ng для фонизации.")
+        print_warning("NeuTTS requires espeak-ng for phonemization.")
         if sys.platform == "darwin":
-            print_info("Установите с помощью: brew install espeak-ng")
+            print_info("Install with: brew install espeak-ng")
         elif sys.platform == "win32":
-            print_info("Установка: choco install espeak-ng")
+            print_info("Install with: choco install espeak-ng")
         else:
-            print_info("Установка: sudo apt install espeak-ng")
+            print_info("Install with: sudo apt install espeak-ng")
         print()
         if prompt_yes_no("Install espeak-ng now?", True):
             try:
@@ -794,27 +818,34 @@ def _install_neutts_deps() -> bool:
                 print_success("espeak-ng installed")
             except (subprocess.CalledProcessError, FileNotFoundError) as e:
                 print_warning(f"Could not install espeak-ng automatically: {e}")
-                print_info("Пожалуйста, установите его вручную и повторно запустите настройку.")
+                print_info("Please install it manually and re-run setup.")
                 return False
         else:
-            print_warning("espeak-ng требуется для NeuTTS. Установите его вручную перед использованием NeuTTS.")
+            print_warning("espeak-ng is required for NeuTTS. Install it manually before using NeuTTS.")
 
     # Install neutts Python package
     print()
-    print_info("Установка пакета neutts Python...")
-    print_info("При первом запуске также будет загружена TTS-модель (~300MB).")
+    print_info("Installing neutts Python package...")
+    print_info("This will also download the TTS model (~300MB) on first use.")
     print()
+
+    # Route through the canonical uv → pip → ensurepip ladder so pip-less
+    # venvs (Ubuntu 25.10 `python -m venv`, `uv venv`) work out of the box.
+    from ruslan_cli.tools_config import _pip_install
+
     try:
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "-U", "neutts[all]", "--quiet"],
-            check=True, timeout=300,
-        )
+        result = _pip_install(["-U", "neutts[all]", "--quiet"], timeout=300)
+    except Exception as e:
+        print_error(f"Failed to install neutts: {e}")
+        print_info("Try manually: uv pip install -U 'neutts[all]'")
+        return False
+    if result.returncode == 0:
         print_success("neutts installed successfully")
         return True
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-        print_error(f"Failed to install neutts: {e}")
-        print_info("Попробуйте вручную: python -m pip install -U neutts[all]")
-        return False
+    err = (result.stderr or "").strip()
+    print_error(f"Failed to install neutts: {err[:300] if err else 'install failed'}")
+    print_info("Try manually: uv pip install -U 'neutts[all]'")
+    return False
 
 
 def _install_kittentts_deps() -> bool:
@@ -827,19 +858,24 @@ def _install_kittentts_deps() -> bool:
         "0.8.1/kittentts-0.8.1-py3-none-any.whl"
     )
     print()
-    print_info("Установка пакета kittentts Python (модель ~25-80MB загружается при первом запуске)...")
+    print_info("Installing kittentts Python package (~25-80MB model downloaded on first use)...")
     print()
+
+    from ruslan_cli.tools_config import _pip_install
+
     try:
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "-U", wheel_url, "soundfile", "--quiet"],
-            check=True, timeout=300,
-        )
+        result = _pip_install(["-U", wheel_url, "soundfile", "--quiet"], timeout=300)
+    except Exception as e:
+        print_error(f"Failed to install kittentts: {e}")
+        print_info(f"Try manually: uv pip install -U '{wheel_url}' soundfile")
+        return False
+    if result.returncode == 0:
         print_success("kittentts installed successfully")
         return True
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-        print_error(f"Failed to install kittentts: {e}")
-        print_info(f"Try manually: python -m pip install -U '{wheel_url}' soundfile")
-        return False
+    err = (result.stderr or "").strip()
+    print_error(f"Failed to install kittentts: {err[:300] if err else 'install failed'}")
+    print_info(f"Try manually: uv pip install -U '{wheel_url}' soundfile")
+    return False
 
 
 def _xai_oauth_logged_in_for_setup() -> bool:
@@ -857,7 +893,7 @@ def _xai_oauth_logged_in_for_setup() -> bool:
 
 
 def _run_xai_oauth_login_from_setup() -> bool:
-    """Run the xAI Grok OAuth loopback login from inside the setup wizard.
+    """Run the xAI Grok OAuth device-code login from inside the setup wizard.
 
     Returns True on success, False on any failure (the caller falls back
     to whatever the user picked next, e.g. Edge TTS).
@@ -868,7 +904,7 @@ def _run_xai_oauth_login_from_setup() -> bool:
             _is_remote_session,
             _save_xai_oauth_tokens,
             _update_config_for_provider,
-            _xai_oauth_loopback_login,
+            _xai_oauth_device_code_login,
         )
     except Exception as exc:
         print_warning(f"xAI Grok OAuth helpers unavailable: {exc}")
@@ -876,14 +912,15 @@ def _run_xai_oauth_login_from_setup() -> bool:
 
     open_browser = not _is_remote_session()
     print()
-    print_info("Вход в xAI Grok OAuth (SuperGrok / Premium+)...")
+    print_info("Signing in to xAI Grok OAuth (SuperGrok / Premium+)...")
     try:
-        creds = _xai_oauth_loopback_login(open_browser=open_browser)
+        creds = _xai_oauth_device_code_login(open_browser=open_browser)
         _save_xai_oauth_tokens(
             creds["tokens"],
             discovery=creds.get("discovery"),
             redirect_uri=creds.get("redirect_uri", ""),
             last_refresh=creds.get("last_refresh"),
+            auth_mode="oauth_device_code",
         )
         _update_config_for_provider(
             "xai-oauth", creds.get("base_url", DEFAULT_XAI_OAUTH_BASE_URL)
@@ -921,7 +958,7 @@ def _setup_tts_provider(config: dict):
     choices = []
     providers = []
     if managed_nous_tools_enabled() and subscription_features.nous_auth_present:
-        choices.append("Ruslan Tool Gateway (managed OpenAI TTS, billed to your subscription)")
+        choices.append("Nous Subscription (managed OpenAI TTS, billed to your subscription)")
         providers.append("nous-openai")
     choices.extend(
         [
@@ -939,7 +976,7 @@ def _setup_tts_provider(config: dict):
     providers.extend(["edge", "elevenlabs", "openai", "xai", "minimax", "mistral", "gemini", "neutts", "kittentts"])
     choices.append(f"Keep current ({current_label})")
     keep_current_idx = len(choices) - 1
-    idx = prompt_choice("Выберите TTS-провайдера:", choices, keep_current_idx)
+    idx = prompt_choice("Select TTS provider:", choices, keep_current_idx)
 
     if idx == keep_current_idx:
         return
@@ -948,10 +985,10 @@ def _setup_tts_provider(config: dict):
     selected_via_nous = selected == "nous-openai"
     if selected == "nous-openai":
         selected = "openai"
-        print_info("OpenAI TTS будет использовать управляемый шлюз Руслан и выставлять счет на вашу подписку.")
+        print_info("OpenAI TTS will use the managed Nous gateway and bill to your subscription.")
         if get_env_value("VOICE_TOOLS_OPENAI_KEY") or get_env_value("OPENAI_API_KEY"):
             print_warning(
-                "Прямые учётные данные OpenAI всё ещё настроены и могут иметь приоритет, пока не будут удалены из ~/.ruslan/.env."
+                "Direct OpenAI credentials are still configured and may take precedence until removed from ~/.ruslan/.env."
             )
 
     if selected == "neutts":
@@ -965,16 +1002,16 @@ def _setup_tts_provider(config: dict):
             print_success("NeuTTS is already installed")
         else:
             print()
-            print_info("NeuTTS требует:")
-            print_info("• Пакет Python: neutts (~50MB установка + ~300MB модель при первом использовании)")
-            print_info("• Системный пакет: espeak-ng (фонемайзер)")
+            print_info("NeuTTS requires:")
+            print_info("  • Python package: neutts (~50MB install + ~300MB model on first use)")
+            print_info("  • System package: espeak-ng (phonemizer)")
             print()
             if prompt_yes_no("Install NeuTTS dependencies now?", True):
                 if not _install_neutts_deps():
-                    print_warning("Установка NeuTTS не завершена. Используется запасной вариант Edge TTS.")
+                    print_warning("NeuTTS installation incomplete. Falling back to Edge TTS.")
                     selected = "edge"
             else:
-                print_info("Установка пропущена. После ручной установки установите tts.provider в 'neutts'.")
+                print_info("Skipping install. Set tts.provider to 'neutts' after installing manually.")
                 selected = "edge"
 
     elif selected == "elevenlabs":
@@ -986,7 +1023,7 @@ def _setup_tts_provider(config: dict):
                 save_env_value("ELEVENLABS_API_KEY", api_key)
                 print_success("ElevenLabs API key saved")
             else:
-                print_warning("Не указан API-ключ. Используется запасной вариант Edge TTS.")
+                print_warning("No API key provided. Falling back to Edge TTS.")
                 selected = "edge"
 
     elif selected == "openai" and not selected_via_nous:
@@ -998,7 +1035,7 @@ def _setup_tts_provider(config: dict):
                 save_env_value("VOICE_TOOLS_OPENAI_KEY", api_key)
                 print_success("OpenAI TTS API key saved")
             else:
-                print_warning("Не указан API-ключ. Используется запасной вариант Edge TTS.")
+                print_warning("No API key provided. Falling back to Edge TTS.")
                 selected = "edge"
 
     elif selected == "xai":
@@ -1052,7 +1089,7 @@ def _setup_tts_provider(config: dict):
                     )
                     selected = "edge"
             else:
-                print_warning("xAI TTS пропущен. Откат к Edge TTS.")
+                print_warning("xAI TTS skipped. Falling back to Edge TTS.")
                 selected = "edge"
 
         if selected == "xai":
@@ -1072,7 +1109,7 @@ def _setup_tts_provider(config: dict):
                 save_env_value("MINIMAX_API_KEY", api_key)
                 print_success("MiniMax TTS API key saved")
             else:
-                print_warning("Не указан API-ключ. Используется запасной вариант Edge TTS.")
+                print_warning("No API key provided. Falling back to Edge TTS.")
                 selected = "edge"
 
     elif selected == "mistral":
@@ -1084,20 +1121,20 @@ def _setup_tts_provider(config: dict):
                 save_env_value("MISTRAL_API_KEY", api_key)
                 print_success("Mistral TTS API key saved")
             else:
-                print_warning("Не указан API-ключ. Используется запасной вариант Edge TTS.")
+                print_warning("No API key provided. Falling back to Edge TTS.")
                 selected = "edge"
 
     elif selected == "gemini":
         existing = get_env_value("GEMINI_API_KEY") or get_env_value("GOOGLE_API_KEY")
         if not existing:
             print()
-            print_info("Получите бесплатный API-ключ на https://aistudio.google.com/app/apikey")
+            print_info("Get a free API key at https://aistudio.google.com/app/apikey")
             api_key = prompt("Gemini API key for TTS", password=True)
             if api_key:
                 save_env_value("GEMINI_API_KEY", api_key)
                 print_success("Gemini TTS API key saved")
             else:
-                print_warning("Не указан API-ключ. Используется запасной вариант Edge TTS.")
+                print_warning("No API key provided. Falling back to Edge TTS.")
                 selected = "edge"
 
     elif selected == "kittentts":
@@ -1111,15 +1148,15 @@ def _setup_tts_provider(config: dict):
             print_success("KittenTTS is already installed")
         else:
             print()
-            print_info("KittenTTS является легковесным (~25-80 МБ, только CPU, API-ключ не требуется).")
-            print_info("Голоса: Jasper, Bella, Luna, Bruno, Rosie, Hugo, Kiki, Leo")
+            print_info("KittenTTS is lightweight (~25-80MB, CPU-only, no API key required).")
+            print_info("Voices: Jasper, Bella, Luna, Bruno, Rosie, Hugo, Kiki, Leo")
             print()
             if prompt_yes_no("Install KittenTTS now?", True):
                 if not _install_kittentts_deps():
-                    print_warning("Установка KittenTTS не завершена. Откат к Edge TTS.")
+                    print_warning("KittenTTS installation incomplete. Falling back to Edge TTS.")
                     selected = "edge"
             else:
-                print_info("Пропуск установки. Установите tts.provider в 'kittentts' после ручной установки.")
+                print_info("Skipping install. Set tts.provider to 'kittentts' after installing manually.")
                 selected = "edge"
 
     # Save the selection
@@ -1144,8 +1181,8 @@ def setup_terminal_backend(config: dict):
     """Configure the terminal execution backend."""
     import platform as _platform
     print_header("Terminal Backend")
-    print_info("Выберите, где Ruslan выполняет команды оболочки и код.")
-    print_info("Это влияет на выполнение инструментов, доступ к файлам и изоляцию.")
+    print_info("Choose where Ruslan runs shell commands and code.")
+    print_info("This affects tool execution, file access, and isolation.")
     print_info(f"   Guide: {_DOCS_BASE}/user-guide/configuration#terminal-backend-configuration")
     print()
 
@@ -1176,7 +1213,7 @@ def setup_terminal_backend(config: dict):
     idx_to_backend[keep_current_idx] = current_backend
 
     terminal_idx = prompt_choice(
-        "Выберите бэкенд терминала:", terminal_choices, keep_current_idx
+        "Select terminal backend:", terminal_choices, keep_current_idx
     )
 
     selected_backend = idx_to_backend.get(terminal_idx)
@@ -1189,7 +1226,7 @@ def setup_terminal_backend(config: dict):
 
     if selected_backend == "local":
         print_success("Terminal backend: Local")
-        print_info("Команды выполняются непосредственно на этой машине.")
+        print_info("Commands run directly on this machine.")
         # Gateway working directory defaults to home; sudo stays off. Both are
         # configurable later via `ruslan setup terminal` / config.yaml.
         config["terminal"].setdefault("cwd", str(Path.home()))
@@ -1200,8 +1237,8 @@ def setup_terminal_backend(config: dict):
         # Check if Docker is available
         docker_bin = shutil.which("docker")
         if not docker_bin:
-            print_warning("Docker не найден в PATH!")
-            print_info("Установите")
+            print_warning("Docker not found in PATH!")
+            print_info("Install Docker: https://docs.docker.com/get-docker/")
         else:
             print_info(f"Docker found: {docker_bin}")
 
@@ -1216,9 +1253,9 @@ def setup_terminal_backend(config: dict):
         # Check if singularity/apptainer is available
         sing_bin = shutil.which("apptainer") or shutil.which("singularity")
         if not sing_bin:
-            print_warning("Singularity/Apptainer не найден в PATH!")
+            print_warning("Singularity/Apptainer not found in PATH!")
             print_info(
-                "Установка: https://apptainer.org/docs/admin/main/installation.html"
+                "Install: https://apptainer.org/docs/admin/main/installation.html"
             )
         else:
             print_info(f"Found: {sing_bin}")
@@ -1231,7 +1268,7 @@ def setup_terminal_backend(config: dict):
 
     elif selected_backend == "modal":
         print_success("Terminal backend: Modal")
-        print_info("Серверные облачные песочницы. Каждая сессия получает свой контейнер.")
+        print_info("Serverless cloud sandboxes. Each session gets its own container.")
         from tools.managed_tool_gateway import is_managed_tool_gateway_ready
         from tools.tool_backend_helpers import normalize_modal_mode
 
@@ -1245,7 +1282,7 @@ def setup_terminal_backend(config: dict):
         use_managed_modal = False
         if managed_modal_available:
             modal_choices = [
-                "Use my Ruslan subscription",
+                "Use my Nous subscription",
                 "Use my own Modal account",
             ]
             if modal_mode == "managed":
@@ -1255,7 +1292,7 @@ def setup_terminal_backend(config: dict):
             else:
                 default_modal_idx = 1 if get_env_value("MODAL_TOKEN_ID") else 0
             modal_mode_idx = prompt_choice(
-                "Выберите способ оплаты Modal:",
+                "Select how Modal execution should be billed:",
                 modal_choices,
                 default_modal_idx,
             )
@@ -1263,54 +1300,35 @@ def setup_terminal_backend(config: dict):
 
         if use_managed_modal:
             config["terminal"]["modal_mode"] = "managed"
-            print_info("Выполнение Modal будет использовать управляемый шлюз Руслан и выставляться по вашей подписке.")
+            print_info("Modal execution will use the managed Nous gateway and bill to your subscription.")
             if get_env_value("MODAL_TOKEN_ID") or get_env_value("MODAL_TOKEN_SECRET"):
                 print_info(
-                    "Учетные данные Direct Modal все еще настроены, но этот бэкенд закреплен за управляемым режимом."
+                    "Direct Modal credentials are still configured, but this backend is pinned to managed mode."
                 )
         else:
             config["terminal"]["modal_mode"] = "direct"
-            print_info("Требуется учётная запись Modal: https://modal.com")
+            print_info("Requires a Modal account: https://modal.com")
 
             # Check if modal SDK is installed
             try:
                 __import__("modal")
             except ImportError:
-                print_info("Установка modal SDK...")
-                import subprocess
+                print_info("Installing modal SDK...")
+                from ruslan_cli.tools_config import _pip_install
 
-                uv_bin = shutil.which("uv")
-                if uv_bin:
-                    result = subprocess.run(
-                        [
-                            uv_bin,
-                            "pip",
-                            "install",
-                            "--python",
-                            sys.executable,
-                            "modal",
-                        ],
-                        capture_output=True,
-                        text=True,
-                    )
-                else:
-                    result = subprocess.run(
-                        [sys.executable, "-m", "pip", "install", "modal"],
-                        capture_output=True,
-                        text=True,
-                    )
+                result = _pip_install(["modal"])
                 if result.returncode == 0:
                     print_success("modal SDK installed")
                 else:
-                    print_warning("Установка не удалась — выполните вручную: pip install modal")
+                    print_warning("Install failed — run manually: uv pip install modal")
 
             # Modal token
             print()
-            print_info("Аутентификация Modal:")
-            print_info("Получите свой токен на: https://modal.com/settings")
+            print_info("Modal authentication:")
+            print_info("  Get your token at: https://modal.com/settings")
             existing_token = get_env_value("MODAL_TOKEN_ID")
             if existing_token:
-                print_info("Токен Modal: уже настроен")
+                print_info("  Modal token: already configured")
                 if prompt_yes_no("  Update Modal credentials?", False):
                     token_id = prompt("    Modal Token ID", password=True)
                     token_secret = prompt("    Modal Token Secret", password=True)
@@ -1328,34 +1346,22 @@ def setup_terminal_backend(config: dict):
 
     elif selected_backend == "daytona":
         print_success("Terminal backend: Daytona")
-        print_info("Постоянные облачные среды разработки.")
-        print_info("Каждый сеанс получает выделенную песочницу с сохранением файловой системы.")
-        print_info("Регистрация на: https://daytona.io")
+        print_info("Persistent cloud development environments.")
+        print_info("Each session gets a dedicated sandbox with filesystem persistence.")
+        print_info("Sign up at: https://daytona.io")
 
         # Check if daytona SDK is installed
         try:
             __import__("daytona")
         except ImportError:
-            print_info("Установка daytona SDK...")
-            import subprocess
+            print_info("Installing daytona SDK...")
+            from ruslan_cli.tools_config import _pip_install
 
-            uv_bin = shutil.which("uv")
-            if uv_bin:
-                result = subprocess.run(
-                    [uv_bin, "pip", "install", "--python", sys.executable, "daytona"],
-                    capture_output=True,
-                    text=True,
-                )
-            else:
-                result = subprocess.run(
-                    [sys.executable, "-m", "pip", "install", "daytona"],
-                    capture_output=True,
-                    text=True,
-                )
+            result = _pip_install(["daytona"])
             if result.returncode == 0:
                 print_success("daytona SDK installed")
             else:
-                print_warning("Установка не удалась — выполните вручную: pip install daytona")
+                print_warning("Install failed — run manually: uv pip install daytona")
                 if result.stderr:
                     print_info(f"  Error: {result.stderr.strip().splitlines()[-1]}")
 
@@ -1363,7 +1369,7 @@ def setup_terminal_backend(config: dict):
         print()
         existing_key = get_env_value("DAYTONA_API_KEY")
         if existing_key:
-            print_info("Ключ API Daytona: уже настроен")
+            print_info("  Daytona API key: already configured")
             if prompt_yes_no("  Update API key?", False):
                 api_key = prompt("    Daytona API key", password=True)
                 if api_key:
@@ -1382,7 +1388,7 @@ def setup_terminal_backend(config: dict):
 
     elif selected_backend == "ssh":
         print_success("Terminal backend: SSH")
-        print_info("Выполнение команд на удаленной машине через SSH.")
+        print_info("Run commands on a remote machine via SSH.")
 
         # SSH host
         current_host = get_env_value("TERMINAL_SSH_HOST") or ""
@@ -1411,7 +1417,7 @@ def setup_terminal_backend(config: dict):
 
         # Test connection
         if host and prompt_yes_no("  Test SSH connection?", True):
-            print_info("Проверка соединения...")
+            print_info("  Testing connection...")
             import subprocess
 
             ssh_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5"]
@@ -1426,7 +1432,7 @@ def setup_terminal_backend(config: dict):
                 print_success("  SSH connection successful!")
             else:
                 print_warning(f"  SSH connection failed: {result.stderr.strip()}")
-                print_info("Проверьте ваш SSH-ключ и настройки хоста.")
+                print_info("  Check your SSH key and host settings.")
 
     # Sync terminal backend to .env so terminal_tool picks it up directly.
     # config.yaml is the source of truth, but terminal_tool reads TERMINAL_ENV.
@@ -1457,18 +1463,18 @@ def _apply_default_agent_settings(config: dict):
     config.setdefault("compression", {})["enabled"] = True
     config["compression"]["threshold"] = 0.50
 
-    # Default to never auto-resetting sessions. The gateway treats absent
-    # session_reset as "both", so we must write "none" explicitly to make
-    # the no-auto-reset default actually take effect.
+    # Default: never auto-reset sessions. This matches the gateway's own
+    # default (SessionResetPolicy.mode = "none"); we still write it
+    # explicitly so the choice is visible/editable in config.yaml.
     config.setdefault("session_reset", {})["mode"] = "none"
 
     save_config(config)
     print_success("Applied recommended defaults:")
-    print_info("Макс. итераций: 150")
-    print_info("Прогресс инструментов: все")
-    print_info("Порог сжатия: 0.50")
-    print_info("Сброс сессии: никогда (используйте /reset или сжатие)")
-    print_info("Запустите `ruslan setup agent` позже для настройки.")
+    print_info("  Max iterations: 150")
+    print_info("  Tool progress: all")
+    print_info("  Compression threshold: 0.50")
+    print_info("  Session reset: never (use /reset or compression)")
+    print_info("  Run `ruslan setup agent` later to customize.")
 
 
 def setup_agent_settings(config: dict):
@@ -1483,8 +1489,8 @@ def setup_agent_settings(config: dict):
     # entry is still around (from pre-PR#18413 setups), prefer the
     # config value so we don't surface a stale number to the user.
     current_max = str(cfg_get(config, "agent", "max_turns", default=90))
-    print_info("Максимальное количество итераций вызова инструментов за разговор.")
-    print_info("Больше = более сложные задачи, но больше затрат токенов.")
+    print_info("Maximum tool-calling iterations per conversation.")
+    print_info("Higher = more complex tasks, but costs more tokens.")
     print_info(
         f"Press Enter to keep {current_max}. Use 90 for most tasks or 150+ for open exploration."
     )
@@ -1502,20 +1508,21 @@ def setup_agent_settings(config: dict):
             remove_env_value("RUSLAN_MAX_ITERATIONS")
             print_success(f"Max iterations set to {max_iter}")
     except ValueError:
-        print_warning("Неверный номер, текущее значение сохранено")
+        print_warning("Invalid number, keeping current value")
 
     # ── Tool Progress Display ──
     print_info("")
-    print_info("Отображение прогресса инструментов")
-    print_info("Управляет тем, сколько активности инструментов отображается (CLI и сообщения).")
-    print_info("off     — Беззвучно, только итоговый ответ")
-    print_info("new     — Показывать название инструмента только при изменении (меньше шума)")
-    print_info("all     — Показывать каждый вызов инструмента с кратким превью")
-    print_info("verbose — Полные аргументы, результаты и отладочные логи")
+    print_info("Tool Progress Display")
+    print_info("Controls how much tool activity is shown (CLI and messaging).")
+    print_info("  off     — Silent, just the final response")
+    print_info("  new     — Show tool name only when it changes (less noise)")
+    print_info("  all     — Show every tool call with a short preview")
+    print_info("  verbose — Full args, results, and debug logs")
+    print_info("  log     — Silent in chat; write every tool call to ~/.ruslan/logs/tool_calls.log (gateway only)")
 
     current_mode = cfg_get(config, "display", "tool_progress", default="all")
     mode = prompt("Tool progress mode", current_mode)
-    if mode.lower() in {"off", "new", "all", "verbose"}:
+    if mode.lower() in {"off", "new", "all", "verbose", "log"}:
         if "display" not in config:
             config["display"] = {}
         config["display"]["tool_progress"] = mode.lower()
@@ -1526,9 +1533,9 @@ def setup_agent_settings(config: dict):
 
     # ── Context Compression ──
     print_header("Context Compression")
-    print_info("Автоматически суммирует старые сообщения, когда контекст становится слишком длинным.")
+    print_info("Automatically summarizes old messages when context gets too long.")
     print_info(
-        "Больший порог = сжатие позже (использовать больше контекста). Меньший = сжатие раньше."
+        "Higher threshold = compress later (use more context). Lower = compress sooner."
     )
 
     config.setdefault("compression", {})["enabled"] = True
@@ -1549,39 +1556,39 @@ def setup_agent_settings(config: dict):
     # ── Session Reset Policy ──
     print_header("Session Reset Policy")
     print_info(
-        "Сессии обмена сообщениями (Telegram, Discord и т.д.) накапливают контекст со временем."
+        "Messaging sessions (Telegram, Discord, etc.) accumulate context over time."
     )
     print_info(
-        "Каждое сообщение добавляется в историю разговора, что означает рост затрат на API."
+        "Each message adds to the conversation history, which means growing API costs."
     )
     print_info("")
     print_info(
-        "Чтобы управлять этим, сессии могут автоматически сбрасываться после периода бездействия"
+        "To manage this, sessions can automatically reset after a period of inactivity"
     )
     print_info(
-        "или в фиксированное время каждый день. При сбросе агент сохраняет важные"
+        "or at a fixed time each day. When a reset happens, the agent saves important"
     )
     print_info(
-        "вещи в свою постоянную память сначала — но контекст разговора очищается."
+        "things to its persistent memory first — but the conversation context is cleared."
     )
     print_info("")
-    print_info("Вы также можете вручную сбросить в любое время, набрав /reset в чате.")
+    print_info("You can also manually reset anytime by typing /reset in chat.")
     print_info("")
 
     reset_choices = [
-        "Inactivity + daily reset (recommended - reset whichever comes first)",
+        "Inactivity + daily reset (reset whichever comes first)",
         "Inactivity only (reset after N minutes of no messages)",
         "Daily only (reset at a fixed hour each day)",
-        "Never auto-reset (context lives until /reset or context compression)",
+        "Never auto-reset (recommended - context lives until /reset or context compression)",
         "Keep current settings",
     ]
 
     current_policy = config.get("session_reset", {})
-    current_mode = current_policy.get("mode", "both")
+    current_mode = current_policy.get("mode", "none")
     current_idle = current_policy.get("idle_minutes", 1440)
     current_hour = current_policy.get("at_hour", 4)
 
-    default_reset = {"both": 0, "idle": 1, "daily": 2, "none": 3}.get(current_mode, 0)
+    default_reset = {"both": 0, "idle": 1, "daily": 2, "none": 3}.get(current_mode, 3)
 
     reset_idx = prompt_choice("Session reset mode:", reset_choices, default_reset)
 
@@ -1633,10 +1640,10 @@ def setup_agent_settings(config: dict):
     elif reset_idx == 3:  # None
         config["session_reset"]["mode"] = "none"
         print_info(
-            "Сессии никогда не будут сбрасываться автоматически. Контекст управляется только сжатием."
+            "Sessions will never auto-reset. Context is managed only by compression."
         )
         print_warning(
-            "Длинные разговоры будут увеличивать стоимость. При необходимости используйте /reset вручную."
+            "Long conversations will grow in cost. Use /reset manually when needed."
         )
     # else: keep current (idx == 4)
 
@@ -1685,7 +1692,7 @@ def _setup_telegram_auto() -> str | None:
 
 
 def _prompt_telegram_bot_token() -> str | None:
-    print_info("Создайте бота через @BotFather в Telegram")
+    print_info("Create a bot via @BotFather on Telegram")
     while True:
         token = prompt("Telegram bot token", password=True)
         if not token:
@@ -1704,27 +1711,27 @@ def _setup_telegram():
     print_header("Telegram")
     existing = get_env_value("TELEGRAM_BOT_TOKEN")
     if existing:
-        print_info("Telegram: уже настроен")
+        print_info("Telegram: already configured")
         if not prompt_yes_no("Reconfigure Telegram?", False):
             # Check missing allowlist on existing config
             if not get_env_value("TELEGRAM_ALLOWED_USERS"):
-                print_info("⚠️  В Telegram нет списка разрешённых пользователей — кто угодно может использовать вашего бота!")
+                print_info("⚠️  Telegram has no user allowlist - anyone can use your bot!")
                 if prompt_yes_no("Add allowed users now?", True):
-                    print_info("Чтобы узнать свой Telegram ID: напишите @userinfobot")
+                    print_info("   To find your Telegram user ID: message @userinfobot")
                     allowed_users = prompt("Allowed user IDs (comma-separated)")
                     if allowed_users:
                         save_env_value("TELEGRAM_ALLOWED_USERS", allowed_users.replace(" ", ""))
                         print_success("Telegram allowlist configured")
             return
 
-    print_info("Как бы вы хотели создать своего Telegram-бота?")
+    print_info("How would you like to create your Telegram bot?")
     print()
-    print_info("[1] Автоматически (рекомендуется)")
-    print_info("Отсканируйте QR-код → подтвердите в Telegram → готово.")
-    print_info("Не нужно копировать и вставлять токен.")
+    print_info("  [1] Automatic (recommended)")
+    print_info("      Scan a QR code → confirm in Telegram → done.")
+    print_info("      No token copy-paste needed.")
     print()
-    print_info("[2] Вручную")
-    print_info("Создайте бота через @BotFather сами и вставьте токен.")
+    print_info("  [2] Manual")
+    print_info("      Create a bot via @BotFather yourself and paste the token.")
     print()
 
     choice = prompt("Choice [1/2]", default="1")
@@ -1736,14 +1743,14 @@ def _setup_telegram():
         if setup_result:
             token = setup_result.token
             if not _is_valid_telegram_bot_token(token):
-                print_error("Автоматическая настройка вернула недействительный токен бота Telegram.")
+                print_error("Automatic setup returned an invalid Telegram bot token.")
                 token = None
                 setup_result = None
         else:
             token = None
         if not token:
             print()
-            print_info("Переход к ручной настройке...")
+            print_info("Falling back to manual setup...")
             print()
 
     if not token:
@@ -1755,10 +1762,10 @@ def _setup_telegram():
     print_success("Telegram token saved")
 
     print()
-    print_info("🔒 Безопасность: Ограничьте, кто может использовать вашего бота")
-    print_info("Чтобы узнать свой ID пользователя Telegram:")
-    print_info("1. Напишите @userinfobot в Telegram")
-    print_info("2. Он ответит вашим числовым ID (например, 123456789)")
+    print_info("🔒 Security: Restrict who can use your bot")
+    print_info("   To find your Telegram user ID:")
+    print_info("   1. Message @userinfobot on Telegram")
+    print_info("   2. It will reply with your numeric ID (e.g., 123456789)")
     print()
 
     detected_user_id = getattr(setup_result, "owner_user_id", None)
@@ -1786,12 +1793,12 @@ def _setup_telegram():
         save_env_value("TELEGRAM_ALLOWED_USERS", allowed_users)
         print_success("Telegram allowlist configured - only listed users can use the bot")
     else:
-        print_info("⚠️  Не установлен список разрешенных — любой, кто найдет вашего бота, сможет им пользоваться!")
+        print_info("⚠️  No allowlist set - anyone who finds your bot can use it!")
 
     print()
-    print_info("📬 Домашний канал: куда Ruslan доставляет результаты задач cron,")
-    print_info("кроссплатформенные сообщения и уведомления.")
-    print_info("Для личных сообщений Telegram это ваш ID пользователя (как указано выше).")
+    print_info("📬 Home Channel: where Ruslan delivers cron job results,")
+    print_info("   cross-platform messages, and notifications.")
+    print_info("   For Telegram DMs, this is your user ID (same as above).")
 
     first_user_id = allowed_users.split(",")[0].strip() if allowed_users else ""
     if first_user_id:
@@ -1803,7 +1810,7 @@ def _setup_telegram():
             if home_channel:
                 save_env_value("TELEGRAM_HOME_CHANNEL", home_channel)
     else:
-        print_info("Вы также можете установить это позже, введя /set-home в своем чате Telegram.")
+        print_info("   You can also set this later by typing /set-home in your Telegram chat.")
         home_channel = prompt("Home channel ID (leave empty to set later)")
         if home_channel:
             save_env_value("TELEGRAM_HOME_CHANNEL", home_channel)
@@ -1823,51 +1830,51 @@ def _setup_bluebubbles():
     print_header("BlueBubbles (iMessage)")
     existing = get_env_value("BLUEBUBBLES_SERVER_URL")
     if existing:
-        print_info("BlueBubbles: уже настроен")
+        print_info("BlueBubbles: already configured")
         if not prompt_yes_no("Reconfigure BlueBubbles?", False):
             return
 
-    print_info("Подключает Ruslan к iMessage через BlueBubbles — бесплатный сервер с открытым исходным кодом")
-    print_info("на macOS, который соединяет iMessage с любым устройством.")
-    print_info("Требуется Mac с установленным BlueBubbles Server v1.0.0+")
-    print_info("Скачать: https://bluebubbles.app/")
+    print_info("Connects Ruslan to iMessage via BlueBubbles — a free, open-source")
+    print_info("macOS server that bridges iMessage to any device.")
+    print_info("   Requires a Mac running BlueBubbles Server v1.0.0+")
+    print_info("   Download: https://bluebubbles.app/")
     print()
-    print_info("В BlueBubbles Server → Настройки → API, запишите URL сервера и пароль.")
+    print_info("In BlueBubbles Server → Settings → API, note your Server URL and Password.")
     print()
 
     server_url = prompt("BlueBubbles server URL (e.g. http://192.168.1.10:1234)")
     if not server_url:
-        print_warning("Требуется URL сервера — пропускаем настройку BlueBubbles")
+        print_warning("Server URL is required — skipping BlueBubbles setup")
         return
     save_env_value("BLUEBUBBLES_SERVER_URL", server_url.rstrip("/"))
 
     password = prompt("BlueBubbles server password", password=True)
     if not password:
-        print_warning("Требуется пароль — пропускаем настройку BlueBubbles")
+        print_warning("Password is required — skipping BlueBubbles setup")
         return
     save_env_value("BLUEBUBBLES_PASSWORD", password)
     print_success("BlueBubbles credentials saved")
 
     print()
-    print_info("🔒 Безопасность: Ограничьте, кто может писать вашему боту")
-    print_info("Используйте адреса iMessage: email (user@icloud.com) или телефон (+15551234567)")
+    print_info("🔒 Security: Restrict who can message your bot")
+    print_info("   Use iMessage addresses: email (user@icloud.com) or phone (+15551234567)")
     print()
     allowed_users = prompt("Allowed iMessage addresses (comma-separated, leave empty for open access)")
     if allowed_users:
         save_env_value("BLUEBUBBLES_ALLOWED_USERS", allowed_users.replace(" ", ""))
         print_success("BlueBubbles allowlist configured")
     else:
-        print_info("⚠️  Белый список не установлен — любой, кто может отправить вам iMessage, может использовать бота!")
+        print_info("⚠️  No allowlist set — anyone who can iMessage you can use the bot!")
 
     print()
-    print_info("📬 Домашний канал: телефон или email для доставки результатов cron и уведомлений.")
-    print_info("Вы также можете установить это позже с помощью /set-home в вашем чате iMessage.")
+    print_info("📬 Home Channel: phone or email for cron job delivery and notifications.")
+    print_info("   You can also set this later with /set-home in your iMessage chat.")
     home_channel = prompt("Home channel address (leave empty to set later)")
     if home_channel:
         save_env_value("BLUEBUBBLES_HOME_CHANNEL", home_channel)
 
     print()
-    print_info("Расширенные настройки (значения по умолчанию подходят для большинства конфигураций):")
+    print_info("Advanced settings (defaults are fine for most setups):")
     if prompt_yes_no("Configure webhook listener settings?", False):
         webhook_port = prompt("Webhook listener port (default: 8645)")
         if webhook_port:
@@ -1875,12 +1882,12 @@ def _setup_bluebubbles():
                 save_env_value("BLUEBUBBLES_WEBHOOK_PORT", str(int(webhook_port)))
                 print_success(f"Webhook port set to {webhook_port}")
             except ValueError:
-                print_warning("Неверный номер порта, используется значение по умолчанию 8645")
+                print_warning("Invalid port number, using default 8645")
 
     print()
-    print_info("Требуется помощник Private API BlueBubbles для индикаторов набора,")
-    print_info("уведомлений о прочтении и реакций Tapback. Базовая отправка сообщений работает без него.")
-    print_info("Установка: https://docs.bluebubbles.app/helper-bundle/installation")
+    print_info("Requires the BlueBubbles Private API helper for typing indicators,")
+    print_info("read receipts, and tapback reactions. Basic messaging works without it.")
+    print_info("   Install: https://docs.bluebubbles.app/helper-bundle/installation")
 
 
 def _setup_qqbot():
@@ -1894,16 +1901,16 @@ def _setup_webhooks():
     print_header("Webhooks")
     existing = get_env_value("WEBHOOK_ENABLED")
     if existing:
-        print_info("Вебхуки: уже настроены")
+        print_info("Webhooks: already configured")
         if not prompt_yes_no("Reconfigure webhooks?", False):
             return
 
     print()
-    print_warning("⚠  Платформы Webhook и SMS требуют открытия портов шлюза в")
-    print_warning("интернет. В целях безопасности запускайте шлюз в изолированной среде")
-    print_warning("(Docker, VM и т.д.), чтобы ограничить радиус поражения от инъекций промптов.")
+    print_warning("⚠  Webhook and SMS platforms require exposing gateway ports to the")
+    print_warning("   internet. For security, run the gateway in a sandboxed environment")
+    print_warning("   (Docker, VM, etc.) to limit blast radius from prompt injection.")
     print()
-    print_info("Полное руководство: https://ruslan.team/docs/user-guide/messaging/webhooks/")
+    print_info("   Full guide: https://ruslan-agent.nousresearch.com/docs/user-guide/messaging/webhooks/")
     print()
 
     port = prompt("Webhook port (default 8644)")
@@ -1912,28 +1919,28 @@ def _setup_webhooks():
             save_env_value("WEBHOOK_PORT", str(int(port)))
             print_success(f"Webhook port set to {port}")
         except ValueError:
-            print_warning("Неверный номер порта, используется значение по умолчанию 8644")
+            print_warning("Invalid port number, using default 8644")
 
     secret = prompt("Global HMAC secret (shared across all routes)", password=True)
     if secret:
         save_env_value("WEBHOOK_SECRET", secret)
         print_success("Webhook secret saved")
     else:
-        print_warning("Секрет не установлен — вы должны настроить секреты для каждого пути в config.yaml")
+        print_warning("No secret set — you must configure per-route secrets in config.yaml")
 
     save_env_value("WEBHOOK_ENABLED", "true")
     print()
     print_success("Webhooks enabled! Next steps:")
     from ruslan_constants import display_ruslan_home as _dhh
     print_info(f"   1. Define webhook routes in {_dhh()}/config.yaml")
-    print_info("2. Укажите вашему сервису (GitHub, GitLab и т.д.) адрес:")
+    print_info("   2. Point your service (GitHub, GitLab, etc.) at:")
     print_info("      http://your-server:8644/webhooks/<route-name>")
     print()
-    print_info("Руководство по настройке маршрутов:")
-    print_info("   https://ruslan.team/docs/user-guide/messaging/webhooks/#configuring-routes")
+    print_info("   Route configuration guide:")
+    print_info("   https://ruslan-agent.nousresearch.com/docs/user-guide/messaging/webhooks/#configuring-routes")
     print()
-    print_info("Откройте конфиг в редакторе:  ruslan config edit")
-    print_info("Откройте конфиг в редакторе:  ruslan config edit")
+    print_info("   Open config in your editor:  ruslan config edit")
+    print_info("   Open config in your editor:  ruslan config edit")
 
 
 def setup_gateway(config: dict):
@@ -1941,8 +1948,8 @@ def setup_gateway(config: dict):
     from ruslan_cli.gateway import _all_platforms, _platform_status, _configure_platform
 
     print_header("Messaging Platforms")
-    print_info("Подключайтесь к платформам обмена сообщениями, чтобы общаться с Русланом откуда угодно.")
-    print_info("Переключайте пробелом,")
+    print_info("Connect to messaging platforms to chat with Ruslan from anywhere.")
+    print_info("Toggle with Space, confirm with Enter.")
     print()
 
     platforms = _all_platforms()
@@ -1952,15 +1959,14 @@ def setup_gateway(config: dict):
     pre_selected = []
     for i, plat in enumerate(platforms):
         status = _platform_status(plat)
-        # Без эмодзи — на Termux Android они разной ширины ломают выравнивание
-        items.append(f"{plat['label']}  ({status})")
+        items.append(f"{plat['emoji']} {plat['label']}  ({status})")
         if status == "configured":
             pre_selected.append(i)
 
-    selected = prompt_checklist("Выберите платформы для настройки:", items, pre_selected)
+    selected = prompt_checklist("Select platforms to configure:", items, pre_selected)
 
     if not selected:
-        print_info("Платформы не выбраны. Запустите 'ruslan setup gateway' позже для настройки.")
+        print_info("No platforms selected. Run 'ruslan setup gateway' later to configure.")
         return
 
     for idx in selected:
@@ -2008,9 +2014,9 @@ def setup_gateway(config: dict):
         if missing_home:
             print()
             print_warning(f"No home channel set for: {', '.join(missing_home)}")
-            print_info("Без домашнего канала, задания cron и кросс-платформенные")
-            print_info("сообщения не могут быть доставлены на эти платформы.")
-            print_info("Установите его позже с помощью /set-home в вашем чате или:")
+            print_info("   Without a home channel, cron jobs and cross-platform")
+            print_info("   messages can't be delivered to those platforms.")
+            print_info("   Set one later with /set-home in your chat, or:")
             for plat in missing_home:
                 print_info(
                     f"     ruslan config set {plat.upper()}_HOME_CHANNEL <channel_id>"
@@ -2070,7 +2076,7 @@ def setup_gateway(config: dict):
                         from ruslan_cli import gateway_windows
                         gateway_windows.restart()
                 except UserSystemdUnavailableError as e:
-                    print_error("Перезапуск не удался — пользовательский systemd недоступен:")
+                    print_error("  Restart failed — user systemd not reachable:")
                     for line in str(e).splitlines():
                         print(f"  {line}")
                 except SystemScopeRequiresRootError as e:
@@ -2095,7 +2101,7 @@ def setup_gateway(config: dict):
                         from ruslan_cli import gateway_windows
                         gateway_windows.start()
                 except UserSystemdUnavailableError as e:
-                    print_error("Запуск не удался — пользовательский systemd недоступен:")
+                    print_error("  Start failed — user systemd not reachable:")
                     for line in str(e).splitlines():
                         print(f"  {line}")
                 except SystemScopeRequiresRootError as e:
@@ -2140,7 +2146,7 @@ def setup_gateway(config: dict):
                             elif _is_macos:
                                 launchd_start()
                         except UserSystemdUnavailableError as e:
-                            print_error("Запуск не удался — пользовательский systemd недоступен:")
+                            print_error("  Start failed — user systemd not reachable:")
                             for line in str(e).splitlines():
                                 print(f"  {line}")
                         except SystemScopeRequiresRootError as e:
@@ -2150,24 +2156,24 @@ def setup_gateway(config: dict):
                             print_error(f"  Start failed: {e}")
                 except Exception as e:
                     print_error(f"  Install failed: {e}")
-                    print_info("Вы можете попробовать вручную: ruslan gateway install")
+                    print_info("  You can try manually: ruslan gateway install")
             else:
-                print_info("Вы можете установить позже: ruslan gateway install")
-                if supports_systemd:
-                    print_info("Или как служба автозагрузки: sudo ruslan gateway install --system")
-                print_info("Или запустить на переднем плане:  ruslan gateway")
+                print_info("  You can install later: ruslan gateway install")
+                if supports_systemd and os.geteuid() == 0:  # windows-footgun: ok — guarded by supports_systemd (Linux only)
+                    print_info("  Or as a boot-time service: ruslan gateway install --system")
+                print_info("  Or run in foreground:  ruslan gateway")
         else:
             from ruslan_constants import is_container
             if is_container():
-                print_info("Запустите шлюз, чтобы ваши боты были онлайн:")
-                print_info("ruslan gateway run          # Запуск как основной процесс контейнера")
+                print_info("Start the gateway to bring your bots online:")
+                print_info("   ruslan gateway run          # Run as container main process")
                 print_info("")
-                print_info("Для автоматических перезапусков используйте политику перезапуска Docker:")
-                print_info("docker run --restart unless-stopped ...")
-                print_info("docker restart <контейнер>  # Ручной перезапуск")
+                print_info("For automatic restarts, use a Docker restart policy:")
+                print_info("   docker run --restart unless-stopped ...")
+                print_info("   docker restart <container>  # Manual restart")
             else:
-                print_info("Запустите шлюз, чтобы ваши боты были онлайн:")
-                print_info("ruslan gateway              # Запуск в переднем плане")
+                print_info("Start the gateway to bring your bots online:")
+                print_info("   ruslan gateway              # Run in foreground")
 
         print_info("━" * 50)
 
@@ -2204,7 +2210,7 @@ def _model_section_has_credentials(config: dict) -> bool:
       * ``PROVIDER_REGISTRY`` in ``ruslan_cli.auth`` — lists every supported
         provider along with its ``api_key_env_vars``.
       * ``active_provider`` in the auth store — covers OAuth device-code /
-        external-OAuth providers (Ruslan, Codex, Qwen, Gemini CLI, ...).
+        external-OAuth providers (Nous, Codex, Qwen, Gemini CLI, ...).
       * The legacy OpenRouter aggregator env vars, which route generic
         ``OPENAI_API_KEY`` / ``OPENROUTER_API_KEY`` values through OpenRouter.
     """
@@ -2401,7 +2407,7 @@ def _print_migration_preview(report: dict):
     """
     items = report.get("items", [])
     if not items:
-        print_info("Нечего переносить.")
+        print_info("Nothing to migrate.")
         return
 
     migrated_items = [i for i in items if i.get("status") == "migrated"]
@@ -2475,12 +2481,12 @@ def _offer_openclaw_migration(ruslan_home: Path) -> bool:
     print()
     print_header("OpenClaw Installation Detected")
     print_info(f"Found OpenClaw data at {openclaw_dir}")
-    print_info("Ruslan может предварительно просмотреть, что будет импортировано, перед внесением каких-либо изменений.")
+    print_info("Ruslan can preview what would be imported before making any changes.")
     print()
 
     if not prompt_yes_no("Would you like to see what can be imported?", default=True):
         print_info(
-            "Пропуск переноса. Вы можете запустить его позже с: ruslan claw migrate --dry-run"
+            "Skipping migration. You can run it later with: ruslan claw migrate --dry-run"
         )
         return False
 
@@ -2493,7 +2499,7 @@ def _offer_openclaw_migration(ruslan_home: Path) -> bool:
     try:
         mod = _load_openclaw_migration_module()
         if mod is None:
-            print_warning("Не удалось загрузить скрипт переноса.")
+            print_warning("Could not load migration script.")
             return False
     except Exception as e:
         print_warning(f"Could not load migration script: {e}")
@@ -2526,22 +2532,22 @@ def _offer_openclaw_migration(ruslan_home: Path) -> bool:
 
     if preview_count == 0:
         print()
-        print_info("Нечего импортировать из OpenClaw.")
+        print_info("Nothing to import from OpenClaw.")
         return False
 
     print()
     print_header(f"Migration Preview — {preview_count} item(s) would be imported")
-    print_info("Изменения еще не внесены. Ознакомьтесь со списком ниже:")
+    print_info("No changes have been made yet. Review the list below:")
     print()
     _print_migration_preview(preview_report)
 
     # ── Phase 2: Confirm and execute ──
     if not prompt_yes_no("Proceed with migration?", default=False):
         print_info(
-            "Перенос отменён. Вы можете запустить его позже с: ruslan claw migrate"
+            "Migration cancelled. You can run it later with: ruslan claw migrate"
         )
         print_info(
-            "Используйте --dry-run для повторного предпросмотра, или --preset minimal для более лёгкого импорта."
+            "Use --dry-run to preview again, or --preset minimal for a lighter import."
         )
         return False
 
@@ -2595,20 +2601,20 @@ def _offer_openclaw_migration(ruslan_home: Path) -> bool:
 # =============================================================================
 
 SETUP_SECTIONS = [
-    ("model", "Модель и провайдер", setup_model_provider),
-    ("tts", "Озвучка (TTS)", setup_tts),
-    ("terminal", "Бэкенд терминала", setup_terminal_backend),
-    ("gateway", "Мессенджеры (Gateway)", setup_gateway),
-    ("tools", "Инструменты", setup_tools),
-    ("agent", "Настройки агента", setup_agent_settings),
+    ("model", "Model & Provider", setup_model_provider),
+    ("tts", "Text-to-Speech", setup_tts),
+    ("terminal", "Terminal Backend", setup_terminal_backend),
+    ("gateway", "Messaging Platforms (Gateway)", setup_gateway),
+    ("tools", "Tools", setup_tools),
+    ("agent", "Agent Settings", setup_agent_settings),
 ]
 
 
 def _run_portal_one_shot(config: dict) -> None:
-    """One-shot Ruslan Portal setup — OAuth + model pick + provider + Tool Gateway.
+    """One-shot Nous Portal setup — OAuth + model pick + provider + Tool Gateway.
 
     Wired into ``ruslan setup --portal`` and ``ruslan portal``. This is the
-    Ruslan-Portal slice of the first-time quick setup, collapsed into a single
+    Nous-Portal slice of the first-time quick setup, collapsed into a single
     shareable command so a brand-new user goes from zero to a fully working
     Ruslan session — model selected, provider set, and web/image/tts/browser
     tools routed via their Portal sub — without being told to run
@@ -2617,9 +2623,9 @@ def _run_portal_one_shot(config: dict) -> None:
     The login + model selection + provider switch + Tool Gateway opt-in are all
     delegated to ``_model_flow_nous`` — the exact same flow quick setup uses
     (``_run_first_time_quick_setup``) and the same one ``ruslan model`` runs
-    when you pick Ruslan. Routing through it (instead of hand-rolling the auth +
+    when you pick Nous. Routing through it (instead of hand-rolling the auth +
     provider write here) means ``ruslan portal`` always offers a model picker,
-    and there is a single source of truth for the Ruslan onboarding steps.
+    and there is a single source of truth for the Nous onboarding steps.
     """
     from ruslan_cli.config import load_config
 
@@ -2630,7 +2636,7 @@ def _run_portal_one_shot(config: dict) -> None:
             Colors.MAGENTA,
         )
     )
-    print(color("│         🛡️ Настройка Руслана — Портал (быстрая)         │", Colors.MAGENTA))
+    print(color("│     ⚕ Ruslan Setup — Nous Portal (one-shot)             │", Colors.MAGENTA))
     print(
         color(
             "└─────────────────────────────────────────────────────────┘",
@@ -2638,11 +2644,11 @@ def _run_portal_one_shot(config: dict) -> None:
         )
     )
     print()
-    print_info("Одна подписка, 300+ моделей, плюс Tool Gateway:")
-    print_info("веб-поиск, генерация изображений, TTS, автоматизация браузера")
-    print_info("— всё маршрутизируется через вашу подписку Ruslan Tool Gateway.")
+    print_info("  One subscription, 300+ models, plus the Tool Gateway:")
+    print_info("    web search, image generation, TTS, browser automation")
+    print_info("    — all routed through your Nous Portal sub.")
     print()
-    print_info("Регистрация: https://ruslan.team/portal")
+    print_info("  Sign up: https://portal.nousresearch.com/manage-subscription")
     print()
 
     # _model_flow_nous handles BOTH the logged-out path (device-code OAuth,
@@ -2661,14 +2667,14 @@ def _run_portal_one_shot(config: dict) -> None:
         # SystemExit there would otherwise escape and kill the whole CLI.
         # Treat all of these as a graceful cancel/abort for the portal flow.
         print()
-        print_info("Настройка отменена.")
-        print_info("Вы можете повторить позже с помощью `ruslan portal`.")
+        print_info("  Setup cancelled.")
+        print_info("  You can retry later with `ruslan portal`.")
         return
     except Exception as exc:
         logger.debug("_model_flow_nous error during `ruslan portal`: %s", exc)
         print()
-        print_error(f"  Ruslan Portal setup encountered an error: {exc}")
-        print_info("Вы можете повторить позже с помощью `ruslan portal`.")
+        print_error(f"  Nous Portal setup encountered an error: {exc}")
+        print_info("  You can retry later with `ruslan portal`.")
         return
 
     # Re-sync the in-memory config from disk — _model_flow_nous (and the
@@ -2684,8 +2690,8 @@ def _run_portal_one_shot(config: dict) -> None:
 
     print()
     print_success("Portal setup complete.")
-    print_info("Выполните `ruslan portal info`, чтобы проверить маршрутизацию.")
-    print_info("Выполните `ruslan`, чтобы начать чат.")
+    print_info("  Run `ruslan portal info` to inspect routing.")
+    print_info("  Run `ruslan` to start chatting.")
 
 
 def run_setup_wizard(args):
@@ -2760,7 +2766,7 @@ def run_setup_wizard(args):
                         Colors.MAGENTA,
                     )
                 )
-                print(color(f"│     ⚔ Настройка Руслана — {label:<34s} │", Colors.MAGENTA))
+                print(color(f"│     ⚕ Ruslan Setup — {label:<34s} │", Colors.MAGENTA))
                 print(
                     color(
                         "└─────────────────────────────────────────────────────────┘",
@@ -2770,7 +2776,7 @@ def run_setup_wizard(args):
                 func(config)
                 save_config(config)
                 print()
-                print_success(f"Настройка {label.lower()} завершена!")
+                print_success(f"{label} configuration complete!")
                 return
 
         print_error(f"Unknown setup section: {section}")
@@ -2796,7 +2802,7 @@ def run_setup_wizard(args):
     )
     print(
         color(
-            "│               🛡️ Мастер настройки Руслана               │", Colors.MAGENTA
+            "│             ⚕ Ruslan Agent Setup Wizard                │", Colors.MAGENTA
         )
     )
     print(
@@ -2807,12 +2813,12 @@ def run_setup_wizard(args):
     )
     print(
         color(
-            "│  Давайте настроим вашего агента Руслан.                 │", Colors.MAGENTA
+            "│  Let's configure your Ruslan Agent installation.       │", Colors.MAGENTA
         )
     )
     print(
         color(
-            f"│  Нажмите Enter чтобы продолжить (Ctrl+C для выхода).    │", Colors.MAGENTA
+            "│  Press Ctrl+C at any time to exit.                     │", Colors.MAGENTA
         )
     )
     print(
@@ -2836,12 +2842,12 @@ def run_setup_wizard(args):
 
         print()
         print_header("Reconfigure")
-        print_success("Руслан уже настроен.")
-        print_info("Запуск полного мастера — каждый запрос показывает ваше текущее значение.")
-        print_info("Нажмите Enter, чтобы оставить, или введите новое значение для изменения.")
+        print_success("You already have Ruslan configured.")
+        print_info("Running the full wizard — each prompt shows your current value.")
+        print_info("Press Enter to keep it, or type a new value to change it.")
         print_info("")
-        print_info("Совет: перейдите сразу к разделу с 'ruslan setup model|terminal|")
-        print_info("gateway|tools|agent', или заполните только отсутствующие элементы с --quick.")
+        print_info("Tip: jump straight to a section with 'ruslan setup model|terminal|")
+        print_info("     gateway|tools|agent', or fill only missing items with --quick.")
         # Fall through to the "Full Setup — run all sections" block below.
         # --reconfigure is now the default on existing installs; the flag
         # is preserved for backwards compatibility but is a no-op here.
@@ -2849,13 +2855,10 @@ def run_setup_wizard(args):
         # ── First-Time Setup ──
         print()
 
-        # --quick / --reconfigure: если это fresh install, идём сразу в быструю
-        if quick_requested:
-            _run_quick_setup(config, ruslan_home)
-            return
-
-        if reconfigure_requested:
-            print_info("Существующая конфигурация не найдена — запуск первоначальной настройки.")
+        # --reconfigure / --quick on a fresh install are meaningless — fall
+        # through to the normal first-time flow.
+        if reconfigure_requested or quick_requested:
+            print_info("No existing configuration found — running first-time setup.")
             print()
 
         # Offer OpenClaw migration before configuration begins
@@ -2864,11 +2867,11 @@ def run_setup_wizard(args):
             config = load_config()
 
         setup_mode = prompt_choice(
-            "Как настроить Руслана?",
+            "How would you like to set up Ruslan?",
             [
-                "Быстрая настройка (Ruslan Portal) — бесплатный OAuth, без ключей API, модель + инструменты (рекомендуется)",
-                "Полная настройка — каждый провайдер, инструмент и опция вручную (со своими ключами)",
-                "Blank Slate — всё выключено кроме минимума; включать возможности по выбору",
+                "Quick Setup (Nous Portal) — free OAuth login, no API keys, model + tools (recommended)",
+                "Full setup — configure every provider, tool & option yourself (bring your own keys)",
+                "Blank Slate — everything off except the bare minimum; opt in to each capability",
             ],
             0,
         )
@@ -2887,13 +2890,13 @@ def run_setup_wizard(args):
     print_info(f"Data folder:  {ruslan_home}")
     print_info(f"Install dir:  {PROJECT_ROOT}")
     print()
-    print_info("Вы можете редактировать эти файлы напрямую или использовать 'ruslan config edit'")
+    print_info("You can edit these files directly or use 'ruslan config edit'")
 
     if migration_ran:
         print()
-        print_info("Настройки были импортированы из OpenClaw.")
-        print_info("Каждый раздел ниже покажет, что было импортировано — нажмите Enter, чтобы оставить,")
-        print_info("или выберите перенастройку, если необходимо.")
+        print_info("Settings were imported from OpenClaw.")
+        print_info("Each section below will show what was imported — press Enter to keep,")
+        print_info("or choose to reconfigure if needed.")
 
     # Section 1: Model & Provider
     if not (migration_ran and _skip_configured_section(config, "model", "Model & Provider")):
@@ -2921,16 +2924,16 @@ def run_setup_wizard(args):
     save_config(config)
     if _backup_path and _backup_path.exists():
         print_info(f"Previous config backed up to: {_backup_path}")
-        print_info("Если настройка изменила значение, которое вы настроили, восстановите его с помощью:")
+        print_info("If setup changed a value you customized, restore it with:")
         print_info(f"  cp {_backup_path} {config_path}")
     _print_setup_summary(config, ruslan_home)
 
 
 def _run_first_time_quick_setup(config: dict, ruslan_home, is_existing: bool):
-    """Streamlined first-time setup via Ruslan Portal: OAuth, model, terminal & messaging.
+    """Streamlined first-time setup via Nous Portal: OAuth, model, terminal & messaging.
 
-    Routes straight to the Ruslan Portal provider — runs the device-code OAuth
-    login, picks a Ruslan model, then configures the terminal backend and (optionally)
+    Routes straight to the Nous Portal provider — runs the device-code OAuth
+    login, picks a Nous model, then configures the terminal backend and (optionally)
     a messaging platform. Applies sensible defaults for everything else (agent
     settings, tools); the user can customize later via ``ruslan setup <section>``
     or switch providers with ``ruslan model``.
@@ -2942,21 +2945,21 @@ def _run_first_time_quick_setup(config: dict, ruslan_home, is_existing: bool):
     # which selects a model internally) and the already-logged-in path (curated
     # Nous model picker). Provider is set to "nous" by the login/model save.
     print()
-    print_header("Ruslan Portal")
-    print_info("Одна подписка, 300+ моделей, а также Tool Gateway:")
-    print_info("веб-поиск, генерация изображений, TTS, автоматизация браузера.")
-    print_info("Регистрация: https://ruslan.team/portal")
+    print_header("Nous Portal")
+    print_info("One subscription, 300+ models, plus the Tool Gateway:")
+    print_info("  web search, image generation, TTS, browser automation.")
+    print_info("Sign up: https://portal.nousresearch.com/manage-subscription")
     print()
     try:
         from ruslan_cli.main import _model_flow_nous
         _model_flow_nous(config)
     except (KeyboardInterrupt, EOFError):
         print()
-        print_info("Настройка Ruslan Portal отменена.")
+        print_info("Nous Portal setup cancelled.")
     except Exception as exc:
         logger.debug("_model_flow_nous error during quick setup: %s", exc)
-        print_warning(f"Ruslan Portal setup encountered an error: {exc}")
-        print_info("Вы можете попробовать снова позже с помощью: ruslan model")
+        print_warning(f"Nous Portal setup encountered an error: {exc}")
+        print_info("You can try again later with: ruslan model")
 
     # Re-sync the wizard's config dict from disk — _model_flow_nous (and the
     # underlying login/model save) write via their own load/save cycle, and the
@@ -2976,10 +2979,10 @@ def _run_first_time_quick_setup(config: dict, ruslan_home, is_existing: bool):
     # Step 4: Offer messaging gateway setup
     print()
     gateway_choice = prompt_choice(
-        "Подключить мессенджер? (Telegram, Discord и др.)",
+        "Connect a messaging platform? (Telegram, Discord, etc.)",
         [
-            "Настроить сейчас (рекомендуется)",
-            "Пропустить — настроить позже через 'ruslan setup gateway'",
+            "Set up messaging now (recommended)",
+            "Skip — set up later with 'ruslan setup gateway'",
         ],
         0,
     )
@@ -2989,11 +2992,11 @@ def _run_first_time_quick_setup(config: dict, ruslan_home, is_existing: bool):
         save_config(config)
 
     print()
-    print_success("Настройка завершена! Руслан готов к работе.")
+    print_success("Setup complete! You're ready to go.")
     print()
-    print_info("Настройка всех параметров:    ruslan setup")
+    print_info("  Configure all settings:    ruslan setup")
     if gateway_choice != 0:
-        print_info("Подключение Telegram/Discord:  ruslan setup gateway")
+        print_info("  Connect Telegram/Discord:  ruslan setup gateway")
     print()
 
     _print_setup_summary(config, ruslan_home)
@@ -3032,6 +3035,12 @@ def _blank_slate_minimal_toolsets(config: dict):
                 continue  # platform composites — not user-facing toolsets
             if isinstance(tdef, dict) and tdef.get("includes"):
                 continue  # composite groupings, not leaf toolsets
+            if isinstance(tdef, dict) and tdef.get("posture"):
+                continue  # posture toolsets (e.g. coding) are session-level
+                # selections made by agent/coding_context.py — not permanent
+                # user-facing disables. Adding them here causes model_tools
+                # to subtract their tools (terminal, read_file, …) from the
+                # minimal Blank Slate surface (#57315).
             all_keys.add(k)
 
         disabled = sorted(all_keys - keep)
@@ -3082,23 +3091,23 @@ def _run_blank_slate_setup(config: dict, ruslan_home, is_existing: bool):
     from ruslan_cli.config import load_config
 
     print()
-    print_header("Чистая установка")
-    print_info("Всё изначально отключено. Сначала мы принудительно включаем только необходимое.")
-    print_info("для запуска агента, затем вы решаете, остановиться ли там или перейти")
-    print_info("через включение дополнительных функций — выбрав то, что вам нужно")
+    print_header("Blank Slate Setup")
+    print_info("Everything starts OFF. First we force-enable only what's required")
+    print_info("to run an agent, then you choose whether to stop there or walk")
+    print_info("through enabling more — opting in to exactly what you want.")
     print_info("")
-    print_info("Принудительно включены: Провайдер и Модель, Файловые операции, Терминал")
-    print_info("Всё остальное (веб, браузер, выполнение кода, зрение, память,")
-    print_info("делегирование, cron, навыки, плагины, MCP, …) по умолчанию отключено")
+    print_info("Forced on: Provider & Model, File Operations, Terminal.")
+    print_info("Everything else (web, browser, code exec, vision, memory,")
+    print_info("delegation, cron, skills, plugins, MCP, …) starts disabled.")
     print()
 
     # ── Step 1: Provider & Model (REQUIRED — the agent cannot run without it) ──
-    print_header("Шаг 1 — Провайдер и модель (обязательно)")
+    print_header("Step 1 — Provider & Model (required)")
     setup_model_provider(config)
     save_config(config)
 
     # ── Step 2: Terminal backend (where commands run — a core decision) ──
-    print_header("Шаг 2 — Терминальный бэкенд")
+    print_header("Step 2 — Terminal Backend")
     setup_terminal_backend(config)
 
     # ── Step 3: Lock in the minimal toolset + minimized config knobs ──
@@ -3106,18 +3115,18 @@ def _run_blank_slate_setup(config: dict, ruslan_home, is_existing: bool):
     _blank_slate_minimize_config(config)
     save_config(config)
     print()
-    print_success("Минимальная база применена:")
-    print_info("Наборы инструментов: файл, терминал (всё остальное выключено)")
-    print_info("Сжатие, память, контрольные точки, умная маршрутизация: выключено")
+    print_success("Minimal baseline applied:")
+    print_info("  Toolsets: file, terminal (everything else off)")
+    print_info("  Compression, memory, checkpoints, smart routing: off")
 
     # ── The fork: stop here, or walk through enabling things ──
     print()
-    print_header("Насколько далеко вы хотите зайти?")
+    print_header("How far do you want to go?")
     path = prompt_choice(
-        "Ваш минимальный агент готов. Что дальше?",
+        "Your minimal agent is ready. What next?",
         [
-            "Начать со всем выключенным — завершить сейчас (минимально)",
-            "Пройти по всем конфигурациям — включить инструменты, навыки, плагины, MCP",
+            "Start with everything disabled — finish now (most minimal)",
+            "Walk through all configurations — opt in to tools, skills, plugins, MCP",
         ],
         0,
     )
@@ -3132,13 +3141,13 @@ def _run_blank_slate_setup(config: dict, ruslan_home, is_existing: bool):
         except Exception as exc:
             logger.debug("blank-slate skill opt-out error: %s", exc)
         print()
-        print_success("Blank Slate настроен — минимальный агент готов.")
-        print_info("Включите что-либо позже, по требованию:")
-        print_info("Включить инструменты:        ruslan tools")
-        print_info("Начальные навыки:         ruslan skills opt-in --sync")
-        print_info("Добавить MCP-серверы:  ruslan mcp add")
-        print_info("Включить плагины:      ruslan plugins")
-        print_info("Настройка параметров агента: ruslan setup agent")
+        print_success("Blank Slate setup complete — minimal agent ready.")
+        print_info("Enable anything later, on demand:")
+        print_info("  Enable tools:        ruslan tools")
+        print_info("  Seed skills:         ruslan skills opt-in --sync")
+        print_info("  Add MCP servers:     ruslan mcp add")
+        print_info("  Enable plugins:      ruslan plugins")
+        print_info("  Tune agent settings: ruslan setup agent")
         print()
         _print_setup_summary(config, ruslan_home)
         return
@@ -3154,9 +3163,9 @@ def _blank_slate_walkthrough(config: dict, ruslan_home):
     # ── Bundled skills — default to NONE, offer to seed all ──
     print()
     print_header("Bundled Skills")
-    print_info("Blank Slate поставляется без встроенных навыков по умолчанию.")
+    print_info("Blank Slate ships with NO bundled skills by default.")
     seed_skills = prompt_yes_no(
-        "Заполнить каталог встроенных навыков? (Нет = начать без навыков)",
+        "Seed the full bundled skill catalog? (No = start with zero skills)",
         default=False,
     )
     try:
@@ -3169,9 +3178,9 @@ def _blank_slate_walkthrough(config: dict, ruslan_home):
             print_success(f"Seeded {copied} bundled skills.")
         else:
             set_bundled_skills_opt_out(True)
-            print_info("Навыки не добавлены. Маркер .no-bundled-skills предотвращает")
-            print_info("повторное внедрение при запуске `ruslan update`. Возобновить")
-            print_info("можно в любое время с помощью `ruslan skills opt-in --sync`.")
+            print_info("No skills seeded. A .no-bundled-skills marker keeps future")
+            print_info("`ruslan update` runs from re-injecting them. Opt back in any")
+            print_info("time with `ruslan skills opt-in --sync`.")
     except Exception as exc:
         logger.debug("blank-slate skill handling error: %s", exc)
         print_warning(f"Skill setup step encountered an error: {exc}")
@@ -3179,10 +3188,10 @@ def _blank_slate_walkthrough(config: dict, ruslan_home):
     # ── Walk through enabling additional tools ──
     print()
     print_header("Tools")
-    print_info("Выберите, какие дополнительные наборы инструментов включить.")
-    print_info("(файл и терминал уже включены; остальные оставьте выключенными, если хотите")
-    print_info("самого минимального агента.)")
-    if prompt_yes_no("Открыть выбор инструментов для включения других?", default=False):
+    print_info("Pick exactly which additional toolsets to turn on.")
+    print_info("(file and terminal are already on; leave the rest off if you want")
+    print_info(" the most minimal agent.)")
+    if prompt_yes_no("Open the tool selector to enable more tools?", default=False):
         try:
             from ruslan_cli.tools_config import tools_command
             tools_command(first_install=False, config=config)
@@ -3194,93 +3203,203 @@ def _blank_slate_walkthrough(config: dict, ruslan_home):
             logger.debug("blank-slate tools_command error: %s", exc)
             print_warning(f"Tool selector encountered an error: {exc}")
     else:
-        print_info("Оставляем минимальный набор инструментов. Добавьте инструменты позже с помощью `ruslan tools`.")
+        print_info("Keeping the minimal toolset. Add tools later with `ruslan tools`.")
 
     # ── Built-in plugins (off unless chosen) ──
     print()
     print_header("Plugins")
-    if prompt_yes_no("Просмотреть и включить встроенные плагины сейчас?", default=False):
-        print_info("Управляйте плагинами с помощью `ruslan plugins list` / `ruslan plugins install`.")
+    if prompt_yes_no("Review and enable built-in plugins now?", default=False):
+        print_info("Manage plugins with `ruslan plugins list` / `ruslan plugins install`.")
     else:
-        print_info("Плагины не включены. Добавьте позже с помощью `ruslan plugins`.")
+        print_info("No plugins enabled. Add later with `ruslan plugins`.")
 
     # ── MCP servers (off unless chosen) ──
     print()
     print_header("MCP Servers")
-    if prompt_yes_no("Добавить MCP-сервер сейчас?", default=False):
-        print_info("Добавьте серверы с помощью `ruslan mcp add <name> --url ... | --command ...`.")
+    if prompt_yes_no("Add an MCP server now?", default=False):
+        print_info("Add servers with `ruslan mcp add <name> --url ... | --command ...`.")
     else:
-        print_info("Серверы MCP не настроены. Добавьте позже с помощью `ruslan mcp add`.")
+        print_info("No MCP servers configured. Add later with `ruslan mcp add`.")
 
     # ── Optional messaging gateway ──
     print()
-    if prompt_yes_no("Подключить мессенджер (Telegram, Discord, …)?", default=False):
+    if prompt_yes_no("Connect a messaging platform (Telegram, Discord, …)?", default=False):
         setup_gateway(config)
 
     save_config(config)
 
     print()
-    print_success("Blank Slate настроен — минимальный агент готов.")
-    print_info("Включить больше инструментов:   ruslan tools")
-    print_info("Начальные навыки:         ruslan skills opt-in --sync")
-    print_info("Добавить MCP-серверы:  ruslan mcp add")
-    print_info("Настройка параметров агента: ruslan setup agent")
+    print_success("Blank Slate setup complete — minimal agent ready.")
+    print_info("  Enable more tools:   ruslan tools")
+    print_info("  Seed skills:         ruslan skills opt-in --sync")
+    print_info("  Add MCP servers:     ruslan mcp add")
+    print_info("  Tune agent settings: ruslan setup agent")
     print()
 
     _print_setup_summary(config, ruslan_home)
 
 
 def _run_quick_setup(config: dict, ruslan_home):
-    """Быстрая установка — модель/провайдер + Telegram + Gateway."""
-    from ruslan_cli.auth import get_active_provider
-    from ruslan_cli.config import get_env_value as _gev
+    """Quick setup — only configure items that are missing."""
+    from ruslan_cli.config import (
+        get_missing_env_vars,
+        get_missing_config_fields,
+        check_config_version,
+    )
 
     print()
-    print_header("Быстрая установка Руслана")
+    print_header("Quick Setup — Missing Items Only")
 
-    # ── Шаг 1: Модель и провайдер ──
-    print()
-    print_info("Шаг 1 из 3: выберите LLM-модель и провайдера.")
-    print()
-    setup_model_provider(config)
-    save_config(config)
-    config = load_config()
-    print()
-    print_success("Модель настроена!")
+    # Check what's missing
+    missing_required = [
+        v for v in get_missing_env_vars(required_only=False) if v.get("is_required")
+    ]
+    missing_optional = [
+        v for v in get_missing_env_vars(required_only=False) if not v.get("is_required")
+    ]
+    missing_config = get_missing_config_fields()
+    current_ver, latest_ver = check_config_version()
 
-    # ── Шаг 2: Telegram ──
-    print()
-    print_info("Шаг 2 из 3: настройте Telegram для общения с Русланом.")
-    print()
+    has_anything_missing = (
+        missing_required
+        or missing_optional
+        or missing_config
+        or current_ver < latest_ver
+    )
 
-    bot_token = prompt("Введи TELEGRAM_BOT_TOKEN (получить у @BotFather)")
-    if bot_token:
-        save_env_value("TELEGRAM_BOT_TOKEN", bot_token)
-        print_success("✓ Токен сохранён")
-    else:
-        print_warning("Пропущено — настрой позже: ruslan setup gateway")
-
-    user_id = prompt("Введи свой Telegram ID (узнать у @userinfobot)")
-    if user_id:
-        save_env_value("TELEGRAM_ALLOWED_USERS", user_id)
-        print_success("✓ Telegram ID сохранён")
-    else:
-        print_warning("Пропущено — без ID бот не будет отвечать вам")
-
-    # ── Шаг 3: Gateway ──
-    print()
-    print_info("Шаг 3 из 3: настройте Gateway (каналы связи).")
-    print()
-    print("Gateway — это шлюз, который соединяет Руслана с мессенджерами.")
-    print("Сейчас настроен Telegram. При необходимости добавьте другие каналы")
-    print("позже через: ruslan setup gateway")
-    print()
-    if prompt_yes_no("Запустить Gateway сейчас?", default=True):
+    if not has_anything_missing:
+        print_success("Everything is configured! Nothing to do.")
         print()
-        print_success("Gateway будет запущен при старте Руслана.")
+        print_info("Run 'ruslan setup' and choose 'Full Setup' to reconfigure,")
+        print_info("or pick a specific section from the menu.")
+        return
 
-    # ── Готово ──
-    print()
-    print_success("Быстрая настройка завершена!")
-    print_info("Запустите 'ruslan' чтобы начать общение.")
+    # Handle missing required env vars
+    if missing_required:
+        print()
+        print_info(f"{len(missing_required)} required setting(s) missing:")
+        for var in missing_required:
+            print(f"     • {var['name']}")
+        print()
+
+        for var in missing_required:
+            print()
+            print(color(f"  {var['name']}", Colors.CYAN))
+            print_info(f"  {var.get('description', '')}")
+            if var.get("url"):
+                print_info(f"  Get key at: {var['url']}")
+
+            if var.get("password"):
+                value = prompt(f"  {var.get('prompt', var['name'])}", password=True)
+            else:
+                value = prompt(f"  {var.get('prompt', var['name'])}")
+
+            if value:
+                save_env_value(var["name"], value)
+                print_success(f"  Saved {var['name']}")
+            else:
+                print_warning(f"  Skipped {var['name']}")
+
+    # Split missing optional vars by category
+    missing_tools = [v for v in missing_optional if v.get("category") == "tool"]
+    missing_messaging = [
+        v
+        for v in missing_optional
+        if v.get("category") == "messaging" and not v.get("advanced")
+    ]
+
+    # ── Tool API keys (checklist) ──
+    if missing_tools:
+        print()
+        print_header("Tool API Keys")
+
+        checklist_labels = []
+        for var in missing_tools:
+            tools = var.get("tools", [])
+            tools_str = f" → {', '.join(tools[:2])}" if tools else ""
+            checklist_labels.append(f"{var.get('description', var['name'])}{tools_str}")
+
+        selected_indices = prompt_checklist(
+            "Which tools would you like to configure?",
+            checklist_labels,
+        )
+
+        for idx in selected_indices:
+            var = missing_tools[idx]
+            _prompt_api_key(var)
+
+    # ── Messaging platforms (checklist then prompt for selected) ──
+    if missing_messaging:
+        print()
+        print_header("Messaging Platforms")
+        print_info("Connect Ruslan to messaging apps to chat from anywhere.")
+        print_info("You can configure these later with 'ruslan setup gateway'.")
+
+        # Group by platform (preserving order)
+        platform_order = []
+        platforms = {}
+        for var in missing_messaging:
+            name = var["name"]
+            if "TELEGRAM" in name:
+                plat = "Telegram"
+            elif "DISCORD" in name:
+                plat = "Discord"
+            elif "SLACK" in name:
+                plat = "Slack"
+            else:
+                continue
+            if plat not in platforms:
+                platform_order.append(plat)
+            platforms.setdefault(plat, []).append(var)
+
+        platform_labels = [
+            {
+                "Telegram": "📱 Telegram",
+                "Discord": "💬 Discord",
+                "Slack": "💼 Slack",
+            }.get(p, p)
+            for p in platform_order
+        ]
+
+        selected_indices = prompt_checklist(
+            "Which platforms would you like to set up?",
+            platform_labels,
+        )
+
+        for idx in selected_indices:
+            plat = platform_order[idx]
+            vars_list = platforms[plat]
+            emoji = {"Telegram": "📱", "Discord": "💬", "Slack": "💼"}.get(plat, "")
+            print()
+            print(color(f"  ─── {emoji} {plat} ───", Colors.CYAN))
+            print()
+            for var in vars_list:
+                print_info(f"  {var.get('description', '')}")
+                if var.get("url"):
+                    print_info(f"  {var['url']}")
+                if var.get("password"):
+                    value = prompt(f"  {var.get('prompt', var['name'])}", password=True)
+                else:
+                    value = prompt(f"  {var.get('prompt', var['name'])}")
+                if value:
+                    save_env_value(var["name"], value)
+                    print_success("  ✓ Saved")
+                else:
+                    print_warning("  Skipped")
+                print()
+
+    # Handle missing config fields
+    if missing_config:
+        print()
+        print_info(
+            f"Adding {len(missing_config)} new config option(s) with defaults..."
+        )
+        for field in missing_config:
+            print_success(f"  Added {field['key']} = {field['default']}")
+
+        # Update config version
+        config["_config_version"] = latest_ver
+        save_config(config)
+
+    # Jump to summary
     _print_setup_summary(config, ruslan_home)

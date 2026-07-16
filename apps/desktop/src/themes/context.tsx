@@ -12,6 +12,7 @@
 import { useStore } from '@nanostores/react'
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 
+import { $registryVersion } from '@/contrib/registry'
 import { matchesQuery, useMediaQuery } from '@/hooks/use-media-query'
 import { persistString, persistStringRecord, storedString, storedStringRecord } from '@/lib/storage'
 import { $activeGatewayProfile, normalizeProfileKey } from '@/store/profile'
@@ -19,7 +20,7 @@ import { $activeGatewayProfile, normalizeProfileKey } from '@/store/profile'
 import { hexToRgb, mix, readableOn } from './color'
 import { BUILTIN_THEME_LIST, BUILTIN_THEMES, DEFAULT_SKIN_NAME, DEFAULT_TYPOGRAPHY, nousTheme } from './presets'
 import type { DesktopTheme, DesktopThemeColors } from './types'
-import { $userThemes, resolveTheme } from './user-themes'
+import { $userThemes, listAllThemes, resolveTheme } from './user-themes'
 
 // Legacy global skin (pre per-profile themes). Still the inheritance fallback
 // for any profile without its own assignment, so single-profile users and old
@@ -157,6 +158,12 @@ function renderedModeFor(colors: DesktopThemeColors, mode: 'light' | 'dark'): 'l
 // Per-mode mix knobs. Light/dark fallbacks live in styles.css `:root` /
 // `:root.dark`; setting them inline keeps active-skin overrides surviving
 // the boot-time paint.
+// styles.css --theme-neutral-chrome — keep in sync.
+const NEUTRAL_CHROME = { light: '#f3f3f3', dark: '#0d0d0e' } as const
+
+const chromeBackground = (background: string, isDark: boolean) =>
+  mix(background, NEUTRAL_CHROME[isDark ? 'dark' : 'light'], isDark ? 0.26 : 0.08)
+
 const mixesFor = (isDark: boolean): Record<string, string> => ({
   '--theme-mix-chrome': isDark ? '74%' : '92%',
   '--theme-mix-sidebar': '100%',
@@ -179,8 +186,8 @@ function applyTheme(theme: DesktopTheme, mode: 'light' | 'dark') {
   const skinName = theme.name.endsWith(`-${mode}`) ? theme.name.slice(0, -mode.length - 1) : theme.name
 
   root.style.setProperty('color-scheme', rendered)
-  root.dataset.hermesTheme = skinName
-  root.dataset.hermesMode = rendered
+  root.dataset.ruslanTheme = skinName
+  root.dataset.ruslanMode = rendered
   root.classList.toggle('dark', isDark)
 
   // Brand seeds feed every glass + shadcn token via `color-mix()` in styles.css.
@@ -222,8 +229,10 @@ function applyTheme(theme: DesktopTheme, mode: 'light' | 'dark') {
     root.style.setProperty(k, v)
   }
 
-  window.hermesDesktop?.setTitleBarTheme?.({
-    background: c.background,
+  const chromeBg = chromeBackground(c.background, isDark)
+
+  window.ruslanDesktop?.setTitleBarTheme?.({
+    background: chromeBg,
     foreground: c.foreground
   })
 
@@ -231,7 +240,7 @@ function applyTheme(theme: DesktopTheme, mode: 'light' | 'dark') {
   // they let a brand-new window paint the themed background on its very first
   // frame, before this module has even loaded.
   try {
-    window.localStorage.setItem('ruslan-boot-background', c.background)
+    window.localStorage.setItem('ruslan-boot-background', chromeBg)
     window.localStorage.setItem('ruslan-boot-color-scheme', rendered)
   } catch {
     // Storage may be unavailable (private mode / quota); the inline script
@@ -242,7 +251,7 @@ function applyTheme(theme: DesktopTheme, mode: 'light' | 'dark') {
     const link = document.createElement('link')
     link.rel = 'stylesheet'
     link.href = typo.fontUrl
-    link.dataset.hermesThemeFont = 'true'
+    link.dataset.ruslanThemeFont = 'true'
     document.head.appendChild(link)
     INJECTED_FONT_URLS.add(typo.fontUrl)
   }
@@ -253,7 +262,7 @@ function applyTheme(theme: DesktopTheme, mode: 'light' | 'dark') {
 // theme instead of the OS appearance. An explicit light/dark pick is forced;
 // 'system' stays 'system' so prefers-color-scheme keeps tracking the OS.
 const syncNativeTheme = (pref: ThemeMode, rendered: 'light' | 'dark') =>
-  window.hermesDesktop?.setNativeTheme?.(pref === 'system' ? 'system' : rendered)
+  window.ruslanDesktop?.setNativeTheme?.(pref === 'system' ? 'system' : rendered)
 
 // Boot-time paint to avoid a flash before <ThemeProvider> mounts. Use the last
 // active profile's appearance so a non-default profile relaunch paints its own
@@ -306,18 +315,22 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   // behavior is unchanged.
   const profileKey = normalizeProfileKey(useStore($activeGatewayProfile))
 
-  // Built-ins + user-installed themes. Reactive so an import shows up live in
-  // the palette, settings grid, and `/skin` without a reload.
+  // Built-ins + user-installed + registry-contributed themes. Reactive so an
+  // import or a plugin registration shows up live in the palette, settings
+  // grid, and `/skin` without a reload.
   const userThemes = useStore($userThemes)
+  const registryVersion = useStore($registryVersion)
 
   const availableThemes = useMemo(
     () =>
-      [...Object.values(BUILTIN_THEMES), ...Object.values(userThemes)].map(({ name, label, description }) => ({
+      listAllThemes().map(({ name, label, description }) => ({
         name,
         label,
         description
       })),
-    [userThemes]
+    // userThemes + registryVersion ARE listAllThemes' reactivity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [userThemes, registryVersion]
   )
 
   const [themeName, setThemeNameState] = useState(() =>

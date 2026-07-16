@@ -127,7 +127,7 @@ A nightly backlog triage on Sonnet costs roughly $0.02-0.05. A monitoring check 
 Ruslan Agent is open source and free. The automation infrastructure — cron scheduler, webhook platform, skill system, multi-platform delivery — is built in.
 
 ```bash
-pip install ruslan-agent
+curl -fsSL https://ruslan-agent.nousresearch.com/install.sh | bash
 ruslan setup
 ```
 
@@ -149,12 +149,12 @@ ruslan webhook subscribe pr-review \
   --deliver github_comment
 ```
 
-Full automation blueprints gallery: [ruslan.team/docs/reference/automation-blueprints-catalog](https://ruslan.team/docs/reference/automation-blueprints-catalog)
+Full automation blueprints gallery: [ruslan-agent.nousresearch.com/docs/reference/automation-blueprints-catalog](https://ruslan-agent.nousresearch.com/docs/reference/automation-blueprints-catalog)
 
-Documentation: [ruslan.team](https://ruslan.team)
+Documentation: [ruslan-agent.nousresearch.com](https://ruslan-agent.nousresearch.com)
 
-GitHub: [github.com/valldun1/ruslan](https://github.com/valldun1/ruslan)
+GitHub: [github.com/NousResearch/ruslan-agent](https://github.com/NousResearch/ruslan-agent)
 
 ---
 
-*Ruslan Agent is built by [Valldun](https://nousresearch.com). Open source, model-agnostic, runs on your infrastructure.*
+*Ruslan Agent is built by [Nous Research](https://nousresearch.com). Open source, model-agnostic, runs on your infrastructure.*

@@ -1,8 +1,9 @@
+import { AlertCircle } from 'lucide-react'
 import { useState } from 'react'
 import { type CSSProperties } from 'react'
-import { Button } from '../components/button'
-import { launchHermesDesktop } from '../store'
-import { Rocket, AlertCircle } from 'lucide-react'
+
+import { HackeryButton } from '../components/hackery-button'
+import { launchRuslanDesktop } from '../store'
 
 /*
  * Success screen. RUSLAN AGENT wordmark stays as the visual anchor
@@ -12,7 +13,7 @@ import { Rocket, AlertCircle } from 'lucide-react'
  * Launching the desktop can fail (e.g. Stage-Desktop was skipped and
  * Ruslan.exe doesn't exist). We catch the Tauri error and surface it
  * inline rather than silently doing nothing — the previous version
- * had `onClick={() => void launchHermesDesktop()}` which swallowed
+ * had `onClick={() => void launchRuslanDesktop()}` which swallowed
  * the rejection and left the user staring at an unresponsive button.
  */
 export default function Success() {
@@ -22,8 +23,9 @@ export default function Success() {
   async function handleLaunch() {
     setError(null)
     setLaunching(true)
+
     try {
-      await launchHermesDesktop()
+      await launchRuslanDesktop()
       // On success the installer exits — control never returns here.
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
@@ -53,32 +55,23 @@ export default function Success() {
 
         <p className="m-0 text-center text-base leading-normal tracking-tight text-muted-foreground">
           You can launch from here, or any time from your terminal with{' '}
-          <code className="rounded bg-muted/60 px-1 py-0.5 font-mono text-sm">
-            ruslan desktop
-          </code>
-          .
+          <code className="font-mono text-sm text-foreground/80">ruslan desktop</code>.
         </p>
       </div>
 
-      <Button
-        onClick={() => void handleLaunch()}
-        size="lg"
+      <HackeryButton
         disabled={launching}
-        className="inline-flex items-center gap-2 px-6"
-      >
-        <Rocket size={18} />
-        {launching ? 'Launching…' : 'Launch Ruslan'}
-      </Button>
+        label={launching ? 'Launching' : 'Launch'}
+        loading={launching}
+        onClick={() => void handleLaunch()}
+      />
 
       {error && (
-        <div
-          role="alert"
-          className="flex max-w-2xl items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
-        >
-          <AlertCircle size={16} className="mt-0.5 shrink-0" />
+        <div className="flex max-w-2xl items-start gap-2 text-sm" role="alert">
+          <AlertCircle className="mt-0.5 shrink-0 text-destructive" size={16} />
           <div className="min-w-0">
-            <div className="font-medium">Couldn&rsquo;t launch the desktop app</div>
-            <div className="mt-1 text-destructive/80">{error}</div>
+            <div className="font-medium text-destructive">Couldn&rsquo;t launch the desktop app</div>
+            <div className="mt-0.5 text-muted-foreground">{error}</div>
           </div>
         </div>
       )}

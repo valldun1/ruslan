@@ -246,7 +246,7 @@ E2EE 需要带有加密扩展的 `mautrix` 库以及 `libolm` C 库：
 pip install 'mautrix[encryption]'
 
 # 或通过 ruslan extras 安装
-pip install 'ruslan-agent[matrix]'
+cd ~/.ruslan/ruslan-agent && uv pip install -e ".[matrix]"
 ```
 
 你还需要在系统上安装 `libolm`：
@@ -386,7 +386,7 @@ MATRIX_ALLOWED_ROOMS="!abc123def456:matrix.example.org,!opsroom789:matrix.exampl
 
 ### 机器人加入房间但静默丢弃所有消息（时钟偏差）
 
-**原因**：主机系统时钟超前于实际时间。Matrix 适配器应用了 5 秒启动宽限过滤器（`event_ts < startup_ts - 5`）以忽略初始同步中重放的事件。当系统时钟超前时，每个传入事件看起来都"早于启动时间"，在到达消息处理器之前就被丢弃——机器人看起来已连接但从不回复。参见 [#12614](https://github.com/valldun1/ruslan/issues/12614)。
+**原因**：主机系统时钟超前于实际时间。Matrix 适配器应用了 5 秒启动宽限过滤器（`event_ts < startup_ts - 5`）以忽略初始同步中重放的事件。当系统时钟超前时，每个传入事件看起来都"早于启动时间"，在到达消息处理器之前就被丢弃——机器人看起来已连接但从不回复。参见 [#12614](https://github.com/NousResearch/ruslan-agent/issues/12614)。
 
 **症状**：Gateway 日志显示 `Matrix: dropped N live events as 'too old' more than 30s after startup`。
 
@@ -427,7 +427,7 @@ pip install 'mautrix[encryption]'
 或通过 Ruslan extras：
 
 ```bash
-pip install 'ruslan-agent[matrix]'
+cd ~/.ruslan/ruslan-agent && uv pip install -e ".[matrix]"
 ```
 
 ### 加密错误/"无法解密事件"
@@ -589,7 +589,7 @@ services:
 FROM python:3.11-slim
 
 RUN apt-get update && apt-get install -y libolm-dev && rm -rf /var/lib/apt/lists/*
-RUN pip install 'ruslan-agent[matrix]'
+RUN cd ~/.ruslan/ruslan-agent && uv pip install -e ".[matrix]"
 
 CMD ["ruslan", "gateway"]
 ```

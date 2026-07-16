@@ -79,7 +79,7 @@ delegation:
 
 还可以设置 `providers.<id>.stale_timeout_seconds` 用于非流式陈旧调用检测器，以及 `providers.<id>.models.<model>.stale_timeout_seconds` 作为特定模型的覆盖值。此值优先于旧版 `RUSLAN_API_CALL_STALE_TIMEOUT` 环境变量。
 
-不设置这些值将保持旧版默认值（`RUSLAN_API_TIMEOUT=1800`s、`RUSLAN_API_CALL_STALE_TIMEOUT=90`s、原生 Anthropic 900s）。隐式的非流式 stale 检测会在本地端点上自动禁用，并且会在超大上下文下自动放宽。目前不适用于 AWS Bedrock（`bedrock_converse` 和 AnthropicBedrock SDK 路径均使用 boto3 及其自身的超时配置）。请参阅 [`cli-config.yaml.example`](https://github.com/valldun1/ruslan/blob/main/cli-config.yaml.example) 中的注释示例。
+不设置这些值将保持旧版默认值（`RUSLAN_API_TIMEOUT=1800`s、`RUSLAN_API_CALL_STALE_TIMEOUT=90`s、原生 Anthropic 900s）。隐式的非流式 stale 检测会在本地端点上自动禁用，并且会在超大上下文下自动放宽。目前不适用于 AWS Bedrock（`bedrock_converse` 和 AnthropicBedrock SDK 路径均使用 boto3 及其自身的超时配置）。请参阅 [`cli-config.yaml.example`](https://github.com/NousResearch/ruslan-agent/blob/main/cli-config.yaml.example) 中的注释示例。
 
 ## 终端后端配置
 
@@ -156,7 +156,7 @@ terminal:
 
 **容器生命周期：** Ruslan 为每个终端和文件工具调用重用单个长期运行的容器（`docker run -d ... sleep 2h`），跨会话、`/new`、`/reset` 和 `delegate_task` 子 agent，贯穿 Ruslan 进程的整个生命周期。命令通过带登录 shell 的 `docker exec` 运行，因此工作目录更改、已安装的包以及 `/workspace` 中的文件都会从一次工具调用延续到下一次。容器在 Ruslan 关闭时（或空闲清理回收时）停止并删除。
 
-通过 `delegate_task(tasks=[...])` 生成的并行子 agent 共享这一个容器 —— 并发的 `cd`、环境变量修改以及对同一路径的写入会发生冲突。如果子 agent 需要隔离的沙箱，必须通过 `register_task_env_overrides()` 注册每任务镜像覆盖，RL 和基准测试环境（TerminalBench2、HermesSweEnv 等）会自动为其每任务 Docker 镜像执行此操作。
+通过 `delegate_task(tasks=[...])` 生成的并行子 agent 共享这一个容器 —— 并发的 `cd`、环境变量修改以及对同一路径的写入会发生冲突。如果子 agent 需要隔离的沙箱，必须通过 `register_task_env_overrides()` 注册每任务镜像覆盖，RL 和基准测试环境（TerminalBench2、RuslanSweEnv 等）会自动为其每任务 Docker 镜像执行此操作。
 
 **安全加固：**
 - `--cap-drop ALL`，仅添加回 `DAC_OVERRIDE`、`CHOWN`、`FOWNER`
@@ -635,16 +635,11 @@ context:
 
 有关内存插件的类似单选系统，请参阅[内存 Providers](/user-guide/features/memory-providers)。
 
-## 迭代预算压力
+## 迭代预算
 
-当 agent 在处理具有许多工具调用的复杂任务时，它可能会在没有意识到预算不足的情况下耗尽其迭代预算（默认：90 轮）。预算压力会在模型接近限制时自动发出警告：
+当 agent 在处理具有许多工具调用的复杂任务时，它可能会耗尽其迭代预算（默认：90 轮）。Ruslan **不会**在任务中途注入压力警告 —— 早期版本会在预算达到 70%/90% 时警告模型，这会导致模型过早放弃复杂任务，该机制已于 2026 年 4 月移除。
 
-| 阈值 | 级别 | 模型看到的内容 |
-|-----------|-------|---------------------|
-| **70%** | 注意 | `[BUDGET: 63/90. 27 iterations left. Start consolidating.]` |
-| **90%** | 警告 | `[BUDGET WARNING: 81/90. Only 9 left. Respond NOW.]` |
-
-警告注入到最后一个工具结果的 JSON 中（作为 `_budget_warning` 字段），而不是作为单独的消息 —— 这保留了 prompt 缓存，不会破坏对话结构。
+取而代之的是，当预算真正耗尽（90/90）时，Ruslan 注入一条消息要求模型收尾，并允许一次**宽限调用**以便其给出最终响应。如果该宽限调用仍未产生文本，则会要求 agent 总结已完成的工作。
 
 ```yaml
 agent:
@@ -652,9 +647,7 @@ agent:
   api_max_retries: 3           # 回退启动前每个 provider 的重试次数（默认：3）
 ```
 
-预算压力默认启用。Agent 自然地将警告视为工具结果的一部分，鼓励它在耗尽迭代之前整合工作并提供响应。
-
-当迭代预算完全耗尽时，CLI 向用户显示通知：`⚠ Iteration budget reached (90/90) — response may be incomplete`。如果预算在活跃工作期间耗尽，agent 会在停止前生成已完成内容的摘要。
+当迭代预算完全耗尽时，CLI 向用户显示通知：`⚠ Iteration budget reached (90/90) — response may be incomplete`。
 
 `agent.api_max_retries` 控制 Ruslan 在回退 provider 切换启动**之前**对瞬时错误（速率限制、连接断开、5xx）重试 provider API 调用的次数。默认为 `3` —— 总共四次尝试。如果您配置了[回退 providers](/user-guide/features/fallback-providers) 并希望更快地故障转移，请将其降至 `0`，这样主 provider 上的第一个瞬时错误会立即切换到回退，而不是对不稳定的端点进行重试。
 
@@ -1051,7 +1044,7 @@ auxiliary:
 
 ```yaml
 agent:
-  reasoning_effort: ""   # 空 = 中等（默认）。选项：none、minimal、low、medium、high、xhigh（最大）
+  reasoning_effort: ""   # 空 = 中等。选项：none、minimal、low、medium、high、xhigh、max、ultra
 ```
 
 未设置时（默认），推理努力程度默认为"medium" —— 适合大多数任务的平衡级别。设置值会覆盖它 —— 更高的推理努力程度在复杂任务上提供更好的结果，但代价是更多 token 和延迟。
@@ -1590,13 +1583,13 @@ security:
 
 ```yaml
 approvals:
-  mode: manual   # manual | smart | off
+  mode: smart   # smart | manual | off
 ```
 
 | 模式 | 行为 |
 |------|----------|
-| `manual`（默认） | 在执行任何被标记的命令之前提示用户。在 CLI 中显示交互式审批对话框。在消息中排队待处理的审批请求。 |
-| `smart` | 使用辅助 LLM 评估被标记的命令是否真正危险。低风险命令以会话级持久性自动批准。真正有风险的命令升级给用户。 |
+| `smart`（默认） | 使用辅助 LLM 评估被标记的命令是否真正危险。低风险命令仅对当前命令自动批准，真正危险的命令自动拒绝，不确定的情况升级给用户。 |
+| `manual` | 在执行任何被标记的命令之前提示用户。在 CLI 中显示交互式审批对话框。在消息中排队待处理的审批请求。 |
 | `off` | 跳过所有审批检查。等同于 `RUSLAN_YOLO_MODE=true`。**谨慎使用。** |
 
 智能模式对于减少审批疲劳特别有用 —— 它让 agent 在安全操作上更自主地工作，同时仍然捕获真正破坏性的命令。

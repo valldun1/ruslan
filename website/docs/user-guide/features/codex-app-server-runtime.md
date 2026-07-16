@@ -99,7 +99,7 @@ What also works because the MCP callback exposes them:
 - **`kanban_show` / `kanban_list`** — read-only board queries for the worker to check its own context.
 - **`kanban_create` / `kanban_unblock` / `kanban_link`** — orchestrator-only operations. Available for orchestrator agents running on the codex runtime that need to dispatch new tasks.
 
-The kanban tools are gated by `RUSLAN_KANBAN_TASK` env var the dispatcher sets — that var is propagated to the codex subprocess (codex inherits env) and from there to the spawned `ruslan-tools` MCP server subprocess. So the tools see the right task id and gate correctly. For Codex app-server workers, Ruslan also passes narrow app-server sandbox overrides when `RUSLAN_KANBAN_TASK` is present: keep `workspace-write` sandboxing, add the **board DB directory plus every Kanban path the dispatcher pinned** as extra writable roots (`RUSLAN_KANBAN_WORKSPACES_ROOT`, `RUSLAN_KANBAN_WORKSPACE`, legacy `RUSLAN_KANBAN_ROOT` — deduplicated, DB-dir first), and keep network disabled by default. This avoids the brittle `:danger-no-sandbox` workaround while letting `kanban_complete` / `kanban_block` update the board DB **and** letting workers write reports/artifacts under workspace mounts that live outside the DB directory (e.g. `/media/.../kanban-workspaces/...` on a separate drive — [issue #27941](https://github.com/valldun1/ruslan/issues/27941)).
+The kanban tools are gated by `RUSLAN_KANBAN_TASK` env var the dispatcher sets — that var is propagated to the codex subprocess (codex inherits env) and from there to the spawned `ruslan-tools` MCP server subprocess. So the tools see the right task id and gate correctly. For Codex app-server workers, Ruslan also passes narrow app-server sandbox overrides when `RUSLAN_KANBAN_TASK` is present: keep `workspace-write` sandboxing, add the **board DB directory plus every Kanban path the dispatcher pinned** as extra writable roots (`RUSLAN_KANBAN_WORKSPACES_ROOT`, `RUSLAN_KANBAN_WORKSPACE`, legacy `RUSLAN_KANBAN_ROOT` — deduplicated, DB-dir first), and keep network disabled by default. This avoids the brittle `:danger-no-sandbox` workaround while letting `kanban_complete` / `kanban_block` update the board DB **and** letting workers write reports/artifacts under workspace mounts that live outside the DB directory (e.g. `/media/.../kanban-workspaces/...` on a separate drive — [issue #27941](https://github.com/NousResearch/ruslan-agent/issues/27941)).
 
 ### Cron jobs
 
@@ -143,7 +143,7 @@ The kanban tools are gated by `RUSLAN_KANBAN_TASK` env var the dispatcher sets �
    ```bash
    codex login                  # writes tokens to ~/.codex/auth.json
    ```
-   Ruslan' own `ruslan auth login codex` writes to `~/.ruslan/auth.json` — that's a separate session. **Run `codex login` separately** if you haven't.
+   Ruslan' own `ruslan auth add openai-codex` writes to `~/.ruslan/auth.json` — that's a separate session. **Run `codex login` separately** if you haven't.
 
 3. **(Optional) Install the Codex plugins you want.** When you enable the runtime, Ruslan auto-migrates whichever curated plugins you've already installed via Codex CLI:
    ```bash
@@ -390,12 +390,12 @@ This runtime is **opt-in beta**. Working as of Ruslan Agent 2026.5 + Codex CLI 0
 
 Known limitations:
 
-- **Ruslan auth and codex auth are separate sessions.** You need both `codex login` AND `ruslan auth login codex` for the cleanest UX (the runtime uses codex's session for the LLM call). This is a deliberate design choice in Ruslan' `_import_codex_cli_tokens` — Ruslan won't share OAuth state with codex CLI to avoid clobbering each other on token refresh.
+- **Ruslan auth and codex auth are separate sessions.** You need both `codex login` AND `ruslan auth add openai-codex` for the cleanest UX (the runtime uses codex's session for the LLM call). This is a deliberate design choice in Ruslan' `_import_codex_cli_tokens` — Ruslan won't share OAuth state with codex CLI to avoid clobbering each other on token refresh.
 - **`delegate_task`, `memory`, `session_search`, `todo` are unavailable on this runtime.** They need the running AIAgent context which a stateless MCP callback can't provide. Use `/codex-runtime auto` when you need these.
 - **No inline patch preview in approval prompts when codex doesn't track the changeset.** Codex's `fileChange` approval params don't always carry the changeset. Ruslan caches the data from the corresponding `item/started` notification when possible, but if approval arrives before the item has streamed, the prompt falls back to whatever `reason` codex provides.
 - **Sub-second cancellation isn't guaranteed.** Mid-stream interrupts (Ctrl+C while codex is responding) are sent via `turn/interrupt`, but if codex has already flushed the final message, you get the response anyway.
 
-If you find a bug, [open an issue](https://github.com/valldun1/ruslan/issues) with the output of `ruslan logs --since 5m`. Mention `codex-runtime` in the title so it's easy to triage.
+If you find a bug, [open an issue](https://github.com/NousResearch/ruslan-agent/issues) with the output of `ruslan logs --since 5m`. Mention `codex-runtime` in the title so it's easy to triage.
 
 ## Architecture
 
@@ -442,4 +442,4 @@ If you find a bug, [open an issue](https://github.com/valldun1/ruslan/issues) wi
         └──────────────────────────────────────────────────────────┘
 ```
 
-For implementation details, see [PR #24182](https://github.com/valldun1/ruslan/pull/24182) and the [Codex app-server protocol README](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md).
+For implementation details, see [PR #24182](https://github.com/NousResearch/ruslan-agent/pull/24182) and the [Codex app-server protocol README](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md).

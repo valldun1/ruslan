@@ -60,7 +60,7 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.styles import Style as PTStyle
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.application import Application
-from prompt_toolkit.layout import Layout, HSplit, Window, FormattedTextControl, ConditionalContainer
+from prompt_toolkit.layout import Layout, HSplit, Window, FormattedTextControl, ConditionalContainer, WindowAlign
 from prompt_toolkit.layout.processors import Processor, Transformation, PasswordProcessor, ConditionalProcessor
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.layout.dimension import Dimension
@@ -175,7 +175,7 @@ from ruslan_cli.browser_connect import (
     try_launch_chrome_debug,
 )
 from ruslan_cli.env_loader import load_ruslan_dotenv
-from utils import base_url_host_matches
+from utils import base_url_host_matches, fast_safe_load
 
 _ruslan_home = get_ruslan_home()
 _project_env = Path(__file__).parent / '.env'
@@ -301,17 +301,17 @@ def _load_prefill_messages(file_path: str) -> List[Dict[str, Any]]:
     if not path.is_absolute():
         path = _ruslan_home / path
     if not path.exists():
-        logger.warning("Файл предварительных сообщений не найден: %s", path)
+        logger.warning("Prefill messages file not found: %s", path)
         return []
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         if not isinstance(data, list):
-            logger.warning("Файл предварительных сообщений должен содержать массив JSON: %s", path)
+            logger.warning("Prefill messages file must contain a JSON array: %s", path)
             return []
         return data
     except Exception as e:
-        logger.warning("Не удалось загрузить предварительные сообщения из %s: %s", path, e)
+        logger.warning("Failed to load prefill messages from %s: %s", path, e)
         return []
 
 
@@ -334,12 +334,16 @@ def _resolve_prefill_messages_file(config: Dict[str, Any]) -> str:
     return ""
 
 
-def _parse_reasoning_config(effort: str) -> dict | None:
-    """Parse a reasoning effort level into an OpenRouter reasoning config dict."""
+def _parse_reasoning_config(effort) -> dict | None:
+    """Parse a reasoning effort level into an OpenRouter reasoning config dict.
+
+    Accepts the raw config value (string or YAML boolean — ``false``/``off``
+    parse as thinking disabled, see parse_reasoning_effort).
+    """
     from ruslan_constants import parse_reasoning_effort
     result = parse_reasoning_effort(effort)
-    if effort and effort.strip() and result is None:
-        logger.warning("Неизвестный параметр reasoning_effort '%s', используется значение по умолчанию (medium)", effort)
+    if effort and str(effort).strip() and result is None:
+        logger.warning("Unknown reasoning_effort '%s', using default (medium)", effort)
     return result
 
 
@@ -350,7 +354,7 @@ def _parse_service_tier_config(raw: str) -> str | None:
         return None
     if value in {"fast", "priority", "on"}:
         return "priority"
-    logger.warning("Неизвестный service_tier '%s', игнорируется", raw)
+    logger.warning("Unknown service_tier '%s', ignoring", raw)
     return None
 
 def load_cli_config() -> Dict[str, Any]:
@@ -451,7 +455,9 @@ def load_cli_config() -> Dict[str, Any]:
             "resume_max_assistant_chars": 200,
             "resume_max_assistant_lines": 3,
             "resume_skip_tool_only": True,
-            "show_reasoning": False,
+            # Live reasoning display default ON — keep in sync with
+            # ruslan_cli/config.py DEFAULT_CONFIG (display.show_reasoning).
+            "show_reasoning": True,
             "reasoning_full": False,
             "streaming": True,
             "busy_input_mode": "interrupt",
@@ -510,7 +516,7 @@ def load_cli_config() -> Dict[str, Any]:
             with open(config_path, "r", encoding="utf-8") as f:
                 from ruslan_cli.config import _normalize_root_model_keys
 
-                file_config = _normalize_root_model_keys(yaml.safe_load(f) or {})
+                file_config = _normalize_root_model_keys(fast_safe_load(f) or {})
             
             _file_has_terminal_config = "terminal" in file_config
 
@@ -537,6 +543,8 @@ def load_cli_config() -> Dict[str, Any]:
                 if key == "model":
                     continue  # Already handled above
                 if key in file_config:
+                    if isinstance(defaults[key], dict) and file_config[key] is None:
+                        continue
                     if isinstance(defaults[key], dict) and isinstance(file_config[key], dict):
                         defaults[key].update(file_config[key])
                     else:
@@ -557,7 +565,7 @@ def load_cli_config() -> Dict[str, Any]:
             ):
                 defaults["agent"]["max_turns"] = file_config["max_turns"]
         except Exception as e:
-            logger.warning("Не удалось загрузить cli-config.yaml: %s", e)
+            logger.warning("Failed to load cli-config.yaml: %s", e)
 
     # Expand ${ENV_VAR} references in config values before bridging to env vars.
     from ruslan_cli.config import _expand_env_vars
@@ -623,6 +631,7 @@ def load_cli_config() -> Dict[str, Any]:
         "docker_env": "TERMINAL_DOCKER_ENV",
         "docker_extra_args": "TERMINAL_DOCKER_EXTRA_ARGS",
         "docker_mount_cwd_to_workspace": "TERMINAL_DOCKER_MOUNT_CWD_TO_WORKSPACE",
+        "docker_network": "TERMINAL_DOCKER_NETWORK",
         "docker_run_as_host_user": "TERMINAL_DOCKER_RUN_AS_HOST_USER",
         "docker_persist_across_processes": "TERMINAL_DOCKER_PERSIST_ACROSS_PROCESSES",
         "docker_orphan_reaper": "TERMINAL_DOCKER_ORPHAN_REAPER",
@@ -748,6 +757,14 @@ try:
     from agent.display import set_tool_preview_max_len
     _tpl = CLI_CONFIG.get("display", {}).get("tool_preview_length", 0)
     set_tool_preview_max_len(int(_tpl) if _tpl else 0)
+except Exception:
+    pass
+
+# Initialize friendly tool labels from config (default on)
+try:
+    from agent.display import set_friendly_tool_labels
+    _ftl = CLI_CONFIG.get("display", {}).get("friendly_tool_labels", True)
+    set_friendly_tool_labels(bool(_ftl))
 except Exception:
     pass
 
@@ -948,7 +965,7 @@ def _prepare_deferred_agent_startup() -> None:
         discover_plugins()
     except Exception:
         logger.warning(
-            "обнаружение плагина не удалось при отложенном запуске CLI",
+            "plugin discovery failed at deferred CLI startup",
             exc_info=True,
         )
     try:
@@ -974,12 +991,82 @@ def _prepare_deferred_agent_startup() -> None:
             exc_info=True,
         )
 
+def _arm_exit_watchdog(timeout_s: float | None = None) -> None:
+    """Guarantee the process actually exits once shutdown has begun.
+
+    Two hang classes have kept "dead" CLI processes alive for minutes:
+
+      1. A cleanup step wedged on network I/O (memory provider
+         ``on_session_end``, MCP teardown, remote terminal cleanup).
+      2. Interpreter teardown blocked joining non-daemon threads —
+         stdlib ``ThreadPoolExecutor`` workers are joined unconditionally
+         by ``concurrent.futures``' atexit hook even after
+         ``shutdown(wait=False)``, so one tool thread wedged on a socket
+         held the process open forever (#27563 class).
+
+    The shared daemon pool (``tools.daemon_pool``) removes the main cause
+    of (2); this watchdog is the backstop for both. It arms a daemon
+    timer when ``_run_cleanup`` starts; if the process is still alive
+    after ``timeout_s`` it flushes logging/stdio and calls ``os._exit(0)``.
+    Daemon threads keep running through ``Py_FinalizeEx``'s thread joins,
+    so the timer fires even when the main thread is stuck in teardown.
+
+    Tune with ``RUSLAN_EXIT_WATCHDOG_S`` (seconds); ``0`` disables.
+    """
+    if timeout_s is None:
+        try:
+            timeout_s = float(os.getenv("RUSLAN_EXIT_WATCHDOG_S", "30"))
+        except (TypeError, ValueError):
+            timeout_s = 30.0
+    if timeout_s <= 0:
+        return
+    # Never arm under pytest: tests invoke _run_cleanup() directly and a
+    # 30s-delayed os._exit(0) would silently kill the test worker.
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return
+
+    def _watchdog():
+        time.sleep(timeout_s)
+        # Still alive — cleanup or interpreter teardown is wedged.
+        try:
+            logger.warning(
+                "Exit watchdog fired after %.0fs — forcing process exit "
+                "(a cleanup step or non-daemon thread is wedged).",
+                timeout_s,
+            )
+        except Exception:
+            pass
+        try:
+            import logging as _lg
+            _lg.shutdown()
+        except Exception:
+            pass
+        for _stream in (sys.stdout, sys.stderr):
+            try:
+                _stream.flush()
+            except Exception:
+                pass
+        os._exit(0)
+
+    try:
+        threading.Thread(
+            target=_watchdog, daemon=True, name="exit-watchdog"
+        ).start()
+    except Exception:
+        pass  # best-effort — never block shutdown on watchdog setup
+
+
 def _run_cleanup(*, notify_session_finalize: bool = True):
     """Run resource cleanup exactly once."""
     global _cleanup_done
     if _cleanup_done:
         return
     _cleanup_done = True
+
+    # Bound total shutdown time: if cleanup (or the interpreter's
+    # thread-join teardown after it) wedges, force-exit instead of
+    # leaving a zombie CLI holding the terminal for minutes.
+    _arm_exit_watchdog()
 
     # Reset terminal input modes first, before the slower resource teardown
     # below (MCP / browser / memory shutdown can take seconds). On Ctrl+C the
@@ -1025,6 +1112,19 @@ def _run_cleanup(*, notify_session_finalize: bool = True):
             )
     try:
         if _active_agent_ref and hasattr(_active_agent_ref, 'shutdown_memory_provider'):
+            # A /new shortly before exit leaves its end→switch boundary task
+            # (old-session extraction, LLM-bound) queued on the memory
+            # manager's serialized worker. shutdown_all()'s drain only waits
+            # ~5s and cancels queued tasks, so give pending work a bounded
+            # head start via the manager's own barrier — otherwise a
+            # "/new then quit" silently drops the old session's extraction.
+            # The 30s exit watchdog remains the hard backstop.
+            _mm = getattr(_active_agent_ref, '_memory_manager', None)
+            if _mm is not None and hasattr(_mm, 'flush_pending'):
+                try:
+                    _mm.flush_pending(timeout=10)
+                except Exception:
+                    pass
             # Forward the agent's own transcript so memory providers'
             # ``on_session_end`` hooks see the real conversation instead of
             # an empty list (#15165). ``_session_messages`` is set on
@@ -1034,19 +1134,19 @@ def _run_cleanup(*, notify_session_finalize: bool = True):
             _session_msgs = getattr(_active_agent_ref, '_session_messages', None)
             if isinstance(_session_msgs, list):
                 logger.info(
-                    "Очистка CLI вызывает завершение памяти для сессии %s с %d сообщением(ями)",
+                    "CLI cleanup calling memory shutdown for session %s with %d message(s)",
                     getattr(_active_agent_ref, "session_id", None) or "<unknown>",
                     len(_session_msgs),
                 )
                 _active_agent_ref.shutdown_memory_provider(_session_msgs)
             else:
                 logger.info(
-                    "Очистка CLI вызывает завершение памяти для сессии %s без списка сообщений сессии",
+                    "CLI cleanup calling memory shutdown for session %s without session message list",
                     getattr(_active_agent_ref, "session_id", None) or "<unknown>",
                 )
                 _active_agent_ref.shutdown_memory_provider()
     except Exception as e:
-        logger.warning("Ошибка очистки памяти при завершении CLI: %s", e, exc_info=True)
+        logger.warning("CLI cleanup memory shutdown failed: %s", e, exc_info=True)
 
 
 def _should_emit_cleanup_session_finalize(session_id: str | None) -> bool:
@@ -1338,7 +1438,7 @@ def _setup_worktree(repo_root: str = None, sync_base: bool = True) -> Optional[D
     repo_root = repo_root or _git_repo_root()
     if not repo_root:
         print("\033[31m✗ --worktree requires being inside a git repository.\033[0m")
-        print("сначала перейдите в репозиторий вашего проекта, затем выполните ruslan -w")
+        print("  cd into your project repo first, then run ruslan -w")
         return None
 
     short_id = uuid.uuid4().hex[:8]
@@ -1383,7 +1483,7 @@ def _setup_worktree(repo_root: str = None, sync_base: bool = True) -> Optional[D
             # HEAD so worktree creation never hard-fails on a sync hiccup.
             if base_ref != "HEAD":
                 logger.warning(
-                    "добавление worktree из %s не удалось (%s); повторная попытка с локального HEAD",
+                    "worktree add from %s failed (%s); retrying from local HEAD",
                     base_ref, result.stderr.strip(),
                 )
                 base_ref, base_label = "HEAD", "HEAD (fallback — remote base failed)"
@@ -1420,10 +1520,10 @@ def _setup_worktree(repo_root: str = None, sync_base: bool = True) -> Optional[D
                     logger.debug("Skipping invalid .worktreeinclude entry: %s", entry)
                     continue
                 if not _path_is_within_root(src_resolved, repo_root_resolved):
-                    logger.warning("Пропуск записи .worktreeinclude за пределами корня репозитория: %s", entry)
+                    logger.warning("Skipping .worktreeinclude entry outside repo root: %s", entry)
                     continue
                 if not _path_is_within_root(dst_resolved, wt_path_resolved):
-                    logger.warning("Пропуск записи .worktreeinclude, выходящей за пределы рабочего дерева: %s", entry)
+                    logger.warning("Skipping .worktreeinclude entry that escapes worktree: %s", entry)
                     continue
                 if src.is_file():
                     dst.parent.mkdir(parents=True, exist_ok=True)
@@ -1521,6 +1621,89 @@ def _worktree_has_unpushed_commits(worktree_path: str, timeout: int = 10) -> boo
         return True
 
 
+def _worktree_is_dirty(worktree_path: str, timeout: int = 10) -> bool:
+    """Return whether a worktree has uncommitted changes (staged, unstaged, or
+    untracked).
+
+    Fails SAFE: on any error returns True so callers do not delete a worktree
+    whose state they cannot determine.
+    """
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True, text=True, timeout=timeout, cwd=worktree_path,
+        )
+        if result.returncode != 0:
+            return True
+        return bool(result.stdout.strip())
+    except Exception:
+        return True
+
+
+def _worktree_lock_is_live(repo_root: str, worktree_path: str, timeout: int = 10):
+    """Classify a worktree's git lock as live, dead, or absent.
+
+    ``ruslan -w`` locks each worktree with reason ``ruslan pid=<pid>`` so a
+    concurrent ruslan process' startup prune leaves an in-use worktree alone.
+    But a *crashed* session leaves the lock behind forever, and
+    ``git worktree remove --force`` (single ``-f``) refuses to remove a locked
+    worktree — so dead-locked worktrees accumulate indefinitely. This lets the
+    pruner tell the two apart:
+
+    - ``"live"``  — locked and the owning pid is still running (skip it).
+    - ``"dead"``  — locked but the owning pid is gone, or the reason isn't a
+                    parseable ruslan lock (safe to unlock + reap).
+    - ``None``    — not locked at all.
+
+    Fails SAFE toward ``"live"``: if git can't be queried at all we cannot
+    prove the worktree is safe to touch, so we report it as live.
+    """
+    import re
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["git", "worktree", "list", "--porcelain"],
+            capture_output=True, text=True, timeout=timeout, cwd=repo_root,
+        )
+        if result.returncode != 0:
+            return "live"
+    except Exception:
+        return "live"
+
+    target = Path(worktree_path).resolve()
+    current: Optional[Path] = None
+    for line in result.stdout.splitlines():
+        if line.startswith("worktree "):
+            try:
+                current = Path(line[len("worktree "):].strip()).resolve()
+            except Exception:
+                current = None
+        elif line == "locked" or line.startswith("locked "):
+            if current != target:
+                continue
+            reason = line[len("locked"):].strip()
+            m = re.search(r"ruslan pid=(\d+)", reason)
+            if not m:
+                # Locked by something we don't recognize as a ruslan session
+                # (or lock reason unavailable). Treat as dead — a foreign lock
+                # on a ruslan -w worktree is almost certainly a leftover, and
+                # the age/dirty/unpushed gates already ran before we got here.
+                return "dead"
+            pid = int(m.group(1))
+            if pid == os.getpid():
+                return "live"
+            try:
+                from gateway.status import _pid_exists
+                return "live" if _pid_exists(pid) else "dead"
+            except Exception:
+                # Can't determine liveness — fail safe toward keeping it.
+                return "live"
+    return None
+
+
 def _cleanup_worktree(info: Dict[str, str] = None) -> None:
     """Remove a worktree and its branch on exit.
 
@@ -1609,7 +1792,7 @@ def _run_state_db_auto_maintenance(session_db) -> None:
                 )
                 session_db.set_meta("ghost_session_prune_v1", "1")
                 if pruned:
-                    logger.info("Удалено %d пустых призрачных сессий TUI", pruned)
+                    logger.info("Pruned %d empty TUI ghost sessions", pruned)
         except Exception as _prune_exc:
             logger.debug("Ghost session prune skipped: %s", _prune_exc)
 
@@ -1620,7 +1803,7 @@ def _run_state_db_auto_maintenance(session_db) -> None:
                 session_db.set_meta("orphaned_compression_finalize_v1", "1")
                 if finalized:
                     logger.info(
-                        "Завершено %d потерянных сессий сжатия", finalized
+                        "Finalized %d orphaned compression sessions", finalized
                     )
         except Exception as _finalize_exc:
             logger.debug("Orphan compression finalize skipped: %s", _finalize_exc)
@@ -1665,10 +1848,22 @@ def _run_checkpoint_auto_maintenance() -> None:
 def _prune_stale_worktrees(repo_root: str, max_age_hours: int = 24) -> None:
     """Remove stale worktrees and orphaned branches on startup.
 
-    Age-based tiers:
+    Age-based tiers (aggressive cleanup keeps ``.worktrees/`` from growing
+    unbounded):
     - Under max_age_hours (24h): skip — session may still be active.
     - 24h–72h: remove if no unpushed commits.
     - Over 72h: force remove regardless (nothing should sit this long).
+
+    Lock handling (orthogonal to age): ``ruslan -w`` locks each worktree with
+    reason ``ruslan pid=<pid>`` so a concurrent ruslan process leaves an in-use
+    worktree alone. A *live*-locked worktree is skipped at any age; a
+    *dead*-locked one (owning pid gone — a crashed session) is unlocked first
+    so ``git worktree remove --force`` can actually reap it, otherwise those
+    leftovers accumulate forever (``remove --force`` refuses a locked tree).
+
+    Branch deletion is gated on ``git worktree remove`` succeeding, so a failed
+    removal never orphans the branch (which would drop easy reachability of any
+    commits still in the worktree).
 
     Also prunes orphaned ``ruslan/*`` and ``pr-*`` local branches that
     have no corresponding worktree.
@@ -1697,12 +1892,37 @@ def _prune_stale_worktrees(repo_root: str, max_age_hours: int = 24) -> None:
         except Exception:
             continue
 
-        force = mtime <= hard_cutoff  # Over 72h — force remove
+        force = mtime <= hard_cutoff  # Over 72h — reap aggressively
 
+        # Never delete real work, regardless of age. Unpushed commits and
+        # uncommitted changes may be a crashed session's in-flight work; the
+        # >72h tier reaps only abandoned *clean, fully-pushed* worktrees (the
+        # scratch trees that actually cause .worktrees/ bloat).
+        if _worktree_has_unpushed_commits(str(entry), timeout=5):
+            continue  # Has unpushed commits or can't check — skip
         if not force:
-            # 24h–72h tier: only remove if no unpushed commits
-            if _worktree_has_unpushed_commits(str(entry), timeout=5):
-                continue  # Has unpushed commits or can't check — skip
+            # 24h–72h tier is conservative: unpushed check above is enough.
+            pass
+        elif _worktree_is_dirty(str(entry), timeout=5):
+            continue  # >72h but dirty — preserve uncommitted work
+
+        # Respect git-native session locks. A lock owned by a still-running
+        # ruslan process means the worktree is actively in use — never touch
+        # it. A lock whose owning pid is gone is a crashed session's leftover:
+        # unlock it so `git worktree remove --force` (single -f) can reap it,
+        # otherwise dead-locked worktrees pile up indefinitely.
+        lock_state = _worktree_lock_is_live(repo_root, str(entry), timeout=5)
+        if lock_state == "live":
+            logger.debug("Skipping live-locked worktree: %s", entry.name)
+            continue
+        if lock_state == "dead":
+            try:
+                subprocess.run(
+                    ["git", "worktree", "unlock", str(entry)],
+                    capture_output=True, text=True, timeout=10, cwd=repo_root,
+                )
+            except Exception as e:
+                logger.debug("Failed to unlock dead worktree %s: %s", entry.name, e)
 
         # Safe to remove
         try:
@@ -1712,10 +1932,18 @@ def _prune_stale_worktrees(repo_root: str, max_age_hours: int = 24) -> None:
             )
             branch = branch_result.stdout.strip()
 
-            subprocess.run(
+            remove_result = subprocess.run(
                 ["git", "worktree", "remove", str(entry), "--force"],
                 capture_output=True, text=True, timeout=15, cwd=repo_root,
             )
+            if remove_result.returncode != 0:
+                # Removal failed — keep the branch so any commits stay
+                # reachable rather than orphaning it.
+                logger.debug(
+                    "Failed to remove worktree %s: %s",
+                    entry.name, remove_result.stderr.strip(),
+                )
+                continue
             if branch:
                 subprocess.run(
                     ["git", "branch", "-D", branch],
@@ -2502,6 +2730,26 @@ def _prepend_note_to_message(message, note: str):
     return message
 
 
+def _cli_visible_print(text: str = "") -> None:
+    """Print normally unless prompt_toolkit owns the live terminal.
+
+    Bare ``print()`` output is swallowed by ``patch_stdout`` while an
+    interactive ``Application`` is running, so ``/sessions`` and ``/history``
+    would render nothing. Route through ``_cprint`` (prompt_toolkit-native)
+    in that case, and fall back to ``print`` otherwise.
+    """
+    try:
+        from prompt_toolkit.application import get_app_or_none
+        app = get_app_or_none()
+    except Exception:
+        app = None
+
+    if app is not None and getattr(app, "_is_running", False):
+        _cprint(text)
+    else:
+        print(text)
+
+
 # ---------------------------------------------------------------------------
 # File-drop / local attachment detection — extracted as pure helpers for tests.
 # ---------------------------------------------------------------------------
@@ -2747,29 +2995,9 @@ def _should_auto_attach_clipboard_image_on_paste(pasted_text: str) -> bool:
 
 
 def _strip_leaked_bracketed_paste_wrappers(text: str) -> str:
-    """Strip leaked bracketed-paste wrapper markers from user-visible text.
+    from ruslan_cli.input_sanitize import strip_leaked_bracketed_paste_wrappers
 
-    Defensive normalization for cases where terminal/prompt_toolkit parsing
-    fails and bracketed-paste markers end up in the buffer as literal text.
-
-    We strip canonical wrappers unconditionally and also handle degraded
-    visible forms like ``[200~`` / ``[201~`` and ``00~`` / ``01~`` when they
-    look like wrapper boundaries, not arbitrary user content.
-    """
-    if not text:
-        return text
-
-    text = (
-        text.replace("\x1b[200~", "")
-        .replace("\x1b[201~", "")
-        .replace("^[[200~", "")
-        .replace("^[[201~", "")
-    )
-    text = re.sub(r"(^|[\s\n>:\]\)])\[200~", r"\1", text)
-    text = re.sub(r"\[201~(?=$|[\s\n<\[\(\):;.,!?])", "", text)
-    text = re.sub(r"(^|[\s\n>:\]\)])00~", r"\1", text)
-    text = re.sub(r"01~(?=$|[\s\n<\[\(\):;.,!?])", "", text)
-    return text
+    return strip_leaked_bracketed_paste_wrappers(text)
 
 
 def _apply_bracketed_paste_timeout_patch() -> None:
@@ -2948,6 +3176,77 @@ def _disable_prompt_toolkit_cpr_warning(app) -> None:
         app.renderer.cpr_not_supported_callback = None
     except Exception:
         pass
+
+
+def _terminal_may_leak_cpr() -> bool:
+    """Detect terminals where CPR (ESC[6n) replies are likely to leak.
+
+    The CPR leak in #13870 is environment-specific: it shows up over SSH +
+    cloudflared/mux tunnels and slow PTYs, where the terminal's
+    ``ESC[<row>;<col>R`` reply round-trips slowly enough to race past the input
+    parser and land in the display as raw ``20;1R`` text (and the pending-CPR
+    future can stall the renderer, freezing the prompt). On a local terminal the
+    reply returns instantly and cleanly, so CPR works fine and there is nothing
+    to fix — we leave prompt_toolkit's default behavior untouched there.
+
+    We only suppress CPR on a remote/tunneled link (SSH env vars) or when the
+    user has explicitly opted out via prompt_toolkit's own ``PROMPT_TOOLKIT_NO_CPR``
+    escape hatch. Keeping this narrow (not the broader WSL/Ghostty/Windows set
+    that ``_preserve_ctrl_enter_newline`` keys on) means the only behavior change
+    lands exactly where the bug reproduces.
+    """
+    if os.environ.get("PROMPT_TOOLKIT_NO_CPR", "") == "1":
+        return True
+    if any(os.environ.get(v) for v in ("SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY")):
+        return True
+    return False
+
+
+def _build_cpr_disabled_output(stdout):
+    """Build a Vt100_Output that never sends Cursor Position Report queries.
+
+    prompt_toolkit's renderer sends ``ESC[6n`` (Device Status Report) to learn
+    the cursor row before painting in non-fullscreen mode; the terminal replies
+    ``ESC[<row>;<col>R``. Over SSH + cloudflared/mux tunnels and some slow PTYs
+    these replies race past the input parser and land in the display as raw text
+    like ``20;1R21;1R``, and the pending-CPR future can stall the renderer so the
+    prompt appears frozen after the agent's final answer (see #13870).
+
+    Constructing the output with ``enable_cpr=False`` makes the renderer mark CPR
+    ``NOT_SUPPORTED`` up front, so ``ESC[6n`` is never sent and no CPR response
+    can leak. This is the root-cause counterpart to the input-side scrubbing in
+    ``_strip_leaked_terminal_responses`` — that cleans leaks after the fact; this
+    stops them at the source. The UI is otherwise identical (prompt_toolkit uses
+    its heuristic available-height fallback, which it already relies on whenever a
+    terminal doesn't answer CPR).
+
+    This is only invoked on terminals flagged by ``_terminal_may_leak_cpr()`` —
+    CPR is a layout hint, not a speed optimization, and it works fine locally, so
+    we leave the upstream default in place on local terminals and only suppress it
+    where the leak actually reproduces.
+
+    Note: ``Vt100_Output.from_pty()`` does NOT expose ``enable_cpr`` in
+    prompt_toolkit 3.x, so we reproduce its ``get_size`` setup and call the
+    constructor directly. Returns ``None`` on any failure so the caller falls back
+    to prompt_toolkit's default output (CPR enabled, but input-side scrubbing
+    still protects against leaks).
+    """
+    try:
+        import io as _io
+        from prompt_toolkit.output.vt100 import Vt100_Output, _get_size
+        from prompt_toolkit.data_structures import Size
+
+        def _get_term_size():
+            rows = columns = None
+            try:
+                rows, columns = _get_size(stdout.fileno())
+            except (OSError, _io.UnsupportedOperation, AttributeError, ValueError):
+                pass
+            return Size(rows=rows or 24, columns=columns or 80)
+
+        return Vt100_Output(stdout, _get_term_size, enable_cpr=False)
+    except Exception:
+        return None
 
 
 def _strip_leaked_terminal_responses_with_meta(text: str) -> tuple[str, bool]:
@@ -3137,7 +3436,7 @@ RUSLAN_AGENT_LOGO = """[bold #FFD700]██╗  ██╗███████�
 [#CD7F32]╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝      ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝[/]"""
 
 # ASCII Art - Ruslan Caduceus (compact, fits in left panel)
-RUSLAN_SHIELD = """[#CD7F32]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣀⡀⠀⣀⣀⠀⢀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+RUSLAN_CADUCEUS = """[#CD7F32]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣀⡀⠀⣀⣀⠀⢀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
 [#CD7F32]⠀⠀⠀⠀⠀⠀⢀⣠⣴⣾⣿⣿⣇⠸⣿⣿⠇⣸⣿⣿⣷⣦⣄⡀⠀⠀⠀⠀⠀⠀[/]
 [#FFBF00]⠀⢀⣠⣴⣶⠿⠋⣩⡿⣿⡿⠻⣿⡇⢠⡄⢸⣿⠟⢿⣿⢿⣍⠙⠿⣶⣦⣄⡀⠀[/]
 [#FFBF00]⠀⠀⠉⠉⠁⠶⠟⠋⠀⠉⠀⢀⣈⣁⡈⢁⣈⣁⡀⠀⠉⠀⠙⠻⠶⠈⠉⠉⠀⠀[/]
@@ -3186,7 +3485,7 @@ def _build_compact_banner() -> str:
 
     w = min(shutil.get_terminal_size().columns - 2, 88)
     if w < 30:
-        return f"\n[{title_color}]{tiny_line}[/] [dim {dim_color}]- Valldun[/]\n"
+        return f"\n[{title_color}]{tiny_line}[/] [dim {dim_color}]- Nous Research[/]\n"
 
     inner = w - 2  # inside the box border
     bar = "═" * w
@@ -3345,7 +3644,7 @@ def save_config_value(key_path: str, value: any) -> bool:
         
         return True
     except Exception as e:
-        logger.error("Не удалось сохранить конфиг: %s", e)
+        logger.error("Failed to save config: %s", e)
         return False
 
 
@@ -3406,7 +3705,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         # bell_on_complete: play terminal bell (\a) when agent finishes a response
         self.bell_on_complete = CLI_CONFIG["display"].get("bell_on_complete", False)
         # show_reasoning: display model thinking/reasoning before the response
-        self.show_reasoning = CLI_CONFIG["display"].get("show_reasoning", False)
+        self.show_reasoning = CLI_CONFIG["display"].get("show_reasoning", True)
         # reasoning_full: when reasoning display is on, print the post-response
         # recap box uncollapsed instead of clamping to the first 10 lines.
         self.reasoning_full = CLI_CONFIG["display"].get("reasoning_full", False)
@@ -3434,8 +3733,9 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         
         # streaming: stream tokens to the terminal as they arrive (display.streaming in config.yaml)
         self.streaming_enabled = CLI_CONFIG["display"].get("streaming", False)
-        # show_timestamps: prefix user and assistant labels with [HH:MM]
+        # show_timestamps: prefix user and assistant labels with timestamps
         self.show_timestamps = CLI_CONFIG["display"].get("timestamps", False)
+        self.timestamp_format = CLI_CONFIG["display"].get("timestamp_format", "%H:%M")
         self.final_response_markdown = str(
             CLI_CONFIG["display"].get("final_response_markdown", "strip")
         ).strip().lower() or "strip"
@@ -3597,9 +3897,10 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         )
         
         # Reasoning config (OpenRouter reasoning effort level)
-        self.reasoning_config = _parse_reasoning_config(
-            CLI_CONFIG["agent"].get("reasoning_effort", "")
-        )
+        # Per-model override > global reasoning_effort — resolved through the
+        # shared chokepoint in ruslan_constants (Closes #21256).
+        from ruslan_constants import resolve_reasoning_config
+        self.reasoning_config = resolve_reasoning_config(CLI_CONFIG, self.model)
         self.service_tier = _parse_service_tier_config(
             CLI_CONFIG["agent"].get("service_tier", "")
         )
@@ -3665,7 +3966,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             # enough; surface it prominently so the user knows persistence is
             # off for this run and can fix the store before relying on resume.
             self._session_db_unavailable = True
-            logger.warning("Не удалось инициализировать SessionDB — сессия НЕ будет проиндексирована для поиска: %s", e)
+            logger.warning("Failed to initialize SessionDB — session will NOT be indexed for search: %s", e)
             try:
                 # Console is imported at module scope; do NOT re-import it here.
                 # A function-local `import` would make `Console` a local name for
@@ -3766,6 +4067,25 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         self._last_scrollback_tool: str = ""  # last tool name printed to scrollback (for "new" dedup)
         self._command_running = False
         self._command_status = ""
+        # Petdex mascot (opt-in via display.pet). The base CLI mirrors the TUI's
+        # PetPane: a half-block sprite above the prompt that reacts to agent
+        # activity. Lazily resolved; an invalidate timer drives the animation.
+        self._pet_renderer = None  # agent.pet.render.PetRenderer | None
+        self._pet_slug: str = ""
+        self._pet_enabled: bool = False
+        self._pet_cols: int = 18
+        self._pet_scale: float = 0.7
+        self._pet_frames_cache: dict = {}  # state -> list[grid]
+        self._pet_frame_idx: int = 0
+        self._pet_lock = threading.Lock()
+        self._pet_cfg_checked: float = 0.0
+        self._pet_anim_running: bool = False
+        self._pet_anim_thread = None
+        # Transient reaction beats (wave/jump/failed) + steady reasoning flag.
+        self._pet_event: str = ""
+        self._pet_event_until: float = 0.0
+        self._pet_reasoning: bool = False
+        self._pet_turn_error: bool = False
         self._attached_images: list[Path] = []
         self._image_counter = 0
         self.preloaded_skills: list[str] = []
@@ -3821,7 +4141,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 config=self.config,
             )
         except Exception as exc:
-            logger.warning("Не удалось занять слот активной сессии: %s", exc)
+            logger.warning("Failed to claim active session slot: %s", exc)
             return True
         if message:
             if stderr:
@@ -3913,6 +4233,32 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             app.invalidate()
         except Exception:
             pass
+
+    def _recover_terminal_after_interrupt(self) -> None:
+        """Recover the terminal after an interrupted agent turn (#33271).
+
+        When the user interrupts a running turn by typing a new message,
+        prompt_toolkit may have an in-flight ``CSI 6n`` cursor-position query
+        whose reply (``ESC[<row>;<col>R``) arrives on stdin after the input
+        parser has torn down. The reply then leaks as literal text
+        (``^[[19;1R``) and the VT100 parser can stall in a partial-escape
+        state, accepting no further keystrokes — the terminal appears frozen.
+
+        Two steps recover a sane state:
+          1. ``flush_stdin()`` drains stray escape bytes from the OS input
+             buffer (``termios.tcflush(TCIFLUSH)``; no-op on non-TTY).
+          2. ``_force_full_redraw()`` drops prompt_toolkit's cached
+             screen/cursor state and forces a clean repaint.
+
+        Both steps are independently safe and self-guard, so a failure of one
+        never prevents the other.
+        """
+        try:
+            from ruslan_cli.curses_ui import flush_stdin
+            flush_stdin()
+        except Exception:
+            pass
+        self._force_full_redraw()
 
     def _clear_prompt_toolkit_screen(self, app, *, rebuild_scrollback: bool = False) -> None:
         """Clear the terminal and reset prompt_toolkit renderer state."""
@@ -4222,6 +4568,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             "compressions": 0,
             "active_background_tasks": 0,
             "active_background_processes": 0,
+            "active_background_subagents": 0,
         }
 
         # Count live /background tasks. The dict entry is removed in the
@@ -4239,6 +4586,16 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         try:
             from tools.process_registry import process_registry
             snapshot["active_background_processes"] = process_registry.count_running()
+        except Exception:
+            pass
+
+        # Count live background/async subagents (delegate_task batches and
+        # background single delegations tracked by tools.async_delegation).
+        # active_count() iterates an in-memory records dict under a lock —
+        # cheap and only counts records still in the "running" state.
+        try:
+            from tools.async_delegation import active_count as _async_active_count
+            snapshot["active_background_subagents"] = _async_active_count()
         except Exception:
             pass
 
@@ -4412,6 +4769,224 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             return f"  {txt}  ({elapsed_str})"
         return f"  {txt}"
 
+    # ── Petdex mascot (base-CLI pet pane) ───────────────────────────────
+    #
+    # Parity with the TUI: a half-block sprite rendered as a prompt_toolkit
+    # window above the prompt, reacting to agent state and animated by a timer
+    # that calls ``app.invalidate()``. Half-blocks only — the crisp Kitty image
+    # protocol can't coexist with prompt_toolkit's patch_stdout output layer
+    # (raw image escapes get swallowed/mangled), so we use truecolor styled
+    # text, which prompt_toolkit renders natively in any 24-bit terminal.
+
+    _PET_FRAME_INTERVAL = 0.16
+    _PET_CFG_INTERVAL = 2.5
+
+    def _pet_resolve_config(self) -> None:
+        """(Re)resolve the active pet from config — picks up live enable/disable/
+
+        switch made via ``/pet`` or ``ruslan pets`` without a restart, mirroring
+        the TUI's steady poll. Cheap and fail-open: any problem disables the pet.
+        """
+        try:
+            from agent.pet import constants, store
+            from agent.pet.render import PetRenderer
+            from ruslan_cli.config import load_config
+
+            cfg = load_config()
+            display = cfg.get("display", {}) if isinstance(cfg.get("display"), dict) else {}
+            pet_cfg = display.get("pet", {}) if isinstance(display.get("pet"), dict) else {}
+
+            enabled = bool(pet_cfg.get("enabled"))
+            slug = str(pet_cfg.get("slug", "") or "")
+            scale = float(pet_cfg.get("scale", constants.DEFAULT_SCALE) or constants.DEFAULT_SCALE)
+            cols = constants.resolve_cols(scale, pet_cfg.get("unicode_cols", 0))
+
+            if not enabled:
+                with self._pet_lock:
+                    self._pet_enabled = False
+                    self._pet_renderer = None
+                    self._pet_frames_cache.clear()
+                return
+
+            pet = store.resolve_active_pet(slug)
+            if pet is None or not pet.exists:
+                with self._pet_lock:
+                    self._pet_enabled = False
+                    self._pet_renderer = None
+                    self._pet_frames_cache.clear()
+                return
+
+            with self._pet_lock:
+                # Rebuild only when the resolved pet or geometry changes.
+                if (
+                    self._pet_renderer is None
+                    or self._pet_slug != pet.slug
+                    or self._pet_cols != cols
+                    or self._pet_scale != scale
+                ):
+                    self._pet_renderer = PetRenderer(
+                        str(pet.spritesheet), mode="unicode", scale=scale, unicode_cols=cols
+                    )
+                    self._pet_slug = pet.slug
+                    self._pet_cols = cols
+                    self._pet_scale = scale
+                    self._pet_frames_cache.clear()
+                    self._pet_frame_idx = 0
+                self._pet_enabled = True
+        except Exception:
+            with self._pet_lock:
+                self._pet_enabled = False
+                self._pet_renderer = None
+
+    def _pet_flash(self, state: str, secs: float = 1.6) -> None:
+        """Briefly force a transient reaction (wave/jump/failed) before resting."""
+        self._pet_event = state
+        self._pet_event_until = time.monotonic() + secs
+
+    def _on_reaction(self, kind: str) -> None:
+        """User affection (ily / <3 / good bot), core-detected — the pet's share
+        of the vibe signal that plays hearts on the TUI/desktop. Flash a celebrate."""
+        if kind == "vibe":
+            self._pet_flash("jump")
+
+    def _pet_react_turn_end(self) -> None:
+        """Flash the end-of-turn beat: failed on error, jump on a finished plan, else wave."""
+        if not self._pet_enabled:
+            return
+        from agent.pet.state import todos_all_done
+
+        if self._pet_turn_error:
+            self._pet_flash("failed")
+            return
+        try:
+            store = getattr(self.agent, "_todo_store", None)
+            done = todos_all_done(store.read()) if store else False
+        except Exception:
+            done = False
+        self._pet_flash("jump" if done else "wave")
+
+    def _derive_pet_state(self) -> str:
+        """Map current CLI activity to a pet animation state.
+
+        A transient reaction beat (wave/jump/failed) wins while it's live;
+        otherwise the steady state comes from the shared
+        :func:`agent.pet.state.derive_pet_state` so the CLI can't drift from the
+        TUI/desktop priority order.
+        """
+        if self._pet_event and time.monotonic() < self._pet_event_until:
+            return self._pet_event
+        self._pet_event = ""
+        from agent.pet.state import derive_pet_state
+
+        # A live blocking modal (approval / clarify / sudo / secret / slash
+        # confirm) means the agent is paused on the user → the `waiting` pose,
+        # which outranks the in-flight signals in derive_pet_state.
+        awaiting_input = bool(
+            self._approval_state
+            or self._clarify_state
+            or self._sudo_state
+            or self._secret_state
+            or getattr(self, "_slash_confirm_state", None)
+        )
+
+        return derive_pet_state(
+            awaiting_input=awaiting_input,
+            busy=getattr(self, "_agent_running", False),
+            reasoning=self._pet_reasoning,
+        ).value
+
+    def _pet_frames_for(self, state: str) -> list:
+        """Return (and cache) the half-block grids for one state."""
+        cached = self._pet_frames_cache.get(state)
+        if cached is not None:
+            return cached
+        renderer = self._pet_renderer
+        if renderer is None:
+            return []
+        try:
+            count = renderer.frame_count(state) or 1
+            grids = [renderer.cells(state, i, cols=self._pet_cols) for i in range(count)]
+        except Exception:
+            grids = []
+        self._pet_frames_cache[state] = grids
+        return grids
+
+    def _pet_fragments(self):
+        """Return prompt_toolkit FormattedText for the current pet frame, or []."""
+        with self._pet_lock:
+            if not self._pet_enabled or self._pet_renderer is None:
+                return []
+            state = self._derive_pet_state()
+            grids = self._pet_frames_for(state)
+            if not grids:
+                return []
+            grid = grids[self._pet_frame_idx % len(grids)]
+
+        frags = []
+        for y, row in enumerate(grid):
+            if y:
+                frags.append(("", "\n"))
+            for top, bottom in row:
+                tr, tg, tb, ta = top
+                br, bg, bb, ba = bottom
+                top_op = ta >= 32
+                bot_op = ba >= 32
+                if not top_op and not bot_op:
+                    frags.append(("", " "))
+                elif top_op and bot_op:
+                    frags.append((f"fg:#{tr:02x}{tg:02x}{tb:02x} bg:#{br:02x}{bg:02x}{bb:02x}", "▀"))
+                elif top_op:
+                    # Upper half only — leave the lower half the terminal's bg
+                    # instead of painting it black (cleaner on light themes).
+                    frags.append((f"fg:#{tr:02x}{tg:02x}{tb:02x}", "▀"))
+                else:
+                    frags.append((f"fg:#{br:02x}{bg:02x}{bb:02x}", "▄"))
+        return frags
+
+    def _pet_widget_height(self) -> int:
+        """Visible rows for the pet window — 0 collapses it when no pet shows."""
+        with self._pet_lock:
+            if not self._pet_enabled or self._pet_renderer is None:
+                return 0
+            grids = self._pet_frames_for(self._derive_pet_state())
+            if not grids or not grids[0]:
+                return 0
+            return len(grids[0])
+
+    def _pet_anim_loop(self) -> None:
+        """Advance the frame + invalidate on a timer while a pet is enabled."""
+        while self._pet_anim_running:
+            time.sleep(self._PET_FRAME_INTERVAL)
+            now = time.monotonic()
+            if now - self._pet_cfg_checked >= self._PET_CFG_INTERVAL:
+                self._pet_cfg_checked = now
+                self._pet_resolve_config()
+            if not self._pet_enabled:
+                continue
+            with self._pet_lock:
+                self._pet_frame_idx += 1
+            app = getattr(self, "_app", None)
+            if app is not None:
+                try:
+                    app.invalidate()
+                except Exception:
+                    pass
+
+    def _pet_start_anim(self) -> None:
+        if self._pet_anim_running:
+            return
+        self._pet_resolve_config()
+        self._pet_anim_running = True
+        self._pet_anim_thread = threading.Thread(target=self._pet_anim_loop, daemon=True)
+        self._pet_anim_thread.start()
+
+    def _pet_stop_anim(self) -> None:
+        self._pet_anim_running = False
+        thread = self._pet_anim_thread
+        if thread is not None:
+            thread.join(timeout=0.3)
+        self._pet_anim_thread = None
+
     def _voice_record_key_label(self) -> str:
         """Return the configured voice push-to-talk key formatted for UI.
 
@@ -4493,6 +5068,9 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 bg_proc_count = snapshot.get("active_background_processes", 0)
                 if bg_proc_count:
                     parts.append(f"⚙ {bg_proc_count}")
+                bg_subagent_count = snapshot.get("active_background_subagents", 0)
+                if bg_subagent_count:
+                    parts.append(f"⛓ {bg_subagent_count}")
                 parts.append(duration_label)
                 if yolo_active:
                     parts.append("⚠ YOLO")
@@ -4515,6 +5093,9 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             bg_proc_count = snapshot.get("active_background_processes", 0)
             if bg_proc_count:
                 parts.append(f"⚙ {bg_proc_count}")
+            bg_subagent_count = snapshot.get("active_background_subagents", 0)
+            if bg_subagent_count:
+                parts.append(f"⛓ {bg_subagent_count}")
             parts.append(duration_label)
             prompt_elapsed = snapshot.get("prompt_elapsed")
             if prompt_elapsed:
@@ -4560,6 +5141,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                     compressions = snapshot.get("compressions", 0)
                     bg_count = snapshot.get("active_background_tasks", 0)
                     bg_proc_count = snapshot.get("active_background_processes", 0)
+                    bg_subagent_count = snapshot.get("active_background_subagents", 0)
                     frags = [
                         ("class:status-bar", " ⚕ "),
                         ("class:status-bar-strong", snapshot["model_short"]),
@@ -4575,6 +5157,9 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                     if bg_proc_count:
                         frags.append(("class:status-bar-dim", " · "))
                         frags.append(("class:status-bar-strong", f"⚙ {bg_proc_count}"))
+                    if bg_subagent_count:
+                        frags.append(("class:status-bar-dim", " · "))
+                        frags.append(("class:status-bar-strong", f"⛓ {bg_subagent_count}"))
                     frags.extend([
                         ("class:status-bar-dim", " · "),
                         ("class:status-bar-dim", duration_label),
@@ -4595,6 +5180,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                     compressions = snapshot.get("compressions", 0)
                     bg_count = snapshot.get("active_background_tasks", 0)
                     bg_proc_count = snapshot.get("active_background_processes", 0)
+                    bg_subagent_count = snapshot.get("active_background_subagents", 0)
                     frags = [
                         ("class:status-bar", " ⚕ "),
                         ("class:status-bar-strong", snapshot["model_short"]),
@@ -4614,6 +5200,9 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                     if bg_proc_count:
                         frags.append(("class:status-bar-dim", " │ "))
                         frags.append(("class:status-bar-strong", f"⚙ {bg_proc_count}"))
+                    if bg_subagent_count:
+                        frags.append(("class:status-bar-dim", " │ "))
+                        frags.append(("class:status-bar-strong", f"⛓ {bg_subagent_count}"))
                     frags.extend([
                         ("class:status-bar-dim", " │ "),
                         ("class:status-bar-dim", duration_label),
@@ -4896,7 +5485,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
     def _format_submitted_user_message_preview(self, user_input: str) -> str:
         """Format the submitted user-message scrollback preview."""
         ts_suffix = (
-            f" [dim]{datetime.now().strftime('%H:%M')}[/]"
+            f" [dim]{datetime.now().strftime(getattr(self, 'timestamp_format', '%H:%M'))}[/]"
             if getattr(self, "show_timestamps", False) else ""
         )
         lines = user_input.split("\n")
@@ -4943,7 +5532,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             try:
                 return path.read_text(encoding="utf-8")
             except (OSError, IOError):
-                logger.warning("Файл вставки исчез или нечитаем, возвращается заглушка: %s", path)
+                logger.warning("Paste file gone or unreadable, returning placeholder: %s", path)
                 return match.group(0)
 
         return paste_ref_re.sub(_expand_ref, text)
@@ -5062,10 +5651,14 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             self._stream_last_was_newline = True  # start of stream = boundary
 
         if not getattr(self, "_in_reasoning_block", False):
+            # Case-insensitive matching against a lowercased view so
+            # mixed-case tag variants (<Think>, <THINKING>, …) are caught.
+            prefilt_lower = self._stream_prefilt.lower()
             for tag in _OPEN_TAGS:
+                tag_lower = tag.lower()
                 search_start = 0
                 while True:
-                    idx = self._stream_prefilt.find(tag, search_start)
+                    idx = prefilt_lower.find(tag_lower, search_start)
                     if idx == -1:
                         break
                     # Check if this is a block boundary position
@@ -5105,11 +5698,12 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
 
             # Could also be a partial open tag at the end — hold it back
             if not getattr(self, "_in_reasoning_block", False):
-                # Check for partial tag match at the end
+                # Check for partial tag match at the end (case-insensitive)
                 safe = self._stream_prefilt
                 for tag in _OPEN_TAGS:
+                    tag_lower = tag.lower()
                     for i in range(1, len(tag)):
-                        if self._stream_prefilt.endswith(tag[:i]):
+                        if prefilt_lower.endswith(tag_lower[:i]):
                             safe = self._stream_prefilt[:-i]
                             break
                 if safe:
@@ -5122,8 +5716,9 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         # Keep accumulating _stream_prefilt because close tags can arrive
         # split across multiple tokens (e.g. "</REASONING_SCRATCH" + "PAD>...").
         if getattr(self, "_in_reasoning_block", False):
+            prefilt_lower = self._stream_prefilt.lower()
             for tag in _CLOSE_TAGS:
-                idx = self._stream_prefilt.find(tag)
+                idx = prefilt_lower.find(tag.lower())
                 if idx != -1:
                     self._in_reasoning_block = False
                     # When show_reasoning is on, route inner content to
@@ -5191,7 +5786,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             except (ValueError, IndexError):
                 self._stream_text_ansi = ""
             if self.show_timestamps:
-                label = f"{label} {datetime.now().strftime('%H:%M')}"
+                label = f"{label} {datetime.now().strftime(getattr(self, 'timestamp_format', '%H:%M'))}"
             w = self._scrollback_box_width()
             fill = w - 2 - RuslanCLI._status_bar_display_width(label)
             _cprint(f"\n{_ACCENT}╭─{label}{'─' * max(fill - 1, 0)}╮{_RST}")
@@ -5245,6 +5840,33 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             if self.final_response_markdown == "strip":
                 line = _strip_markdown_syntax(line)
             _emit_one(line)
+
+        # Force-flush long partial lines so a response that opens with a
+        # long paragraph paints as tokens arrive instead of staying blank
+        # until the first newline (TTFT perception fix — the reasoning box
+        # has done this at 80 chars since day one; the response box never
+        # did). Wrap at the terminal's visible width so we only ever emit
+        # text that would have line-broken at that point anyway; the
+        # remainder stays buffered as the logical line's continuation.
+        # Table-shaped partials are exempt — they need the whole block for
+        # realignment (see the table side-buffer above).
+        if (
+            self._stream_buf
+            and not self._in_stream_table
+            and not self._stream_buf.lstrip().startswith("|")
+        ):
+            wrap_w = max(40, _terminal_width_for_streaming())
+            while len(self._stream_buf) >= wrap_w:
+                cut = self._stream_buf.rfind(" ", 0, wrap_w)
+                if cut <= 0:
+                    cut = wrap_w  # single unbreakable run — hard wrap
+                chunk, self._stream_buf = (
+                    self._stream_buf[:cut],
+                    self._stream_buf[cut:].lstrip(" "),
+                )
+                if self.final_response_markdown == "strip":
+                    chunk = _strip_markdown_syntax(chunk)
+                _emit_one(chunk)
 
     def _flush_stream(self) -> None:
         """Emit any remaining partial line from the stream buffer and close the box."""
@@ -5553,6 +6175,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 enabled_toolsets=self.enabled_toolsets,
                 session_id=self.session_id,
                 context_length=ctx_len,
+                provider=self.provider,
             )
         
         # Tool discovery is intentionally deferred on the Termux bare prompt
@@ -5593,7 +6216,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         if is_nous_ruslan_non_agentic(model_name):
             self._console_print()
             self._console_print(
-                "[bold yellow]⚠  Valldun Ruslan 3 & 4 models are NOT agentic and are not "
+                "[bold yellow]⚠  Nous Research Ruslan 3 & 4 models are NOT agentic and are not "
                 "designed for use with Ruslan Agent.[/]"
             )
             self._console_print(
@@ -5755,7 +6378,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         except Exception:
             return
 
-        logger.warning("Восстановлены режимы ввода терминала после утечки: %s", reason)
+        logger.warning("Recovered terminal input modes after leak: %s", reason)
         if not self._input_mode_recovery_notice_shown:
             self._input_mode_recovery_notice_shown = True
             _cprint(
@@ -5967,29 +6590,13 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
     def show_help(self):
         """Display help information with categorized commands."""
         from ruslan_cli.commands import COMMANDS_BY_CATEGORY
-        from ruslan_cli.locales import t as _t, get_locale as _get_locale
-
-        # Локаль: ru по умолчанию, можно переопределить через self.config["locale"]
-        _active_locale = _get_locale(self.config if hasattr(self, "config") else None)
-        # Стандартный формат ключа для категорий: cli.help.category.<Name>
-        def _cat(name: str) -> str:
-            key = f"cli.help.category.{name}"
-            result = _t(key, locale=_active_locale)
-            # Если перевод не найден (вернулся ключ) — оставить оригинал
-            return result if result != key else name
-        def _cmd_desc(name: str, fallback: str = "") -> str:
-            """Резолв описания команды: cli.cmd.<name>.description или fallback."""
-            key = f"cli.cmd.{name.lstrip('/')}.description"
-            result = _t(key, locale=_active_locale)
-            # Если перевод не найден — взять EN из fallback
-            return result if result != key else fallback
 
         try:
             from ruslan_cli.skin_engine import get_active_help_header
-            header = get_active_help_header(_t("cli.help.title", locale=_active_locale))
+            header = get_active_help_header("(^_^)? Available Commands")
         except Exception:
-            header = _t("cli.help.title", locale=_active_locale)
-        header = (header or "").strip() or _t("cli.help.title", locale=_active_locale)
+            header = "(^_^)? Available Commands"
+        header = (header or "").strip() or "(^_^)? Available Commands"
         inner_width = 55
         if len(header) > inner_width:
             header = header[:inner_width]
@@ -5998,26 +6605,15 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         _cprint(f"{_BOLD}+{'-' * inner_width}+{_RST}")
 
         for category, commands in COMMANDS_BY_CATEGORY.items():
-            _cprint(f"\n  {_BOLD}── {_cat(category)} ──{_RST}")
+            _cprint(f"\n  {_BOLD}── {category} ──{_RST}")
             for cmd, desc in commands.items():
                 if not self._command_available(cmd):
                     continue
-                # Резолвим описание из i18n. Если это алиас — сначала пробуем
-                # достать primary из текста "(alias for /primary)" и перевести его.
-                _localized = _cmd_desc(cmd, fallback=desc)
-                if _localized == desc and "(alias for" in desc:
-                    # Алиас: извлекаем primary и берём его перевод
-                    import re as _re
-                    _m = _re.search(r"alias for /([\w-]+)", desc)
-                    if _m:
-                        _primary_desc = _cmd_desc(f"/{_m.group(1)}", fallback="")
-                        if _primary_desc and _primary_desc != f"cli.cmd.{_m.group(1)}.description":
-                            _localized = f"{_primary_desc} (алиас /{_m.group(1)})"
-                ChatConsole().print(f"    [bold {_accent_hex()}]{cmd:<15}[/] [dim]-[/] {_escape(_localized)}")
+                ChatConsole().print(f"    [bold {_accent_hex()}]{cmd:<15}[/] [dim]-[/] {_escape(desc)}")
 
         skill_commands = _ensure_skill_commands()
         if skill_commands:
-            _cprint(f"\n  ⚡ {_BOLD}{_t('cli.help.skill_commands', locale=_active_locale)}{_RST} ({len(skill_commands)} {_t('cli.help.skills_count', locale=_active_locale, n='') or ''}".rstrip() + "):")
+            _cprint(f"\n  ⚡ {_BOLD}Skill Commands{_RST} ({len(skill_commands)} installed):")
             for cmd, info in sorted(skill_commands.items()):
                 ChatConsole().print(
                     f"    [bold {_accent_hex()}]{cmd:<22}[/] [dim]-[/] {_escape(info['description'])}"
@@ -6025,7 +6621,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
 
         _bundles_now = get_skill_bundles()
         if _bundles_now:
-            _cprint(f"\n  ▣ {_BOLD}{_t('cli.help.skill_bundles', locale=_active_locale)}{_RST} ({len(_bundles_now)} {_t('cli.help.bundles_count', locale=_active_locale, n='') or ''}".rstrip() + "):")
+            _cprint(f"\n  ▣ {_BOLD}Skill Bundles{_RST} ({len(_bundles_now)} installed):")
             for cmd, info in sorted(_bundles_now.items()):
                 skill_count = len(info.get("skills", []))
                 desc = info.get("description") or f"Load {skill_count} skills"
@@ -6036,42 +6632,39 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
 
         quick_commands = self.config.get("quick_commands", {})
         if quick_commands:
-            _cprint(f"\n  ⚡ {_BOLD}{_t('cli.help.quick_commands', locale=_active_locale)}{_RST} ({len(quick_commands)} {_t('cli.help.skills_count', locale=_active_locale, n='') or ''}".rstrip() + "):")
+            _cprint(f"\n  ⚡ {_BOLD}Quick Commands{_RST} ({len(quick_commands)} configured):")
             for name, qcmd in sorted(quick_commands.items()):
                 desc = qcmd.get("description", qcmd.get("type", ""))
                 ChatConsole().print(
                     f"    [bold {_accent_hex()}]{('/' + name):<22}[/] [dim]-[/] {_escape(desc)}"
                 )
 
-        _cprint(f"\n  {_DIM}{_t('cli.help.tip_chat', locale=_active_locale)}{_RST}")
-        _cprint(f"  {_DIM}{_t('cli.help.tip_multiline', locale=_active_locale)}{_RST}")
-        _cprint(f"  {_DIM}{_t('cli.help.tip_draft', locale=_active_locale)}{_RST}")
+        _cprint(f"\n  {_DIM}Tip: Just type your message to chat with Ruslan!{_RST}")
+        _cprint(f"  {_DIM}Multi-line: Alt+Enter for a new line{_RST}")
+        _cprint(f"  {_DIM}Draft editor: Ctrl+G (Alt+G in VSCode/Cursor){_RST}")
         if _is_termux_environment():
-            _cprint(f"  {_DIM}{_t('cli.help.tip_attach_image', locale=_active_locale)}{_RST}\n")
+            _cprint(f"  {_DIM}Attach image: /image {_termux_example_image_path()} or start your prompt with a local image path{_RST}\n")
         else:
-            _cprint(f"  {_DIM}{_t('cli.help.tip_paste_image', locale=_active_locale)}{_RST}\n")
+            _cprint(f"  {_DIM}Paste image: Alt+V (or /paste){_RST}\n")
     
     def show_tools(self):
         """Display available tools with kawaii ASCII art."""
-        from ruslan_cli.locales import t as _t, get_locale as _get_locale
-        _active_locale = _get_locale(self.config if hasattr(self, "config") else None)
-
         tools = get_tool_definitions(enabled_toolsets=self.enabled_toolsets, quiet_mode=True)
-
+        
         if not tools:
-            print(_t("cli.tools.no_tools", locale=_active_locale))
+            print("(;_;) No tools available")
             return
-
+        
         # Header
         print()
-        title = _t("cli.tools.title", locale=_active_locale)
+        title = "(^_^)/ Available Tools"
         width = 78
         pad = width - len(title)
         print("+" + "-" * width + "+")
         print("|" + " " * (pad // 2) + title + " " * (pad - pad // 2) + "|")
         print("+" + "-" * width + "+")
         print()
-
+        
         # Group tools by toolset
         toolsets = {}
         for tool in sorted(tools, key=lambda t: t["function"]["name"]):
@@ -6085,50 +6678,47 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             if ". " in desc:
                 desc = desc[:desc.index(". ") + 1]
             toolsets[toolset].append((name, desc))
-
+        
         # Display by toolset
         for toolset in sorted(toolsets.keys()):
             print(f"  [{toolset}]")
             for name, desc in toolsets[toolset]:
                 print(f"    * {name:<20} - {desc}")
             print()
-
-        print(f"  {_t('cli.tools.total', locale=_active_locale, n=len(tools))}")
+        
+        print(f"  Total: {len(tools)} tools  ヽ(^o^)ノ")
         print()
 
 
     def show_toolsets(self):
         """Display available toolsets with kawaii ASCII art."""
-        from ruslan_cli.locales import t as _t, get_locale as _get_locale
-        _active_locale = _get_locale(self.config if hasattr(self, "config") else None)
-
         all_toolsets = get_all_toolsets()
-
+        
         # Header
         print()
-        title = _t("cli.toolsets.title", locale=_active_locale)
+        title = "(^_^)b Available Toolsets"
         width = 58
         pad = width - len(title)
         print("+" + "-" * width + "+")
         print("|" + " " * (pad // 2) + title + " " * (pad - pad // 2) + "|")
         print("+" + "-" * width + "+")
         print()
-
+        
         for name in sorted(all_toolsets.keys()):
             info = get_toolset_info(name)
             if info:
                 tool_count = info["tool_count"]
                 desc = info["description"]
-
+                
                 # Mark if currently enabled
                 marker = "(*)" if self.enabled_toolsets and name in self.enabled_toolsets else "   "
                 print(f"  {marker} {name:<18} [{tool_count:>2} tools] - {desc}")
-
+        
         print()
-        print("(*) = в настоящее время включено")
+        print("  (*) = currently enabled")
         print()
-        print("Совет: используйте 'all' или '*', чтобы включить все наборы инструментов")
-        print("Пример: python cli.py --toolsets web,terminal")
+        print("  Tip: Use 'all' or '*' to enable all toolsets")
+        print("  Example: python cli.py --toolsets web,terminal")
         print()
     
 
@@ -6165,12 +6755,12 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         print("|" + " " * (pad // 2) + title + " " * (pad - pad // 2) + "|")
         print("+" + "-" * width + "+")
         print()
-        print("-- Модель --")
+        print("  -- Model --")
         print(f"  Model:     {self.model}")
         print(f"  Base URL:  {self.base_url}")
         print(f"  API Key:   {api_key_display}")
         print()
-        print("-- Терминал --")
+        print("  -- Terminal --")
         print(f"  Environment:  {terminal_env}")
         if terminal_env == "ssh":
             ssh_host = os.getenv("TERMINAL_SSH_HOST", "not set")
@@ -6180,12 +6770,12 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         print(f"  Working Dir:  {terminal_cwd}")
         print(f"  Timeout:      {terminal_timeout}s")
         print()
-        print("-- Агент --")
+        print("  -- Agent --")
         print(f"  Max Turns:  {self.max_turns}")
         print(f"  Toolsets:   {', '.join(self.enabled_toolsets) if self.enabled_toolsets else 'all'}")
         print(f"  Verbose:    {self.verbose}")
         print()
-        print("-- Сессия --")
+        print("  -- Session --")
         print(f"  Started:     {self.session_start.strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"  Config File: {config_path} {config_status}")
         print()
@@ -6220,30 +6810,30 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
 
         from ruslan_cli.main import _relative_time
 
-        print()
+        _cli_visible_print()
         if reason == "history":
-            print("(._.) В текущем чате еще нет сообщений — вот недавние сеансы, которые вы можете продолжить:")
+            _cli_visible_print("(._.) No messages in the current chat yet — here are recent sessions you can resume:")
         else:
-            print("Недавние сеансы:")
-        print()
-        print(f"  {'#':<3} {'Title':<32} {'Preview':<40} {'Last Active':<13} {'ID'}")
-        print(f"  {'─' * 3} {'─' * 32} {'─' * 40} {'─' * 13} {'─' * 24}")
+            _cli_visible_print("  Recent sessions:")
+        _cli_visible_print()
+        _cli_visible_print(f"  {'#':<3} {'Title':<32} {'Preview':<40} {'Last Active':<13} {'ID'}")
+        _cli_visible_print(f"  {'─' * 3} {'─' * 32} {'─' * 40} {'─' * 13} {'─' * 24}")
         for idx, session in enumerate(sessions, start=1):
             title = session.get("title") or "—"
             preview = (session.get("preview") or "")[:38]
             last_active = _relative_time(session.get("last_active"))
-            print(f"  {idx:<3} {title:<32} {preview:<40} {last_active:<13} {session['id']}")
-        print()
-        print("Используйте /resume <number>, /resume <session id> или /resume <session title>, чтобы продолжить.")
-        print("Пример: /resume 2")
-        print()
+            _cli_visible_print(f"  {idx:<3} {title:<32} {preview:<40} {last_active:<13} {session['id']}")
+        _cli_visible_print()
+        _cli_visible_print("  Use /resume <number>, /resume <session id>, or /resume <session title> to continue.")
+        _cli_visible_print("  Example: /resume 2")
+        _cli_visible_print()
         return True
 
     def show_history(self):
         """Display conversation history."""
         if not self.conversation_history:
             if not self._show_recent_sessions(reason="history"):
-                print("(._.) История беседы еще отсутствует.")
+                _cli_visible_print("(._.) No conversation history yet.")
             return
 
         preview_limit = 400
@@ -6262,7 +6852,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 return ""
             try:
                 from datetime import datetime
-                return f"  [{datetime.fromtimestamp(float(ts)).strftime('%H:%M')}]"
+                return f"  [{datetime.fromtimestamp(float(ts)).strftime(getattr(self, 'timestamp_format', '%H:%M'))}]"
             except (ValueError, OSError, TypeError):
                 return ""
 
@@ -6272,14 +6862,14 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 return
 
             noun = "message" if hidden_tool_messages == 1 else "messages"
-            print("\n  [Tools]")
-            print(f"    ({hidden_tool_messages} tool {noun} hidden)")
+            _cli_visible_print("\n  [Tools]")
+            _cli_visible_print(f"    ({hidden_tool_messages} tool {noun} hidden)")
             hidden_tool_messages = 0
 
-        print()
-        print("+" + "-" * 50 + "+")
-        print("|" + " " * 12 + "(^_^) Conversation History" + " " * 11 + "|")
-        print("+" + "-" * 50 + "+")
+        _cli_visible_print()
+        _cli_visible_print("+" + "-" * 50 + "+")
+        _cli_visible_print("|" + " " * 12 + "(^_^) Conversation History" + " " * 11 + "|")
+        _cli_visible_print("+" + "-" * 50 + "+")
 
         for msg in self.conversation_history:
             role = msg.get("role", "unknown")
@@ -6298,13 +6888,13 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             content_text = "" if content is None else str(content)
 
             if role == "user":
-                print(f"\n  [You #{visible_index}]{_ts_suffix(msg)}")
-                print(
+                _cli_visible_print(f"\n  [You #{visible_index}]{_ts_suffix(msg)}")
+                _cli_visible_print(
                     f"    {content_text[:preview_limit]}{'...' if len(content_text) > preview_limit else ''}"
                 )
                 continue
 
-            print(f"\n  [Ruslan #{visible_index}]{_ts_suffix(msg)}")
+            _cli_visible_print(f"\n  [Ruslan #{visible_index}]{_ts_suffix(msg)}")
             tool_calls = msg.get("tool_calls") or []
             if content_text:
                 preview = content_text[:preview_limit]
@@ -6317,10 +6907,10 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             else:
                 preview = "(no text response)"
                 suffix = ""
-            print(f"    {preview}{suffix}")
+            _cli_visible_print(f"    {preview}{suffix}")
 
         flush_tool_summary()
-        print()
+        _cli_visible_print()
     
     def _notify_session_boundary(self, event_type: str) -> None:
         """Fire a session-boundary plugin hook (on_session_finalize or on_session_reset).
@@ -6368,17 +6958,69 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             )
             return False
 
+    def _launch_session_boundary_memory_flush(
+        self,
+        history_snapshot: list,
+        *,
+        session_id: Optional[str] = None,
+    ) -> Optional[list]:
+        """Stage old-session memory extraction so /new stays responsive.
+
+        The context-engine ``on_session_end`` boundary is delivered
+        synchronously here: it is cheap (local state clear, no LLM call) and
+        ordering-sensitive — it must land before ``reset_session_state()``
+        rebinds the engine to the new session.
+
+        The memory-provider half (LLM-bound extraction, seconds) is NOT run
+        here. The returned snapshot is handed by ``new_session()`` to
+        ``MemoryManager.commit_session_boundary_async`` as a single
+        end→switch task on the manager's serialized background worker, so
+        extraction can never race the provider rebinding (providers key off
+        internal ``_session_id`` state — a late ``on_session_end`` after
+        ``on_session_switch`` would misattribute the old transcript to the
+        new session).
+
+        Returns the history snapshot to queue, or ``None`` when there is
+        nothing to extract (no agent / empty history / no memory manager).
+        """
+        agent = getattr(self, "agent", None)
+        if not agent or not history_snapshot:
+            return None
+
+        engine = getattr(agent, "context_compressor", None)
+        if engine is not None and hasattr(engine, "on_session_end"):
+            try:
+                engine.on_session_end(session_id or "", history_snapshot)
+            except Exception:
+                logger.debug(
+                    "Context engine on_session_end failed at /new boundary",
+                    exc_info=True,
+                )
+
+        # No provider extraction to queue when no memory manager is
+        # configured — new_session() falls back to the inline switch path.
+        if getattr(agent, "_memory_manager", None) is None:
+            return None
+        return history_snapshot
+
     def new_session(self, silent=False, title=None):
         """Start a fresh session with a new session ID and cleared agent state."""
+        old_session_id = self.session_id
+        _boundary_snapshot = None
         if self.agent and self.conversation_history:
-            # Trigger memory extraction on the old session before session_id rotates.
-            self.agent.commit_memory_session(self.conversation_history)
+            # Deliver the context-engine boundary synchronously and get back
+            # the history snapshot for the deferred provider extraction —
+            # queued below (after rotation) so /new never blocks on the
+            # LLM-bound extraction call.
+            _boundary_snapshot = self._launch_session_boundary_memory_flush(
+                list(self.conversation_history),
+                session_id=old_session_id,
+            )
             self._notify_session_boundary("on_session_finalize")
         elif self.agent:
             # First session or empty history — still finalize the old session
             self._notify_session_boundary("on_session_finalize")
 
-        old_session_id = self.session_id
         if self._session_db and old_session_id:
             # Flush any un-persisted messages from the current turn to the
             # old session *before* rotating.  /new can be called mid-turn
@@ -6466,15 +7108,29 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             # per-session state (_session_turns, _turn_counter, _document_id).
             # Fires BEFORE the plugin on_session_reset hook (shell hooks only
             # see the new id; Python providers see the transition). See #6672.
+            #
+            # When the old session has history, end-of-session extraction
+            # (LLM-bound, seconds) and this switch are queued as ONE task on
+            # the memory manager's serialized worker — end strictly before
+            # switch, without blocking /new (#16454). With no history there
+            # is nothing to extract; switch inline as before.
             try:
                 _mm = getattr(self.agent, "_memory_manager", None)
                 if _mm is not None:
-                    _mm.on_session_switch(
-                        self.session_id,
-                        parent_session_id=old_session_id or "",
-                        reset=True,
-                        reason="new_session",
-                    )
+                    if _boundary_snapshot:
+                        _mm.commit_session_boundary_async(
+                            _boundary_snapshot,
+                            new_session_id=self.session_id,
+                            parent_session_id=old_session_id or "",
+                            reason="new_session",
+                        )
+                    else:
+                        _mm.on_session_switch(
+                            self.session_id,
+                            parent_session_id=old_session_id or "",
+                            reset=True,
+                            reason="new_session",
+                        )
             except Exception:
                 pass
             self._notify_session_boundary("on_session_reset")
@@ -6483,8 +7139,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             if title:
                 print(f"(^_^)v New session started: {title}")
             else:
-                print("(^_^)v Новая сессия начата!")
-
+                print("(^_^)v New session started!")
 
 
     def _consume_pending_resume_selection(self, text: str) -> bool:
@@ -6536,7 +7191,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         regardless of whether the user ever runs ``/save``.
         """
         if not self.conversation_history:
-            print("(;_;) Нет разговора для сохранения.")
+            print("(;_;) No conversation to save.")
             return
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -6570,7 +7225,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         Returns the message to re-send, or None if there's nothing to retry.
         """
         if not self.conversation_history:
-            print("(._.) Нет сообщений для повторной попытки.")
+            print("(._.) No messages to retry.")
             return None
         
         # Walk backwards to find the last user message
@@ -6581,7 +7236,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 break
         
         if last_user_idx is None:
-            print("(._.) Не найдено сообщение пользователя для повторной попытки.")
+            print("(._.) No user message found to retry.")
             return None
         
         # Extract the message text and remove everything from that point forward
@@ -6615,7 +7270,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         touch the user's input buffer.
         """
         if not self.conversation_history:
-            print("(._.) Нет сообщений для отмены.")
+            print("(._.) No messages to undo.")
             return
 
         if n < 1:
@@ -6630,7 +7285,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                     break
 
         if not user_indices:
-            print("(._.) Не найдено сообщение пользователя для отмены.")
+            print("(._.) No user message found to undo.")
             return
 
         # The oldest of the collected user messages is our truncation point.
@@ -7257,6 +7912,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 api_key=result.api_key or self.api_key or "",
                 model_info=mi,
                 config_context_length=getattr(self.agent, "_config_context_length", None) if self.agent else None,
+                custom_providers=getattr(self.agent, "_custom_providers", None) if self.agent else None,
             )
             if ctx:
                 _cprint(f"    Context: {ctx:,} tokens")
@@ -7265,8 +7921,6 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         if mi:
             if mi.max_output:
                 _cprint(f"    Max output: {mi.max_output:,} tokens")
-            if mi.has_cost_data():
-                _cprint(f"    Cost: {mi.format_cost()}")
             _cprint(f"    Capabilities: {mi.format_capabilities()}")
 
         cache_enabled = (
@@ -7567,14 +8221,13 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             api_key=result.api_key or self.api_key or "",
             model_info=mi,
             config_context_length=getattr(self.agent, "_config_context_length", None) if self.agent else None,
+            custom_providers=getattr(self.agent, "_custom_providers", None) if self.agent else None,
         )
         if ctx:
             _cprint(f"    Context: {ctx:,} tokens")
         if mi:
             if mi.max_output:
                 _cprint(f"    Max output: {mi.max_output:,} tokens")
-            if mi.has_cost_data():
-                _cprint(f"    Cost: {mi.format_cost()}")
             _cprint(f"    Capabilities: {mi.format_capabilities()}")
 
         # Cache notice
@@ -7714,7 +8367,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         try:
             config = load_gateway_config()
             
-            print("Конфигурация платформы обмена сообщениями:")
+            print("  Messaging Platform Configuration:")
             print("  " + "-" * 55)
             
             platform_status = {
@@ -7734,7 +8387,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                     print(f"    ○ {name:<12} Not configured ({env_var})")
             
             print()
-            print("Политика сброса сеанса:")
+            print("  Session Reset Policy:")
             print("  " + "-" * 55)
             policy = config.default_reset_policy
             print(f"    Mode: {policy.mode}")
@@ -7742,8 +8395,8 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             print(f"    Idle timeout: {policy.idle_minutes} minutes")
             
             print()
-            print("Чтобы запустить шлюз:")
-            print("python cli.py --gateway")
+            print("  To start the gateway:")
+            print("    python cli.py --gateway")
             print()
             print(f"  Configuration file: {display_ruslan_home()}/config.yaml")
             print()
@@ -7751,10 +8404,10 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         except Exception as e:
             print(f"  Error loading gateway config: {e}")
             print()
-            print("To configure the gateway:")
-            print("1. Set environment variables:")
-            print("TELEGRAM_BOT_TOKEN=your_token")
-            print("DISCORD_BOT_TOKEN=ваш_токен")
+            print("  To configure the gateway:")
+            print("    1. Set environment variables:")
+            print("       TELEGRAM_BOT_TOKEN=your_token")
+            print("       DISCORD_BOT_TOKEN=your_token")
             print(f"    2. Or configure settings in {display_ruslan_home()}/config.yaml")
             print()
     
@@ -7858,6 +8511,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                         enabled_toolsets=self.enabled_toolsets,
                         session_id=self.session_id,
                         context_length=ctx_len,
+                        provider=self.provider,
                     )
                 _cprint("  ✨ (◕‿◕)✨ Fresh start! Screen cleared and conversation reset.\n")
                 # Show a random tip on new session
@@ -7969,6 +8623,11 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         elif canonical == "personality":
             # Use original case (handler lowercases the personality name itself)
             self._handle_personality_command(cmd_original)
+        elif canonical == "pet":
+            self._handle_pet_command(cmd_original)
+
+        elif canonical == "hatch":
+            self._handle_hatch_command(cmd_original)
         elif canonical == "retry":
             retry_msg = self.retry_last()
             if retry_msg and hasattr(self, '_pending_input'):
@@ -8017,6 +8676,8 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         elif canonical == "skills":
             with self._busy_command(self._slow_command_status(cmd_original)):
                 self._handle_skills_command(cmd_original)
+        elif canonical == "learn":
+            self._handle_learn_command(cmd_original)
         elif canonical == "memory":
             self._handle_memory_command(cmd_original)
         elif canonical == "platforms":
@@ -8042,7 +8703,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         elif canonical == "compress":
             self._manual_compress(cmd_original)
         elif canonical == "usage":
-            self._show_usage()
+            self._handle_usage_command(cmd_original)
         elif canonical == "credits":
             self._show_credits()
         elif canonical == "billing":
@@ -8052,7 +8713,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         elif canonical == "copy":
             self._handle_copy_command(cmd_original)
         elif canonical == "debug":
-            self._handle_debug_command()
+            self._handle_debug_command(cmd_original)
         elif canonical == "update":
             if self._handle_update_command():
                 return False
@@ -8106,8 +8767,8 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 bundled_count = len(entries) - len(user_entries)
 
                 if not user_entries:
-                    print("Пользовательские плагины не установлены.")
-                    print("Установите один: ruslan plugins install owner/repo")
+                    print("No user plugins installed.")
+                    print("  Install one: ruslan plugins install owner/repo")
                     print(f"  Or drop a plugin directory into {display_ruslan_home()}/plugins/")
                     if bundled_count:
                         print(f"  ({bundled_count} bundled plugins available — see: ruslan plugins list)")
@@ -8141,7 +8802,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                         print(f"  {glyph} {name}{ver}{label}{detail}{error}")
                     if bundled_count:
                         print(f"  (+{bundled_count} bundled — see: ruslan plugins list)")
-                    print("Включить/отключить: ruslan plugins enable/disable <name>")
+                    print("  Enable/disable: ruslan plugins enable/disable <name>")
             except Exception as e:
                 print(f"Plugin system error: {e}")
         elif canonical == "rollback":
@@ -8152,6 +8813,8 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             self._handle_stop_command()
         elif canonical == "agents":
             self._handle_agents_command()
+        elif canonical == "journey":
+            self._handle_journey_command(cmd_original)
         elif canonical == "background":
             self._handle_background_command(cmd_original)
         elif canonical == "queue":
@@ -8192,6 +8855,42 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 _cprint(f"  No agent running; queued as next turn: {payload[:80]}{'...' if len(payload) > 80 else ''}")
         elif canonical == "goal":
             self._handle_goal_command(cmd_original)
+        elif canonical == "moa":
+            # /moa is one-shot sugar only: run a single prompt through the
+            # default MoA preset, then restore the prior model. To *switch* to a
+            # MoA preset for the session, pick it from the model picker (MoA
+            # presets surface as a virtual "Mixture of Agents" provider).
+            from ruslan_cli.moa_config import (
+                moa_usage,
+                normalize_moa_config,
+            )
+
+            parts = cmd_original.split(None, 1)
+            payload = parts[1].strip() if len(parts) > 1 else ""
+            if not payload:
+                _cprint(f"  {moa_usage()}")
+                return True
+            moa_cfg = self.config.get("moa") if isinstance(self.config, dict) else {}
+            normalized = normalize_moa_config(moa_cfg)
+            preset = normalized["default_preset"]
+            self._pending_moa_restore_model = {
+                "requested_provider": getattr(self, "requested_provider", None),
+                "provider": getattr(self, "provider", None),
+                "model": getattr(self, "model", None),
+                "api_key": getattr(self, "api_key", None),
+                "base_url": getattr(self, "base_url", None),
+                "api_mode": getattr(self, "api_mode", None),
+            }
+            self.requested_provider = "moa"
+            self.provider = "moa"
+            self.model = preset
+            self.api_key = "moa-virtual-provider"
+            self.base_url = "moa://local"
+            self.api_mode = "chat_completions"
+            self.agent = None
+            self._pending_moa_disable_after_turn = True
+            self._pending_agent_seed = payload
+            _cprint(f"  MoA one-shot queued with preset {preset}; previous model will be restored after this turn.")
         elif canonical == "subgoal":
             self._handle_subgoal_command(cmd_original)
         elif canonical == "skin":
@@ -8215,12 +8914,19 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                         try:
                             # shell=True is intentional: quick_commands are user-defined
                             # shell snippets from config.yaml — not agent/LLM controlled.
+                            # Sanitize env to prevent credential leakage —
+                            # quick commands run in the CLI process which
+                            # has all API keys in os.environ.
+                            from tools.environments.local import _sanitize_subprocess_env
+                            sanitized_env = _sanitize_subprocess_env(os.environ.copy())
                             result = subprocess.run(
                                 exec_cmd, shell=True, capture_output=True,
-                                text=True, timeout=30
+                                text=True, timeout=30, env=sanitized_env
                             )
                             output = result.stdout.strip() or result.stderr.strip()
                             if output:
+                                from agent.redact import redact_sensitive_text
+                                output = redact_sensitive_text(output)
                                 self._console_print(_rich_text_from_ansi(output))
                             else:
                                 self._console_print("[dim]Command returned no output[/]")
@@ -8284,7 +8990,39 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                     )
             # Check for skill slash commands (/gif-search, /axolotl, etc.)
             elif base_cmd in skill_commands:
-                user_instruction = cmd_original[len(base_cmd):].strip()
+                rest = cmd_original[len(base_cmd):].strip()
+                # Stacked slash-skill invocations: `/skill-a /skill-b do XYZ`
+                # loads every leading skill (up to 5), not just the first.
+                # Inspired by Claude Code v2.1.199.
+                from agent.skill_commands import (
+                    build_stacked_skill_invocation_message,
+                    split_stacked_skill_commands,
+                )
+                extra_keys, user_instruction = split_stacked_skill_commands(rest)
+                if extra_keys:
+                    stacked_result = build_stacked_skill_invocation_message(
+                        [base_cmd, *extra_keys],
+                        user_instruction,
+                        task_id=self.session_id,
+                    )
+                    if stacked_result:
+                        msg, loaded_names, missing = stacked_result
+                        print(
+                            f"\n⚡ Loading {len(loaded_names)} stacked skills: "
+                            f"{', '.join(loaded_names)}"
+                        )
+                        if missing:
+                            ChatConsole().print(
+                                f"[yellow]Skipped missing skills: {', '.join(missing)}[/]"
+                            )
+                        if hasattr(self, '_pending_input'):
+                            self._pending_input.put(msg)
+                    else:
+                        ChatConsole().print(
+                            f"[bold red]Failed to load stacked skills for {base_cmd}[/]"
+                        )
+                    return True
+                user_instruction = rest
                 msg = build_skill_invocation_message(
                     base_cmd, user_instruction, task_id=self.session_id
                 )
@@ -8389,6 +9127,80 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         return mgr
 
 
+
+    def _owns_process_notification(self, event: dict) -> bool:
+        """Return whether this CLI session provably owns a delegation event.
+
+        Delegations dispatched before context compression retain the original
+        session key, so resolve that key to its continuation before comparing.
+        Missing or foreign keys fail closed and remain queued for their owner.
+        """
+        event_key = str(event.get("session_key") or "")
+        current_key = str(getattr(self, "session_id", "") or "")
+        if not event_key or not current_key:
+            return False
+        if event_key == current_key:
+            return True
+        try:
+            session_db = getattr(self, "_session_db", None)
+            resolved_key = (
+                session_db.resolve_resume_session_id(event_key)
+                if session_db is not None
+                else event_key
+            ) or event_key
+        except Exception:
+            resolved_key = event_key
+        return str(resolved_key) == current_key
+
+    def _drain_process_notifications(self, consumer: str) -> None:
+        """Queue background notifications owned by this visible CLI session.
+
+        ``process_registry`` restores durable delegation completions into every
+        process using the same Ruslan profile.  Always pass this CLI's stable
+        session identity when draining so another window cannot claim and mark
+        delivered a completion that belongs to this one.
+        """
+        from tools.process_registry import process_registry
+        from tools.async_delegation import (
+            claim_event_delivery,
+            complete_event_delivery,
+        )
+
+        session_key = getattr(self, "session_id", "") or ""
+        for event, synthetic_message in process_registry.drain_notifications(
+            session_key=session_key,
+            owns_event=self._owns_process_notification,
+        ):
+            claim = claim_event_delivery(event, consumer)
+            if claim is None:
+                continue
+            self._pending_input.put(synthetic_message)
+            complete_event_delivery(event, claim)
+
+    def _drain_interrupt_queue_to_pending_input(self) -> None:
+        """Move stray messages from ``_interrupt_queue`` into ``_pending_input``.
+
+        While the agent is running, user input is routed into
+        ``_interrupt_queue`` (see the architecture comment near
+        ``_route_user_input_when_busy``). The explicit-interrupt path at the
+        top of ``process_loop`` only drains that queue when
+        ``busy_input_mode == "interrupt"`` AND a ``pending_message`` was
+        acknowledged. If the agent's turn finishes naturally (no interrupt),
+        any messages typed during the turn stay stuck in ``_interrupt_queue``
+        forever. Subsequent ``Enter`` presses re-route to the same blocked
+        queue and the CLI appears to hang.
+
+        Called once at the end of every turn from ``process_loop``'s ``finally``
+        block. Catches and swallows ``Exception`` because the drain must never
+        break the main loop. (#20271)
+        """
+        try:
+            while not self._interrupt_queue.empty():
+                stray = self._interrupt_queue.get_nowait()
+                if stray:
+                    self._pending_input.put(stray)
+        except Exception:
+            pass  # Non-fatal — never break the main loop
 
     def _maybe_continue_goal_after_turn(self) -> None:
         """Hook run after every CLI turn. Judges + maybe re-queues.
@@ -8675,21 +9487,23 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
           the automatic token-budget heuristic.
         """
         if not self.conversation_history or len(self.conversation_history) < 4:
-            print("(._.) Недостаточно разговора для сжатия (нужно как минимум 4 сообщения).")
+            print("(._.) Not enough conversation to compress (need at least 4 messages).")
             return
 
         if not self.agent:
-            print("(._.) Нет активного агента — сначала отправьте сообщение.")
+            print("(._.) No active agent -- send a message first.")
             return
 
         if not self.agent.compression_enabled:
-            print("(._.) Сжатие отключено в конфиге.")
+            print("(._.) Compression is disabled in config.")
             return
 
         from ruslan_cli.partial_compress import (
+            extract_compress_flags,
             parse_partial_compress_args,
             rejoin_compressed_head_and_tail,
             split_history_for_partial_compress,
+            summarize_compress_preview,
         )
 
         # Args after the command word (e.g. "/compress here 3" -> "here 3").
@@ -8699,8 +9513,41 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             if len(_parts) > 1:
                 raw_args = _parts[1].strip()
 
+        # Strip --preview/--dry-run/--aggressive before positional parsing
+        # so the flags coexist with 'here [N]' / focus-topic forms.
+        raw_args, preview, aggressive = extract_compress_flags(raw_args)
         partial, keep_last, focus_topic = parse_partial_compress_args(raw_args)
         focus_topic = focus_topic or ""
+
+        if aggressive:
+            # LLM-free hard truncation is not supported: it would need its
+            # own transcript-persistence path outside the guarded
+            # _compress_context rotation machinery. Surface that instead of
+            # silently mis-parsing the flag as a focus topic.
+            print("(._.) --aggressive is not supported; use '/compress here [N]' "
+                  "to keep only recent exchanges, or /undo to drop turns.")
+            if not preview:
+                return
+
+        if preview:
+            from agent.model_metadata import estimate_request_tokens_rough
+            _sys_prompt = getattr(self.agent, "_cached_system_prompt", "") or ""
+            _tools = getattr(self.agent, "tools", None) or None
+            approx_tokens = estimate_request_tokens_rough(
+                self.conversation_history,
+                system_prompt=_sys_prompt,
+                tools=_tools,
+            )
+            report = summarize_compress_preview(
+                self.conversation_history,
+                partial,
+                keep_last,
+                focus_topic or None,
+                approx_tokens,
+            )
+            for line in report["lines"]:
+                print(f"🗜️  {line}")
+            return
 
         original_count = len(self.conversation_history)
         with self._busy_command("Compressing context..."):
@@ -8794,8 +9641,14 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                     self.conversation_history,
                     approx_tokens,
                     new_tokens,
+                    compression_state=getattr(
+                        self.agent, "context_compressor", None
+                    ),
                 )
-                icon = "🗜️" if summary["noop"] else "✅"
+                if summary.get("aborted") or summary.get("fallback_used"):
+                    icon = "⚠️"
+                else:
+                    icon = "🗜️" if summary["noop"] else "✅"
                 print(f"  {icon} {summary['headline']}")
                 print(f"     {summary['token_line']}")
                 if summary["note"]:
@@ -8805,6 +9658,53 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 print(f"  ❌ Compression failed: {e}")
 
 
+
+    def _handle_usage_command(self, cmd_original: str):
+        """Dispatch `/usage [reset [--force]]`.
+
+        Bare `/usage` keeps the classic display. `/usage reset` redeems one
+        banked Codex rate-limit reset credit (guarded: refuses when limits
+        aren't exhausted unless --force).
+        """
+        parts = cmd_original.split()
+        args = [p.lower() for p in parts[1:]]
+        if args and args[0] == "reset":
+            self._usage_reset(force="--force" in args[1:])
+            return
+        if args:
+            print(f"  Unknown /usage subcommand: {' '.join(parts[1:])}. Try /usage or /usage reset [--force].")
+            return
+        self._show_usage()
+
+    def _usage_reset(self, force: bool = False):
+        """`/usage reset [--force]` — redeem one banked Codex reset credit."""
+        provider = (
+            (getattr(self.agent, "provider", None) if self.agent else None)
+            or getattr(self, "provider", None)
+        )
+        normalized = str(provider or "").strip().lower()
+        if normalized != "openai-codex":
+            print("  Banked usage resets are only available on the openai-codex provider.")
+            print("  Switch with `/model` or `ruslan auth` first.")
+            return
+        base_url = (getattr(self.agent, "base_url", None) if self.agent else None) or getattr(self, "base_url", None)
+        api_key = (getattr(self.agent, "api_key", None) if self.agent else None) or getattr(self, "api_key", None)
+
+        from agent.account_usage import redeem_codex_reset_credit
+
+        print("  ⏳ Checking banked reset credits...")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as _pool:
+            try:
+                result = _pool.submit(
+                    redeem_codex_reset_credit,
+                    base_url=base_url,
+                    api_key=api_key,
+                    force=force,
+                ).result(timeout=45.0)
+            except concurrent.futures.TimeoutError:
+                print("  ❌ Timed out talking to the Codex backend — try again shortly.")
+                return
+        print(f"  {result.message}")
 
     def _show_usage(self):
         """Rate limits + session token usage (when a live agent exists) + Nous credits.
@@ -8816,7 +9716,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         """
         if not self.agent:
             if not self._print_nous_credits_block():
-                print("(._.) Нет активного агента — сначала отправьте сообщение.")
+                print("(._.) No active agent -- send a message first.")
             return
 
         agent = self.agent
@@ -8824,7 +9724,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
 
         if calls == 0:
             if not self._print_nous_credits_block():
-                print("(._.) В этом сеансе ещё не было вызовов API.")
+                print("(._.) No API calls made yet in this session.")
             return
 
         # ── Rate limits (shown first when available) ────────────────
@@ -8838,39 +9738,24 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         # ── Session token usage ─────────────────────────────────────
         input_tokens = getattr(agent, "session_input_tokens", 0) or 0
         output_tokens = getattr(agent, "session_output_tokens", 0) or 0
-        cache_read_tokens = getattr(agent, "session_cache_read_tokens", 0) or 0
-        cache_write_tokens = getattr(agent, "session_cache_write_tokens", 0) or 0
         reasoning_tokens = getattr(agent, "session_reasoning_tokens", 0) or 0
         prompt = agent.session_prompt_tokens
         completion = agent.session_completion_tokens
         total = agent.session_total_tokens
 
         compressor = agent.context_compressor
-        last_prompt = compressor.last_prompt_tokens
+        last_prompt = compressor.last_prompt_tokens if compressor.last_prompt_tokens > 0 else 0
         ctx_len = compressor.context_length
         pct = min(100, (last_prompt / ctx_len * 100)) if ctx_len else 0
         compressions = compressor.compression_count
 
         msg_count = len(self.conversation_history)
-        cost_result = estimate_usage_cost(
-            agent.model,
-            CanonicalUsage(
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                cache_read_tokens=cache_read_tokens,
-                cache_write_tokens=cache_write_tokens,
-            ),
-            provider=getattr(agent, "provider", None),
-            base_url=getattr(agent, "base_url", None),
-        )
         elapsed = format_duration_compact((datetime.now() - self.session_start).total_seconds())
 
-        print("📊 Использование токенов сеанса")
+        print("  📊 Session Token Usage")
         print(f"  {'─' * 40}")
         print(f"  Model:                     {agent.model}")
         print(f"  Input tokens:              {input_tokens:>10,}")
-        print(f"  Cache read tokens:         {cache_read_tokens:>10,}")
-        print(f"  Cache write tokens:        {cache_write_tokens:>10,}")
         print(f"  Output tokens:             {output_tokens:>10,}")
         if reasoning_tokens:
             print(f"  ↳ Reasoning (subset):      {reasoning_tokens:>10,}")
@@ -8879,21 +9764,10 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         print(f"  Total tokens:              {total:>10,}")
         print(f"  API calls:                 {calls:>10,}")
         print(f"  Session duration:          {elapsed:>10}")
-        print(f"  Cost status:              {cost_result.status:>10}")
-        print(f"  Cost source:              {cost_result.source:>10}")
-        if cost_result.amount_usd is not None:
-            prefix = "~" if cost_result.status == "estimated" else ""
-            print(f"  Total cost:              {prefix}${float(cost_result.amount_usd):>10.4f}")
-        elif cost_result.status == "included":
-            print(f"  Total cost:              {'included':>10}")
-        else:
-            print(f"  Total cost:              {'n/a':>10}")
         print(f"  {'─' * 40}")
         print(f"  Current context:  {last_prompt:,} / {ctx_len:,} ({pct:.0f}%)")
         print(f"  Messages:         {msg_count}")
         print(f"  Compressions:     {compressions}")
-        if cost_result.status == "unknown":
-            print(f"  Note:             Pricing unknown for {agent.model}")
 
         # Account limits -- fetched off-thread with a hard timeout so slow
         # provider APIs don't hang the prompt.
@@ -8977,11 +9851,11 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         if not view.logged_in:
             print()
             _cprint(f"  💳 {_d('Not logged into Nous Portal.')}")
-            print("Выполните `ruslan portal` для входа, затем /credits.")
+            print("  Run `ruslan portal` to log in, then /credits.")
             return
 
         print()
-        print("💳 Кредиты Nous")
+        print("  💳 Nous credits")
         print(f"  {'─' * 41}")
         for line in view.balance_lines:
             # Drop the helper's own "📈 Nous credits" header — we print our own.
@@ -9002,7 +9876,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         if not getattr(self, "_app", None):
             print()
             print(f"  Top up: {view.topup_url}")
-            print("Завершите пополнение в браузере — кредиты появятся в /credits в ближайшее время.")
+            print("  Complete your top-up in the browser — credits will appear in /credits shortly.")
             return
 
         choices = [
@@ -9028,7 +9902,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             if not opened:
                 print(f"  Open this URL to top up: {view.topup_url}")
             print()
-            print("Завершите пополнение в браузере — кредиты появятся в /credits в ближайшее время.")
+            print("  Complete your top-up in the browser — credits will appear in /credits shortly.")
         elif choice == "copy":
             try:
                 self._write_osc52_clipboard(view.topup_url)
@@ -9036,7 +9910,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             except Exception:
                 print(f"  Top-up URL: {view.topup_url}")
         else:
-            print("🟡 Отменено. Кредиты не добавлены.")
+            print("  🟡 Cancelled. No credits added.")
 
     # ------------------------------------------------------------------
     # /billing — Phase 2b terminal billing (CLI surface, all 5 screens)
@@ -9066,7 +9940,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 _cprint(f"  💳 {_d(_msg)}")
             else:
                 _cprint(f"  💳 {_d('Not logged into Nous Portal.')}")
-                print("Выполните `ruslan portal` для входа, затем /billing.")
+                print("  Run `ruslan portal` to log in, then /billing.")
             return
 
         # Any sub-arg is intentionally ignored — always open the menu.
@@ -9109,7 +9983,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                     f"→ reload to {format_money(ar.reload_to_usd)}"
                 )
             else:
-                print("Автоперезагрузка: выкл.")
+                print("  Auto-reload: off")
 
         if state.org_name:
             role = (state.role or "").title()
@@ -9165,7 +10039,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         elif choice == "portal":
             self._billing_open_portal(state)
         else:
-            print("🟡 Отменено.")
+            print("  🟡 Cancelled.")
 
     def _billing_spend_bar(self, spent, limit, *, cells: int = 10):
         """Render a 10-cell `█`/`░` spend bar + integer percent from spent/limit.
@@ -9194,7 +10068,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
     def _billing_open_portal(self, state):
         url = getattr(state, "portal_url", None)
         if not url:
-            print("URL портала недоступен.")
+            print("  No portal URL available.")
             return
         opened = False
         try:
@@ -9205,7 +10079,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             opened = False
         if not opened:
             print(f"  Open this URL: {url}")
-        print("Завершите изменения в биллинге в браузере.")
+        print("  Complete billing changes in the browser.")
 
     def _billing_require_admin(self, state) -> bool:
         """Guard charge/auto-reload entry points; print + return False if blocked."""
@@ -9234,7 +10108,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             print()
             _cprint(f"  💳 {_b('Buy usage credits')}")
             print(f"  Presets: {presets}")
-            print("Выполните это в интерактивном CLI для завершения покупки.")
+            print("  Run this in the interactive CLI to complete a purchase.")
             self._billing_portal_hint(state)
             return
 
@@ -9251,7 +10125,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         )
         choice = self._normalize_slash_confirm_choice(raw, preset_choices)
         if not choice or choice == "cancel":
-            print("🟡 Отменено. Кредиты не добавлены.")
+            print("  🟡 Cancelled. No credits added.")
             return
 
         from decimal import Decimal
@@ -9260,7 +10134,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             entered = self._prompt_text_input("  Amount (USD): ")
             if entered is None:
                 # None = cancelled (e.g. slash-worker can't prompt off-thread).
-                print("🟡 Отменено. Кредиты не добавлены.")
+                print("  🟡 Cancelled. No credits added.")
                 return
             v = validate_charge_amount(
                 entered or "", min_usd=state.min_usd, max_usd=state.max_usd
@@ -9273,7 +10147,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             try:
                 amount = Decimal(choice)
             except Exception:
-                print("🔴 Неверный выбор.")
+                print("  🔴 Invalid selection.")
                 return
 
         self._billing_confirm_and_charge(state, amount)
@@ -9291,7 +10165,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             print(f"  Payment: {card.masked}")
         print(f"  {'─' * 41}")
         _consent = (
-            "By confirming, you allow Valldun to charge your card."
+            "By confirming, you allow Nous Research to charge your card."
         )
         _cprint(f"  {_d(_consent)}")
 
@@ -9300,7 +10174,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             ("cancel", "Go back", "do not charge"),
         ]
         if not getattr(self, "_app", None):
-            print("Выполните в интерактивном CLI для подтверждения покупки.")
+            print("  Run in the interactive CLI to confirm a purchase.")
             return
         raw = self._prompt_text_input_modal(
             title=f"💳 Pay {format_money(amount)}?",
@@ -9309,7 +10183,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         )
         choice = self._normalize_slash_confirm_choice(raw, confirm_choices)
         if choice != "pay":
-            print("🟡 Отменено. Кредиты не добавлены.")
+            print("  🟡 Cancelled. No credits added.")
             return
 
         # Submit the charge with a fresh idempotency key (reused on retry).
@@ -9331,7 +10205,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
 
         charge_id = result.get("chargeId")
         if not charge_id:
-            print("🔴 Не возвращен id платежа; пожалуйста, проверьте портал.")
+            print("  🔴 No charge id returned; please check the portal.")
             return
         _cprint(f"  {_d('Charge submitted — confirming settlement…')}")
         self._billing_poll_charge(state, charge_id, amount)
@@ -9376,8 +10250,8 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             _time.sleep(interval)
 
         # Past the cap with no terminal state = timeout (not an error).
-        print(f"  🟡 Still processing after 5 minutes — this is a timeout, not a "
-              f"failure. Check /billing or the portal shortly.")
+        print("  🟡 Still processing after 5 minutes — this is a timeout, not a "
+              "failure. Check /billing or the portal shortly.")
         self._billing_portal_hint(state)
 
     def _billing_render_charge_failed(self, state, reason):
@@ -9387,9 +10261,9 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             print("  🔴 Your bank requires verification (3DS). Complete it on the "
                   "portal to finish this purchase.")
         elif reason == "payment_method_expired":
-            print("🔴 Ваша карта истекла. Обновите её на портале.")
+            print("  🔴 Your card has expired. Update it on the portal.")
         elif reason == "card_declined":
-            print("🔴 Ваша карта была отклонена. Попробуйте другую карту на портале.")
+            print("  🔴 Your card was declined. Try another card on the portal.")
         else:
             print(f"  🔴 The charge didn't go through ({reason or 'processing_error'}).")
         self._billing_portal_hint(state)
@@ -9404,13 +10278,13 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             print("  💳 No saved card for terminal charges yet. Set one up on the "
                   "portal (one-time credit buys don't save a reusable card).")
         elif code == "cli_billing_disabled":
-            print("🔴 Терминальный биллинг отключён для этой организации — администратор должен включить его на портале.")
+            print("  🔴 Terminal billing is turned off for this org — an admin must enable it on the portal.")
         elif code == "monthly_cap_exceeded":
             remaining = (getattr(exc, "payload", {}) or {}).get("remainingUsd")
             if remaining is not None:
                 print(f"  🔴 Monthly spend cap reached — ${remaining} headroom left.")
             else:
-                print("🔴 Достигнут месячный лимит расходов.")
+                print("  🔴 Monthly spend cap reached.")
         elif isinstance(exc, BillingRateLimited):
             wait = getattr(exc, "retry_after", None)
             mins = f" (try again in ~{max(1, round(wait / 60))} min)" if wait else ""
@@ -9423,14 +10297,14 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
     def _billing_handle_scope_required(self, state):
         """403 insufficient_scope → lazy step-up re-auth (plan D-A)."""
         print()
-        print("💳 Биллинг терминала требует дополнительного разрешения (billing:manage).")
+        print("  💳 Terminal billing needs an extra permission (billing:manage).")
         _scope_msg = (
             "An org admin/owner must tick \"Allow terminal billing\" during "
             "login."
         )
         _cprint(f"  {_d(_scope_msg)}")
         if not getattr(self, "_app", None):
-            print("Выполните `ruslan portal` и одобрите биллинг терминала, затем повторите попытку.")
+            print("  Run `ruslan portal` and approve terminal billing, then retry.")
             return
         confirm_choices = [
             ("yes", "Re-authorize now", "open the portal to grant billing access"),
@@ -9443,7 +10317,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         )
         choice = self._normalize_slash_confirm_choice(raw, confirm_choices)
         if choice != "yes":
-            print("🟡 Отменено.")
+            print("  🟡 Cancelled.")
             return
         try:
             from ruslan_cli.auth import step_up_nous_billing_scope
@@ -9453,7 +10327,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             print(f"  🔴 Re-authorization failed: {exc}")
             return
         if granted:
-            print("✅ Разрешение на биллинг предоставлено.")
+            print("  ✅ Billing permission granted.")
             # Step-up only grants the billing:manage TOKEN scope; the ORG
             # kill-switch (cli_billing_enabled) is a separate gate. Re-fetch
             # /state so we don't over-promise when a charge would still hit
@@ -9462,13 +10336,13 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
 
             fresh = build_billing_state()
             if fresh.logged_in and fresh.cli_billing_enabled:
-                print("Выполните /billing buy снова, чтобы продолжить.")
+                print("  Run /billing buy again to continue.")
             else:
                 print("  🟡 Permission granted, but terminal billing is still turned "
                       "off for this org. Enable it in the portal, then run /billing again.")
                 self._billing_portal_hint(fresh)
         else:
-            print("🟡 Биллинг терминала не был предоставлен (администратор должен отметить галочку).")
+            print("  🟡 Terminal billing was not granted (an admin must tick the box).")
 
     def _billing_auto_reload_flow(self, state):
         """Screen 4 — auto-reload config: threshold + reload-to → PATCH.
@@ -9493,7 +10367,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         if card:
             print(f"  Card on file: {card.masked}")
         else:
-            print("Нет сохраненной карты — сначала настройте ее на портале.")
+            print("  No saved card — set one up on the portal first.")
             self._billing_portal_hint(state)
             return
         if currently_on:
@@ -9503,7 +10377,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             )
 
         if not getattr(self, "_app", None):
-            print("Выполните в интерактивном CLI для настройки автоперезагрузки.")
+            print("  Run in the interactive CLI to configure auto-reload.")
             self._billing_portal_hint(state)
             return
 
@@ -9527,7 +10401,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 self._billing_auto_reload_disable(state)
                 return
             if top != "edit":
-                print("🟡 Отменено.")
+                print("  🟡 Cancelled.")
                 return
 
         # Field 1 — threshold (prefilled when editing an existing config).
@@ -9537,7 +10411,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         threshold_raw = self._prompt_text_input(thr_prompt)
         if threshold_raw is None:
             # None = cancelled (e.g. slash-worker can't prompt off-thread).
-            print("🟡 Отменено.")
+            print("  🟡 Cancelled.")
             return
         if not (threshold_raw or "").strip() and currently_on:
             threshold_amt = ar.threshold_usd  # keep current value on empty input
@@ -9556,7 +10430,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         rel_prompt += f" [{cur_rel}]: " if cur_rel else ": "
         reload_raw = self._prompt_text_input(rel_prompt)
         if reload_raw is None:
-            print("🟡 Отменено.")
+            print("  🟡 Cancelled.")
             return
         if not (reload_raw or "").strip() and currently_on:
             reload_amt = ar.reload_to_usd  # keep current value on empty input
@@ -9570,12 +10444,12 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             reload_amt = rv.amount
 
         if reload_amt is None or threshold_amt is None or reload_amt <= threshold_amt:
-            print("🔴 Сумма пополнения должна быть больше порога.")
+            print("  🔴 Reload-to amount must be greater than the threshold.")
             return
 
         print()
         _ar_consent = (
-            f"By confirming, you authorize Valldun to charge {card.masked} "
+            f"By confirming, you authorize Nous Research to charge {card.masked} "
             f"whenever your balance reaches {format_money(threshold_amt)}. "
             f"Turn off any time here or on the portal."
         )
@@ -9591,7 +10465,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         )
         choice = self._normalize_slash_confirm_choice(raw, confirm_choices)
         if choice != "agree":
-            print("🟡 Отменено.")
+            print("  🟡 Cancelled.")
             return
 
         from ruslan_cli.nous_billing import (
@@ -9636,7 +10510,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         except BillingError as exc:
             self._billing_render_charge_error(state, exc)
             return
-        print("✅ Автоперезагрузка отключена.")
+        print("  ✅ Auto-reload turned off.")
 
     def _billing_limit_screen(self, state):
         """Screen 5 — monthly spend limit (read-only; cap is portal-only)."""
@@ -9743,14 +10617,16 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         # timeout so a hung MCP server cannot block the process_loop
         # indefinitely (which would freeze the entire TUI).
         print()
-        print("🔄 Конфигурация MCP сервера изменена — перезагрузка соединений...")
+        print("🔄 MCP server config changed — reloading connections...")
         _reload_thread = threading.Thread(
             target=self._reload_mcp, daemon=True
         )
         _reload_thread.start()
-        _reload_thread.join(timeout=30)
-        if _reload_thread.is_alive():
-            print("⚠️  Перезагрузка MCP превысила время ожидания (30с). Некоторые серверы могли не переподключиться.")
+        # Do NOT join here — process_loop calls this from its idle branch, so a
+        # blocking join would freeze input consumption for up to 30s (and a hung
+        # MCP server could block far longer). The reload runs purely in the
+        # background daemon thread, which reports its own progress/completion
+        # status via print() inside _reload_mcp().
 
     # Inline-skip tokens that bypass the destructive-slash confirmation modal.
     # A general escape hatch for non-interactive use (scripting/automation) and
@@ -9870,10 +10746,10 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
 
         if choice == "always":
             if save_config_value("approvals.destructive_slash_confirm", False):
-                print("🔒 Будущие команды /clear, /new, /reset и /undo будут выполняться без подтверждения.")
-                print("Повторно включите через `approvals.destructive_slash_confirm: true` в config.yaml.")
+                print("🔒 Future /clear, /new, /reset, and /undo will run without confirmation.")
+                print("   Re-enable via `approvals.destructive_slash_confirm: true` in config.yaml.")
             else:
-                print("⚠️  Не удалось сохранить отказ — выполняется один раз.")
+                print("⚠️  Couldn't persist opt-out — proceeding once.")
 
         return choice
 
@@ -9923,7 +10799,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             choices=choices,
         )
         if raw is None:
-            print("🟡 /reload-mcp отменен (нет ввода).")
+            print("🟡 /reload-mcp cancelled (no input).")
             return
         choice = self._normalize_slash_confirm_choice(raw, choices)
         if choice is None:
@@ -9931,15 +10807,15 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             return
 
         if choice == "cancel":
-            print("🟡 /reload-mcp отменено. Инструменты MCP не изменены.")
+            print("🟡 /reload-mcp cancelled. MCP tools unchanged.")
             return
 
         if choice == "always":
             if save_config_value("approvals.mcp_reload_confirm", False):
-                print("🔒 Будущие вызовы /reload-mcp будут выполняться без подтверждения.")
-                print("Повторно включите через `approvals.mcp_reload_confirm: true` в config.yaml.")
+                print("🔒 Future /reload-mcp calls will run without confirmation.")
+                print("   Re-enable via `approvals.mcp_reload_confirm: true` in config.yaml.")
             else:
-                print("⚠️  Не удалось сохранить отказ — перезагрузка один раз.")
+                print("⚠️  Couldn't persist opt-out — reloading once.")
 
         with self._busy_command(self._slow_command_status(cmd_original)):
             self._reload_mcp()
@@ -9958,7 +10834,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 old_servers = set(_servers.keys())
 
             if not self._command_running:
-                print("🔄 Перезагрузка серверов MCP...")
+                print("🔄 Reloading MCP servers...")
 
             # Shutdown existing connections
             shutdown_mcp_servers()
@@ -9981,7 +10857,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             if removed:
                 print(f"  ➖ Removed: {', '.join(sorted(removed))}")
             if not connected_servers:
-                print("Нет подключённых серверов MCP.")
+                print("  No MCP servers connected.")
             else:
                 print(f"  🔧 {len(new_tools)} tool(s) available from {len(connected_servers)} server(s)")
 
@@ -10065,7 +10941,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             from agent.skill_commands import reload_skills, get_skill_commands
 
             if not self._command_running:
-                print("🔄 Перезагрузка навыков...")
+                print("🔄 Reloading skills...")
 
             result = reload_skills()
 
@@ -10079,7 +10955,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             total = result.get("total", 0)
 
             if not added and not removed:
-                print("Новых навыков не обнаружено.")
+                print("  No new skills detected.")
                 print(f"  📚 {total} skill(s) available")
                 return
 
@@ -10089,11 +10965,11 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 return f"    - {nm}: {desc}" if desc else f"    - {nm}"
 
             if added:
-                print("➕ Добавленные навыки:")
+                print("  ➕ Added Skills:")
                 for item in added:
                     print(f"  {_fmt_line(item)}")
             if removed:
-                print("➖ Удалённые навыки:")
+                print("  ➖ Removed Skills:")
                 for item in removed:
                     print(f"  {_fmt_line(item)}")
             print(f"  📚 {total} skill(s) available")
@@ -10165,10 +11041,57 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         stacked line to scrollback on tool.completed so users can see the
         full history of tool calls (not just the current one in the spinner).
         """
+        # MoA reference-model outputs: render each reference's answer as a
+        # labelled thinking-style block BEFORE the aggregator acts, so the user
+        # sees the mixture-of-agents process instead of a silent pause. These
+        # are display-only events emitted by the MoA facade (agent_init relay);
+        # they never enter message history.
+        if event_type == "moa.reference":
+            label = function_name or "reference"
+            text = preview or ""
+            idx = kwargs.get("moa_index")
+            count = kwargs.get("moa_count")
+            header = f"Reference {idx}/{count} — {label}" if idx and count else f"Reference — {label}"
+            try:
+                self._flush_reasoning_preview(force=True)
+            except Exception:
+                pass
+            _cprint(f"  {_DIM}┊ ◇ {header}{_RST}")
+            try:
+                self._emit_reasoning_preview(text)
+            except Exception:
+                # Fallback: print the raw text dimmed if the preview helper fails.
+                if text.strip():
+                    _cprint(f"  {_DIM}{text.strip()}{_RST}")
+            self._invalidate()
+            return
+        if event_type == "moa.aggregating":
+            agg = function_name or ""
+            self._spinner_text = f"◆ aggregating ({agg})" if agg else "◆ aggregating"
+            self._invalidate()
+            return
+
+        # Feed the pet: tools mean "running" (not reasoning); a failed tool
+        # latches the turn so it ends on a sulk.
+        if event_type == "tool.started":
+            self._pet_reasoning = False
+        elif event_type == "tool.completed" and kwargs.get("is_error"):
+            self._pet_turn_error = True
+        elif event_type and event_type.startswith("reasoning"):
+            self._pet_reasoning = True
+
         if event_type == "tool.completed":
             self._tool_start_time = 0.0
-            # Print stacked scrollback line for "all" / "new" modes
-            if function_name and self.tool_progress_mode in {"all", "new"}:
+            # Print stacked scrollback line for "new" / "all" / "verbose" modes.
+            # "verbose" was previously omitted here, so non-streaming model
+            # calls (MoA aggregator, copilot-acp) rendered each tool only into
+            # the transient spinner line — which overwrites itself, so no
+            # scrollable tool history accumulated. Streaming models hid the bug
+            # because _on_tool_gen_start commits a "preparing" line per tool;
+            # non-streaming calls never emit that, leaving verbose mode with no
+            # committed line at all. "verbose" is strictly more than "all", so
+            # it must commit at least the same line.
+            if function_name and self.tool_progress_mode in {"new", "all", "verbose"}:
                 duration = kwargs.get("duration", 0.0)
                 is_error = kwargs.get("is_error", False)
                 # Pop stored args from tool.started for this function
@@ -10245,6 +11168,21 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
 
     def _on_tool_complete(self, tool_call_id: str, function_name: str, function_args: dict, function_result: str):
         """Render file edits with inline diff after write-capable tools complete."""
+        # A top-level delegate_task dispatches in the background and re-enters as
+        # a fresh turn when done. Say so once — no spinner, nothing to poll — so
+        # the idle prompt doesn't read as "nothing happened" (⛓ tracks the work).
+        if function_name == "delegate_task":
+            try:
+                parsed = json.loads(function_result) if isinstance(function_result, str) else (function_result or {})
+            except Exception:
+                parsed = {}
+            if isinstance(parsed, dict) and parsed.get("status") == "dispatched" and parsed.get("mode") == "background":
+                n = parsed.get("count") or 1
+                noun, tail = ("task", "it finishes") if n == 1 else (f"{n} tasks", "they finish")
+                try:
+                    _cprint(f"\033[2m\u21a9 Background {noun} running — I'll resume when {tail}. Keep chatting.\033[0m")
+                except Exception:
+                    pass
         snapshot = self._pending_edit_snapshots.pop(tool_call_id, None)
         try:
             from agent.display import render_edit_diff_with_delta
@@ -10316,8 +11254,16 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         except Exception:
             pass
 
+        # Recorder creation can fail (no input device, PortAudio init error).
+        # Reset the flag on failure or _voice_recording stays True forever and
+        # every future voice start is silently skipped by the guard above.
         if self._voice_recorder is None:
-            self._voice_recorder = create_audio_recorder()
+            try:
+                self._voice_recorder = create_audio_recorder()
+            except Exception:
+                with self._voice_lock:
+                    self._voice_recording = False
+                raise
 
         # Apply config-driven silence params (numeric-guarded so YAML
         # scalar corruption doesn't break recording start-up).
@@ -10546,7 +11492,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 except OSError:
                     pass
         except Exception as e:
-            logger.warning("Воспроизведение TTS не удалось: %s", e)
+            logger.warning("Voice TTS playback failed: %s", e)
             _cprint(f"{_DIM}TTS playback failed: {e}{_RST}")
         finally:
             self._voice_tts_done.set()
@@ -10820,13 +11766,15 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         return ""
 
     def _approval_callback(self, command: str, description: str,
-                           *, allow_permanent: bool = True) -> str:
+                           *, allow_permanent: bool = True,
+                           smart_denied: bool = False) -> str:
         """
         Prompt for dangerous command approval through the prompt_toolkit UI.
 
         Called from the agent thread. Shows a selection UI similar to clarify
-        with choices: once / session / always / deny. When allow_permanent
-        is False (tirith warnings present), the 'always' option is hidden.
+        with choices: once / session / always / deny. Smart DENY owner
+        overrides show only once / deny. When allow_permanent is False for
+        another reason (for example tirith), only 'always' is hidden.
         Long commands also get a 'view' option so the full command can be
         expanded before deciding.
 
@@ -10843,7 +11791,11 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             self._approval_state = {
                 "command": command,
                 "description": description,
-                "choices": self._approval_choices(command, allow_permanent=allow_permanent),
+                "choices": self._approval_choices(
+                    command,
+                    allow_permanent=allow_permanent,
+                    smart_denied=smart_denied,
+                ),
                 "selected": 0,
                 "response_queue": response_queue,
             }
@@ -10889,9 +11841,13 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             _cprint(f"\n{_DIM}  ⏱ Timeout — denying command{_RST}")
             return "deny"
 
-    def _approval_choices(self, command: str, *, allow_permanent: bool = True) -> list[str]:
+    def _approval_choices(self, command: str, *, allow_permanent: bool = True,
+                          smart_denied: bool = False) -> list[str]:
         """Return approval choices for a dangerous command prompt."""
-        choices = ["once", "session", "always", "deny"] if allow_permanent else ["once", "session", "deny"]
+        if smart_denied:
+            choices = ["once", "deny"]
+        else:
+            choices = ["once", "session", "always", "deny"] if allow_permanent else ["once", "session", "deny"]
         if len(command) > 70:
             choices.append("view")
         return choices
@@ -11145,6 +12101,51 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         except Exception:
             pass
 
+    def _clear_active_overlays_for_interrupt(self) -> None:
+        """Drain and clear every input-blocking overlay left by an interrupted agent.
+
+        approval/clarify/sudo/secret prompts each block a worker thread on a
+        ``response_queue.get()``.  When the agent is interrupted the worker
+        thread is torn down, but the overlay's state dict stays set — leaving
+        the CLI input gated (``read_only`` condition + keypress filter) with no
+        thread servicing the prompt.  The result is a frozen terminal until the
+        prompt's own timeout expires.  Push a terminal value onto each queue so
+        any still-blocked thread unblocks cleanly, then nil the state out and
+        restore the user's pre-modal draft (#14026).
+
+        Safe default per prompt: approval -> "deny", clarify/sudo/secret ->
+        cancel (None / empty).  Each step is wrapped so a dead queue can't
+        prevent clearing the others.
+        """
+        if self._approval_state:
+            try:
+                self._approval_state["response_queue"].put("deny")
+            except Exception:
+                pass
+            self._approval_state = None
+        if self._clarify_state:
+            try:
+                self._clarify_state["response_queue"].put(
+                    "The user cancelled. Use your best judgement to proceed."
+                )
+            except Exception:
+                pass
+            self._clarify_state = None
+            self._clarify_freetext = False
+        if self._sudo_state:
+            try:
+                self._sudo_state["response_queue"].put("")
+            except Exception:
+                pass
+            self._sudo_state = None
+            self._sudo_deadline = 0
+            self._restore_modal_input_snapshot()
+        if self._secret_state:
+            try:
+                self._cancel_secret_capture()
+            except Exception:
+                self._secret_state = None
+
     def _submit_secret_response(self, value: str) -> None:
         if not self._secret_state:
             return
@@ -11211,7 +12212,10 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             request_overrides=turn_route.get("request_overrides"),
         ):
             return None
-        
+        agent = self.agent
+        if agent is None:
+            return None
+
         # Route image attachments based on the active model's vision capability.
         # "native" → pass pixels as OpenAI-style content parts (adapters
         #            translate for Anthropic/Gemini/Bedrock).
@@ -11260,7 +12264,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                             message if isinstance(message, str) else "", images
                         )
                 except Exception as _img_exc:
-                    logging.warning("Не удалось присоединить нативное изображение, возврат к тексту: %s", _img_exc)
+                    logging.warning("native image attach failed, falling back to text: %s", _img_exc)
                     message = self._preprocess_images_with_vision(
                         message if isinstance(message, str) else "", images
                     )
@@ -11299,8 +12303,31 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             from run_agent import _sanitize_surrogates
             message = _sanitize_surrogates(message)
 
-        # Add user message to history
-        self.conversation_history.append({"role": "user", "content": message})
+        # Keep the exact CLI input dict available until turn-start persistence.
+        # Copy the completed agent transcript before appending: otherwise this
+        # UI-only staging step mutates ``agent._session_messages`` and exposes a
+        # duplicate-prone intermediate snapshot to terminal-close persistence.
+        if self.conversation_history is getattr(agent, "_session_messages", None):
+            self.conversation_history = list(self.conversation_history)
+        # The prior turn's override applies only to its own user dict. Clear it
+        # before exposing the next staged input to close persistence; otherwise
+        # a shutdown before the worker prologue can write old API-local text as
+        # this new user message (#63766).
+        persist_lock = getattr(agent, "_session_persist_lock", None)
+
+        def _stage_user_message() -> None:
+            agent._persist_user_message_idx = None
+            agent._persist_user_message_override = None
+            agent._persist_user_message_timestamp = None
+            staged_user_message = {"role": "user", "content": message}
+            agent._pending_cli_user_message = staged_user_message
+            self.conversation_history.append(staged_user_message)
+
+        if persist_lock is None:
+            _stage_user_message()
+        else:
+            with persist_lock:
+                _stage_user_message()
 
         ChatConsole().print(f"[{_accent_hex()}]{'─' * 40}[/]")
         print(flush=True)
@@ -11359,7 +12386,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                         w = self._scrollback_box_width(getattr(self.console, "width", 80))
                         label = " ⚕ Ruslan "
                         if self.show_timestamps:
-                            label = f"{label}{datetime.now().strftime('%H:%M')} "
+                            label = f"{label}{datetime.now().strftime(getattr(self, 'timestamp_format', '%H:%M'))} "
                         fill = w - 2 - RuslanCLI._status_bar_display_width(label)
                         _cprint(f"\n{_ACCENT}╭─{label}{'─' * max(fill - 1, 0)}╮{_RST}")
                     _cprint(f"{_STREAM_PAD}{sentence.rstrip()}")
@@ -11433,16 +12460,36 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 if _srn:
                     agent_message = _prepend_note_to_message(agent_message, _srn)
                     self._pending_skills_reload_note = None
+                _moa_cfg = getattr(self, "_pending_moa_config", None)
+                self._pending_moa_config = None
+                if _moa_cfg is None:
+                    _moa_cfg = None
+                # Model/skill notes and voice instructions are API-local. Keep
+                # the original staged input as the durable transcript value so a
+                # close-path marker follows the same dict into turn setup rather
+                # than producing a second noted user row (#63766).
+                _persist_clean_user_message = (
+                    message if (_voice_prefix or agent_message != message) else None
+                )
                 try:
                     result = self.agent.run_conversation(
                         user_message=agent_message,
                         conversation_history=self.conversation_history[:-1],  # Exclude the message we just added
                         stream_callback=stream_callback,
                         task_id=self.session_id,
-                        persist_user_message=message if _voice_prefix else None,
+                        persist_user_message=_persist_clean_user_message,
+                        moa_config=_moa_cfg,
                     )
+                    if getattr(self, "_pending_moa_disable_after_turn", False):
+                        _restore = getattr(self, "_pending_moa_restore_model", None) or {}
+                        for _key, _value in _restore.items():
+                            if _value is not None:
+                                setattr(self, _key, _value)
+                        self.agent = None
+                        self._pending_moa_restore_model = None
+                        self._pending_moa_disable_after_turn = False
                 except Exception as exc:
-                    logging.error("run_conversation выбросил исключение: %s", exc, exc_info=True)
+                    logging.error("run_conversation raised: %s", exc, exc_info=True)
                     _summary = getattr(self.agent, '_summarize_api_error', lambda e: str(e)[:300])(exc)
                     result = {
                         "final_response": f"Error: {_summary}",
@@ -11500,14 +12547,27 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                         if interrupt_msg:
                             # If clarify is active, the Enter handler routes
                             # input directly; this queue shouldn't have anything.
-                            # But if it does (race condition), don't interrupt.
+                            # But if it does (race condition), don't interrupt —
+                            # and don't drop the message either: park it in
+                            # _pending_input so it runs as the next turn.
                             if self._clarify_state or self._clarify_freetext:
+                                try:
+                                    self._pending_input.put(interrupt_msg)
+                                except Exception:
+                                    pass
+                                interrupt_msg = None
                                 continue
                             print("\n⚡ New message detected, interrupting...")
                             # Signal TTS to stop on interrupt
                             if stop_event is not None:
                                 stop_event.set()
                             self.agent.interrupt(interrupt_msg)
+                            # Clear any active overlay states the interrupted agent
+                            # left behind.  approval/clarify/sudo/secret prompts gate
+                            # input (read_only condition + keypress filter) until
+                            # explicitly reset — without this the CLI freezes after
+                            # an interrupt until the prompt's own timeout expires (#14026).
+                            self._clear_active_overlays_for_interrupt()
                             # Debug: log to file (stdout may be devnull from redirect_stdout)
                             try:
                                 _dbg = _ruslan_home / "interrupt_debug.log"
@@ -11667,6 +12727,33 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 # Add indicator that we were interrupted
                 if response and pending_message:
                     response = response + "\n\n---\n_[Interrupted - processing new message]_"
+            elif interrupt_msg:
+                # We fired agent.interrupt(interrupt_msg) but the turn result
+                # doesn't acknowledge it. Two ways this happens, both racy:
+                #   1. The agent thread had already passed its last interrupt
+                #      check (or finished) when the interrupt landed — the turn
+                #      completed normally and finalize_turn() never saw the flag.
+                #   2. The 10s post-interrupt wait above expired and we
+                #      abandoned the daemon thread; `result` is still None.
+                # In both cases the user's message must NOT be dropped —
+                # re-queue it as the next turn (#interrupt-vacuumed-into-void).
+                pending_message = interrupt_msg
+                # If the interrupt landed after finalize_turn()'s
+                # clear_interrupt(), the stale flag would instantly abort the
+                # NEXT turn at its first loop check. Clear it now that we've
+                # claimed the message — but ONLY if the agent thread actually
+                # exited. If it's still alive (abandoned after the 10s wait),
+                # the flag is what makes the wedged tool eventually unwind;
+                # clearing it would un-signal that thread.
+                try:
+                    if (
+                        not agent_thread.is_alive()
+                        and self.agent
+                        and getattr(self.agent, "_interrupt_requested", False)
+                    ):
+                        self.agent.clear_interrupt()
+                except Exception:
+                    pass
 
             response_previewed = result.get("response_previewed", False) if result else False
 
@@ -11853,36 +12940,99 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
         if not agent or not hasattr(agent, "_persist_session"):
             return
 
-        messages = getattr(agent, "_session_messages", None)
-        if not isinstance(messages, list):
-            messages = getattr(self, "conversation_history", None)
-        if not isinstance(messages, list) or not messages:
-            return
+        persist_lock = getattr(agent, "_session_persist_lock", None)
 
-        conversation_history = getattr(self, "conversation_history", None)
-        if not isinstance(conversation_history, list):
-            conversation_history = messages
+        def _snapshot_and_persist() -> None:
+            # This snapshot must share the staging lock with ``chat()``. Without
+            # it, close can retain a mutable history baseline just before chat
+            # appends its pending dict; the later flush then mistakes that dict
+            # for durable history and stamps it without writing a row (#63766).
+            messages = getattr(agent, "_session_messages", None)
+            pending_cli_message = getattr(agent, "_pending_cli_user_message", None)
+            if not isinstance(messages, list):
+                messages = getattr(self, "conversation_history", None)
+            if not isinstance(messages, list):
+                return
+            if isinstance(pending_cli_message, dict) and not any(
+                message is pending_cli_message for message in messages
+            ):
+                # The UI has accepted a new input but the worker still exposes its
+                # prior snapshot. Include only that staged dict; the baseline below
+                # keeps any durable resumed prefix from being re-appended.
+                messages = [*messages, pending_cli_message]
+            if not messages:
+                return
 
-        try:
+            # A normal turn builds a new list that reuses the resumed-history dicts.
+            # Keep that CLI history as the baseline so a signal between assigning
+            # ``_session_messages`` and the turn's DB flush cannot append its durable
+            # prefix a second time. Once the CLI takes the turn result, however, both
+            # names can point at the same live list; passing that alias would mark an
+            # unflushed tail durable without writing it. Marker-only persistence is
+            # correct only in that alias case.
+            conversation_history = getattr(self, "conversation_history", None)
+            pending_cli_message = getattr(agent, "_pending_cli_user_message", None)
+            if (
+                isinstance(conversation_history, list)
+                and conversation_history
+                and conversation_history[-1] is pending_cli_message
+            ):
+                # The UI accepted this user message before the agent finished its
+                # early persistence. Its dict can already be in ``messages`` but is
+                # not durable yet, so exclude it from the resumed-history baseline.
+                conversation_history = conversation_history[:-1]
+            elif not isinstance(conversation_history, list) or conversation_history is messages:
+                conversation_history = None
+
+            # A first-turn close can arrive before the worker builds its cached
+            # prompt. Build or restore it before the DB row is created so the
+            # durable transcript never leaves a NULL system_prompt cache entry.
+            if getattr(agent, "_cached_system_prompt", None) is None:
+                try:
+                    from agent.conversation_loop import _restore_or_build_system_prompt
+
+                    _restore_or_build_system_prompt(agent, None, conversation_history)
+                except Exception:
+                    logger.debug("Could not build system prompt during CLI close", exc_info=True)
+                    return
+            if getattr(agent, "_cached_system_prompt", None) is None:
+                return
+
+            agent._ensure_db_session()
             agent._persist_session(messages, conversation_history)
             if getattr(agent, "session_id", None):
                 self.session_id = agent.session_id
+
+        try:
+            if persist_lock is None:
+                _snapshot_and_persist()
+            else:
+                with persist_lock:
+                    _snapshot_and_persist()
         except (Exception, KeyboardInterrupt) as e:
             logger.debug("Could not persist active CLI session before close: %s", e)
 
-    def _print_exit_summary(self):
-        """Print session resume info on exit, similar to Claude Code."""
-        # Clear the screen + scrollback before printing the summary so the
-        # live bottom chrome (status bar, input box, separator rules) and the
-        # rest of the session transcript don't get stranded above the exit
-        # summary (#38252). By this point app.run() has returned and
-        # prompt_toolkit has restored terminal modes, so writing raw escapes
-        # to stdout is safe. ESC[3J clears scrollback, ESC[2J clears the
-        # visible screen, ESC[H homes the cursor — so the summary prints at a
-        # clean top-left. Falls back to the platform clear command if stdout
-        # isn't a TTY-capable stream. Honors NO_COLOR/dumb terminals by
-        # skipping silently when there's no real console.
-        self._clear_terminal_on_exit()
+    def _print_exit_summary(self, clear_screen: bool = True):
+        """Print session resume info on exit, similar to Claude Code.
+
+        Args:
+            clear_screen: When True (default), clear the terminal screen and
+                scrollback before printing the summary. This is appropriate for
+                interactive TUI teardown (#38252). Single-query (-q) mode should
+                pass False to preserve the printed answer (#53009).
+        """
+        if clear_screen:
+            # Clear the screen + scrollback before printing the summary so the
+            # live bottom chrome (status bar, input box, separator rules) and the
+            # rest of the session transcript don't get stranded above the exit
+            # summary (#38252). By this point app.run() has returned and
+            # prompt_toolkit has restored terminal modes, so writing raw escapes
+            # to stdout is safe. ESC[3J clears scrollback, ESC[2J clears the
+            # visible screen, ESC[H homes the cursor — so the summary prints at a
+            # clean top-left. Falls back to the platform clear command if stdout
+            # isn't a TTY-capable stream. Honors NO_COLOR/dumb terminals by
+            # skipping silently when there's no real console.
+            self._clear_terminal_on_exit()
         print()
         msg_count = len(self.conversation_history)
         if msg_count > 0:
@@ -11906,7 +13056,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 except Exception:
                     pass
 
-            print("Возобновить эту сессию с:")
+            print("Resume this session with:")
             # Session IDs are profile-constrained, so the resume hint must
             # include `-p <profile>` for non-default profiles. Without this,
             # copying the hint from a non-default profile fails to find the
@@ -12148,6 +13298,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 spinner_widget,
                 spacer,
                 *self._get_extra_tui_widgets(),
+                getattr(self, "_pet_widget", None),
                 status_bar,
                 input_rule_top,
                 image_bar,
@@ -12193,18 +13344,11 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
 
         try:
             from ruslan_cli.skin_engine import get_active_skin
-            from ruslan_cli.locales import t as _t, get_locale as _get_locale
             _welcome_skin = get_active_skin()
-            # RU по умолчанию: берём локаль из конфига/LANG, иначе ru
-            _active_locale = _get_locale(self.config if hasattr(self, "config") else None)
-            _welcome_text = _welcome_skin.get_branding(
-                "welcome",
-                _t("cli.welcome.text", locale=_active_locale),
-            )
+            _welcome_text = _welcome_skin.get_branding("welcome", "Welcome to Ruslan Agent! Type your message or /help for commands.")
             _welcome_color = _welcome_skin.get_color("banner_text", "#FFF8DC")
         except Exception:
-            from ruslan_cli.locales import t as _t
-            _welcome_text = _t("cli.welcome.text", locale="ru")
+            _welcome_text = "Welcome to Ruslan Agent! Type your message or /help for commands."
             _welcome_color = "#FFF8DC"
         self._console_print(f"[{_welcome_color}]{_welcome_text}[/]")
 
@@ -12217,6 +13361,29 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             prewarm_picker_cache_async()
         except Exception:
             pass
+
+        # Pre-import the agent runtime off-thread during the same idle window.
+        # The first turn otherwise pays ~1.5s of module imports on the
+        # time-to-first-token critical path: `import run_agent` (~0.9s,
+        # deferred by the lazy AIAgent wrapper above) plus the OpenAI SDK
+        # (~0.6s, deferred until client construction). Python's import lock
+        # makes this safe: if the user submits before the warm finishes, the
+        # main thread simply blocks on the remaining import work instead of
+        # redoing it. Skipped when agent startup is explicitly deferred
+        # (Termux) — that path defers heavy work on purpose.
+        if os.environ.get("RUSLAN_DEFER_AGENT_STARTUP") != "1":
+            def _prewarm_agent_runtime() -> None:
+                try:
+                    import run_agent  # noqa: F401  (imports model_tools + tool registry)
+                    import openai  # noqa: F401
+                except Exception:
+                    logger.debug("agent runtime pre-import failed", exc_info=True)
+
+            threading.Thread(
+                target=_prewarm_agent_runtime,
+                name="agent-runtime-prewarm",
+                daemon=True,
+            ).start()
 
         # Redaction opt-out warning (#17691): ON by default, loud when off.
         # The redactor snapshots its state at import time so any toggle now
@@ -12841,50 +14008,42 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 event.app.invalidate()
                 return
 
-            # Cancel sudo prompt
-            if self._sudo_state:
-                self._sudo_state["response_queue"].put("")
-                self._sudo_state = None
-                event.app.invalidate()
-                return
-
-            # Cancel secret prompt
-            if self._secret_state:
-                self._cancel_secret_capture()
-                event.app.current_buffer.reset()
-                event.app.invalidate()
-                return
-
-            # Cancel approval prompt (deny)
-            if self._approval_state:
-                self._approval_state["response_queue"].put("deny")
-                self._approval_state = None
-                event.app.invalidate()
-                return
-
-            # Cancel slash confirmation prompt
+            # Cancel slash confirmation prompt (foreground UI, not an
+            # agent-blocking overlay — cancel and stop here).
             if self._slash_confirm_state:
                 self._submit_slash_confirm_response("cancel")
                 event.app.current_buffer.reset()
                 event.app.invalidate()
                 return
 
-            # Cancel /model picker
+            # Cancel /model picker (foreground UI — cancel and stop here).
             if self._model_picker_state:
                 self._close_model_picker()
                 event.app.current_buffer.reset()
                 event.app.invalidate()
                 return
 
-            # Cancel clarify prompt
-            if self._clarify_state:
-                self._clarify_state["response_queue"].put(
-                    "The user cancelled. Use your best judgement to proceed."
-                )
-                self._clarify_state = None
-                self._clarify_freetext = False
+            # Clear all agent-blocking overlays (approval/clarify/sudo/secret)
+            # in one shot.  We do NOT return after clearing — we fall through so
+            # that if the agent is also running we fire the interrupt on the same
+            # Ctrl+C press.  This fixes the case where a stale/orphaned overlay
+            # (left behind by a previous interrupt) consumes the press without
+            # ever reaching the agent-interrupt branch, leaving the chat frozen
+            # (#14026).
+            _overlay_cleared = bool(
+                self._sudo_state
+                or self._secret_state
+                or self._approval_state
+                or self._clarify_state
+            )
+            if _overlay_cleared:
+                self._clear_active_overlays_for_interrupt()
                 event.app.current_buffer.reset()
                 event.app.invalidate()
+
+            # If we only cleared overlays and the agent is NOT running, stop here
+            # (don't fall through to the interrupt/exit path).
+            if _overlay_cleared and not (self._agent_running and self.agent):
                 return
 
             if self._agent_running and self.agent:
@@ -12941,50 +14100,35 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 event.app.invalidate()
                 return
 
-            # Cancel sudo prompt
-            if self._sudo_state:
-                self._sudo_state["response_queue"].put("")
-                self._sudo_state = None
-                event.app.invalidate()
-                return
-
-            # Cancel secret prompt
-            if self._secret_state:
-                self._cancel_secret_capture()
-                event.app.current_buffer.reset()
-                event.app.invalidate()
-                return
-
-            # Cancel approval prompt (deny)
-            if self._approval_state:
-                self._approval_state["response_queue"].put("deny")
-                self._approval_state = None
-                event.app.invalidate()
-                return
-
-            # Cancel slash confirmation prompt
+            # Cancel slash confirmation prompt (foreground UI — cancel and stop).
             if self._slash_confirm_state:
                 self._submit_slash_confirm_response("cancel")
                 event.app.current_buffer.reset()
                 event.app.invalidate()
                 return
 
-            # Cancel /model picker
+            # Cancel /model picker (foreground UI — cancel and stop).
             if self._model_picker_state:
                 self._close_model_picker()
                 event.app.current_buffer.reset()
                 event.app.invalidate()
                 return
 
-            # Cancel clarify prompt
-            if self._clarify_state:
-                self._clarify_state["response_queue"].put(
-                    "The user cancelled. Use your best judgement to proceed."
-                )
-                self._clarify_state = None
-                self._clarify_freetext = False
+            # Clear all agent-blocking overlays in one shot, then fall through to
+            # the agent-interrupt branch so a single Ctrl+Q both clears a stale
+            # overlay and interrupts a still-running agent (#14026).
+            _overlay_cleared = bool(
+                self._sudo_state
+                or self._secret_state
+                or self._approval_state
+                or self._clarify_state
+            )
+            if _overlay_cleared:
+                self._clear_active_overlays_for_interrupt()
                 event.app.current_buffer.reset()
                 event.app.invalidate()
+
+            if _overlay_cleared and not (self._agent_running and self.agent):
                 return
 
             if self._agent_running and self.agent:
@@ -13200,7 +14344,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                     paste_dir.mkdir(parents=True, exist_ok=True)
                     paste_file = paste_dir / f"paste_{_paste_counter[0]}_{datetime.now().strftime('%H%M%S')}.txt"
                     paste_file.write_text(pasted_text, encoding="utf-8")
-                    logger.info("Свёрнутая вставка #%d: %d строк, %d символов -> %s", _paste_counter[0], line_count + 1, len(pasted_text), paste_file)
+                    logger.info("Collapsed paste #%d: %d lines, %d chars -> %s", _paste_counter[0], line_count + 1, len(pasted_text), paste_file)
                     placeholder = f"[Pasted text #{_paste_counter[0]}: {line_count + 1} lines \u2192 {paste_file}]"
                     prefix = ""
                     if buf.cursor_position > 0 and buf.text[buf.cursor_position - 1] != '\n':
@@ -13371,7 +14515,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 paste_dir.mkdir(parents=True, exist_ok=True)
                 paste_file = paste_dir / f"paste_{_paste_counter[0]}_{datetime.now().strftime('%H%M%S')}.txt"
                 paste_file.write_text(text, encoding="utf-8")
-                logger.info("Свёрнутая вставка #%d: %d строк, %d символов -> %s (запасной вариант)", _paste_counter[0], line_count + 1, len(text), paste_file)
+                logger.info("Collapsed paste #%d: %d lines, %d chars -> %s (fallback)", _paste_counter[0], line_count + 1, len(text), paste_file)
                 _paste_just_collapsed[0] = True
                 buf.text = f"[Pasted text #{_paste_counter[0]}: {line_count + 1} lines \u2192 {paste_file}]"
                 buf.cursor_position = len(buf.text)
@@ -13507,6 +14651,16 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             content=FormattedTextControl(get_spinner_text),
             height=get_spinner_height,
             wrap_lines=True,
+        )
+
+        # Petdex mascot — right-aligned half-block sprite above the prompt,
+        # mirroring the TUI's PetPane. Collapses to height 0 when no pet is
+        # enabled, so it's a no-op for everyone else. The _pet_anim_loop thread
+        # advances frames + invalidates; align=RIGHT pins it to the edge.
+        self._pet_widget = Window(
+            content=FormattedTextControl(self._pet_fragments),
+            height=self._pet_widget_height,
+            align=WindowAlign.RIGHT,
         )
 
         spacer = Window(
@@ -14044,7 +15198,24 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             'voice-status-recording': 'bg:#1a1a2e #FF4444 bold',
         }
         style = PTStyle.from_dict(self._build_tui_style_dict())
-        
+
+        # Disable CPR (Cursor Position Report) at the source so prompt_toolkit
+        # never sends ESC[6n cursor-position queries — but only on terminals
+        # where the reply is likely to leak. Over SSH/cloudflared tunnels and
+        # slow PTYs the CPR replies (ESC[<row>;<col>R) leak into the display as
+        # raw "20;1R21;1R" text and can stall the renderer's pending-CPR future,
+        # freezing the prompt after the agent's final answer (#13870). CPR is a
+        # layout hint, not a speed optimization, and it works fine locally, so we
+        # leave prompt_toolkit's default untouched on local terminals and only
+        # suppress it where the bug reproduces. None (local, or build failure)
+        # falls back to the default output; the input-side scrubbing in
+        # _strip_leaked_terminal_responses still guards against any leaks.
+        _cpr_disabled_output = (
+            _build_cpr_disabled_output(sys.stdout)
+            if _terminal_may_leak_cpr()
+            else None
+        )
+
         # Create the application
         app = Application(
             layout=layout,
@@ -14052,6 +15223,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
             style=style,
             full_screen=False,
             mouse_support=False,
+            **({"output": _cpr_disabled_output} if _cpr_disabled_output is not None else {}),
             # Read from display.cli_refresh_interval (default 0 = disabled).
             # When non-zero, prompt_toolkit redraws the UI on this cadence
             # during idle, keeping wall-clock status-bar read-outs ticking.
@@ -14184,9 +15356,7 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                             # Check for background process notifications (completions
                             # and watch pattern matches) while agent is idle.
                             try:
-                                from tools.process_registry import process_registry
-                                for _evt, _synth in process_registry.drain_notifications():
-                                    self._pending_input.put(_synth)
+                                self._drain_process_notifications("cli-idle")
                             except Exception:
                                 pass
                         continue
@@ -14279,6 +15449,8 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
 
                     # Regular chat - run agent
                     self._agent_running = True
+                    self._pet_turn_error = False
+                    self._pet_reasoning = False
                     app.invalidate()  # Refresh status line
 
                     try:
@@ -14289,8 +15461,30 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                         self._tool_start_time = 0.0
                         self._pending_tool_info.clear()
                         self._last_scrollback_tool = ""
+                        self._pet_reasoning = False
+                        self._pet_react_turn_end()
 
                         app.invalidate()  # Refresh status line
+
+                        # Post-turn terminal recovery (#33271): after an
+                        # interrupt the prompt_toolkit renderer may have
+                        # drifted from the physical terminal state — CSI 6n
+                        # cursor position reports can leak as literal text
+                        # (^[[19;1R), and the VT100 input parser can stall in
+                        # a partial-escape state, accepting no further
+                        # keystrokes.  Drain stray escape bytes from the OS
+                        # input buffer and force a clean renderer redraw.
+                        if self._last_turn_interrupted:
+                            self._recover_terminal_after_interrupt()
+
+                        # Re-queue any messages that arrived in _interrupt_queue
+                        # while the agent was running and were never claimed by
+                        # the explicit interrupt path. See
+                        # _drain_interrupt_queue_to_pending_input for the full
+                        # rationale. Regression of #17666 / #18760 — the drain
+                        # block from the original PR #17939 was deferred as
+                        # "worth its own review" and never re-landed (#20271).
+                        self._drain_interrupt_queue_to_pending_input()
 
                         # Goal continuation: if a standing goal is active, ask
                         # the judge whether the turn satisfied it. If not, and
@@ -14322,14 +15516,12 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                         # Drain process notifications (completions + watch matches)
                         # that arrived while the agent was running.
                         try:
-                            from tools.process_registry import process_registry
-                            for _evt, _synth in process_registry.drain_notifications():
-                                self._pending_input.put(_synth)
+                            self._drain_process_notifications("cli-post-turn")
                         except Exception:
                             pass  # Non-fatal — don't break the main loop
 
                 except Exception as e:
-                    logger.warning("process_loop: необработанная ошибка (сообщение может быть потеряно): %s", e)
+                    logger.warning("process_loop unhandled error (msg may be lost): %s", e)
         
         # Start processing thread
         process_thread = threading.Thread(target=process_loop, daemon=True)
@@ -14521,6 +15713,8 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 # The app enables focus reporting + mouse tracking; record that
                 # so _run_cleanup resets them on exit (#36823).
                 _mark_tui_input_modes_active()
+                # Drive the petdex mascot animation (no-op when no pet enabled).
+                self._pet_start_anim()
                 app.run()
         except (EOFError, KeyboardInterrupt, BrokenPipeError):
             pass
@@ -14547,6 +15741,16 @@ class RuslanCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 raise
         finally:
             self._should_exit = True
+            self._pet_stop_anim()
+            # Immediate feedback: prompt_toolkit has just torn down the input
+            # box + status bar, so without a line here the terminal sits
+            # silent for the whole cleanup window (session flush, memory
+            # shutdown, MCP/browser/terminal teardown) and the exit looks
+            # hung. Print before any potentially-slow step.
+            try:
+                print(f"{_DIM}Shutting down… (finalizing session){_RST}", flush=True)
+            except Exception:
+                pass
             # Interrupt the agent immediately so its daemon thread stops making
             # API calls and exits promptly (agent_thread is daemon, so the
             # process will exit once the main thread finishes, but interrupting
@@ -14810,7 +16014,7 @@ def main(
     if gateway:
         import asyncio
         from gateway.run import start_gateway
-        print("Запуск Ruslan Gateway (платформы обмена сообщениями)...")
+        print("Starting Ruslan Gateway (messaging platforms)...")
         asyncio.run(start_gateway())
         return
 
@@ -14901,7 +16105,21 @@ def main(
         )
         if missing_skills:
             missing_display = ", ".join(missing_skills)
-            raise ValueError(f"Unknown skill(s): {missing_display}")
+            # If at least one skill loaded, degrade gracefully: skip the
+            # unknown ones and continue. A typo'd skill name should not crash
+            # the worker (which auto-blocks the Kanban task after retries).
+            # Only when EVERY requested skill is missing do we hard-fail, so a
+            # fully-misconfigured worker fails loudly instead of running blind.
+            if loaded_skills:
+                logger.warning(
+                    "Unknown skill(s) requested, skipping: %s. "
+                    "Continuing with: %s. "
+                    "List available skills with `ruslan skills list`.",
+                    missing_display,
+                    ", ".join(loaded_skills),
+                )
+            else:
+                raise ValueError(f"Unknown skill(s): {missing_display}")
         if skills_prompt:
             cli.system_prompt = "\n\n".join(
                 part for part in (cli.system_prompt, skills_prompt) if part
@@ -15222,7 +16440,7 @@ def main(
                 # banner, doesn't depend on the welcome banner being shown.
                 cli._show_security_advisories()
                 cli.chat(query, images=single_query_images or None)
-                cli._print_exit_summary()
+                cli._print_exit_summary(clear_screen=False)
         finally:
             _finalize_single_query(cli)
         return

@@ -66,7 +66,7 @@ Watch a GitHub repo (set `GITHUB_TOKEN` in `${RUSLAN_HOME:-~/.ruslan}/.env` to a
 
 ```bash
 python $RUSLAN_HOME/skills/devops/watchers/scripts/watch_github.py \
-  --name ruslan-issues --repo valldun1/ruslan --scope issues
+  --name ruslan-issues --repo NousResearch/ruslan-agent --scope issues
 ```
 
 Poll an arbitrary JSON API:

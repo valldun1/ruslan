@@ -8,23 +8,28 @@ description: "Install Ruslan Agent on Linux, macOS, WSL2, native Windows, or And
 
 Get Ruslan Agent up and running in under two minutes!
 
+:::tip Platform Support
+For the full platform support matrix (which OSes, distribution methods, and
+platform-gated features are supported), see **[Platform Support](./platform-support.md)**.
+:::
+
 ## Quick Install
 ### With the Ruslan Desktop installer on macOS or Windows (recommended)
-To easily install the command-line and desktop applications, [download the Ruslan Desktop installer](https://ruslan.team/) from our website and run it.
+To easily install the command-line and desktop applications, [download the Ruslan Desktop installer](https://ruslan-agent.nousresearch.com/) from our website and run it.
 
 ### Without Ruslan Desktop:
 For a command-line only install without Ruslan Desktop, run:
 
 #### Linux / macOS / WSL2 / Android (Termux)
 ```bash
-curl -fsSL https://ruslan.team/install.sh | bash
+curl -fsSL https://ruslan-agent.nousresearch.com/install.sh | bash
 ```
 
 #### Windows (native)
 
 Run in powershell:
 ```powershell
-iex (irm https://ruslan.team/install.ps1) 
+iex (irm https://ruslan-agent.nousresearch.com/install.ps1) 
 ```
 
 If you want to install & run Ruslan Desktop after a command-line only install, simply run
@@ -40,11 +45,10 @@ The installer handles everything automatically — all dependencies (Python, Nod
 
 Where the installer puts things depends on whether you're installing as a normal user or as root:
 
-| Installer | Code lives at | `ruslan` binary | Data directory |
-|---|---|---|---|
-| pip install | Python site-packages | `~/.local/bin/ruslan` (console_scripts) | `~/.ruslan/` |
-| Per-user (git installer) | `~/.ruslan/ruslan-agent/` | `~/.local/bin/ruslan` (symlink) | `~/.ruslan/` |
-| Root-mode (`sudo curl … \| sudo bash`) | `/usr/local/lib/ruslan-agent/` | `/usr/local/bin/ruslan` | `/root/.ruslan/` (or `$RUSLAN_HOME`) |
+| Installer                              | Code lives at                  | `ruslan` binary                         | Data directory                       |
+| -------------------------------------- | ------------------------------ | --------------------------------------- | ------------------------------------ |
+| Per-user (git installer)               | `~/.ruslan/ruslan-agent/`      | `~/.local/bin/ruslan` (symlink)         | `~/.ruslan/`                         |
+| Root-mode (`sudo curl … \| sudo bash`) | `/usr/local/lib/ruslan-agent/` | `/usr/local/bin/ruslan`                 | `/root/.ruslan/` (or `$RUSLAN_HOME`) |
 
 The root-mode **FHS layout** (`/usr/local/lib/…`, `/usr/local/bin/ruslan`) matches where other system-wide developer tools land on Linux. It's useful for shared-machine deployments where one system install should serve every user. Per-user config (auth, skills, sessions) still lives under each user's `~/.ruslan/` or explicit `RUSLAN_HOME`.
 
@@ -64,6 +68,7 @@ ruslan model          # Choose your LLM provider and model
 ruslan tools          # Configure which tools are enabled
 ruslan gateway setup  # Set up messaging platforms
 ruslan config set     # Set individual config values
+ruslan config get     # Inspect individual config values
 ruslan setup          # Or run the full setup wizard to configure everything at once
 ```
 
@@ -94,7 +99,7 @@ You do **not** need to install Python, Node.js, ripgrep, or ffmpeg manually. The
 :::
 
 :::tip Nix users
-If you use Nix (on NixOS, macOS, or Linux), there's a dedicated setup path with a Nix flake, declarative NixOS module, and optional container mode. See the **[Nix & NixOS Setup](./nix-setup.md)** guide.
+Nix is **no longer an explicitly supported install path** (best-effort only). If you already use Nix (on NixOS, macOS, or Linux), there's a dedicated setup path with a Nix flake, declarative NixOS module, and optional container mode. See the **[Nix & NixOS Setup](./nix-setup.md)** guide.
 :::
 
 ---
@@ -119,12 +124,12 @@ Running Ruslan as a dedicated unprivileged user (e.g. a `ruslan` systemd service
 
 2. **As the unprivileged service user**, run the regular installer. It will detect the missing sudo, skip `--with-deps`, and install Chromium into the user's local Playwright cache:
    ```bash
-   curl -fsSL https://ruslan.team/install.sh | bash
+   curl -fsSL https://ruslan-agent.nousresearch.com/install.sh | bash
    ```
 
    If you want to skip the Playwright step entirely — for example because you're running headless and don't need browser automation — pass `--skip-browser`:
    ```bash
-   curl -fsSL https://ruslan.team/install.sh | bash -s -- --skip-browser
+   curl -fsSL https://ruslan-agent.nousresearch.com/install.sh | bash -s -- --skip-browser
    ```
 
 3. **Make `ruslan` available to the service user's shells.** The installer writes the launcher to `~/.local/bin/ruslan`. System service accounts often have a minimal PATH that doesn't include `~/.local/bin`. Either add it to the user's environment, or symlink the launcher into a system location:

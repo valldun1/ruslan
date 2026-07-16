@@ -20,9 +20,9 @@ def build_status_parser(subparsers, *, cmd_status: Callable) -> None:
         description="Display status of Ruslan Agent components",
     )
     status_parser.add_argument(
-        "--all", action="store_true", help="Показать все детали (скрытые)"
+        "--all", action="store_true", help="Show all details (redacted for sharing)"
     )
     status_parser.add_argument(
-        "--deep", action="store_true", help="Глубокая проверка (дольше)"
+        "--deep", action="store_true", help="Run deep checks (may take longer)"
     )
     status_parser.set_defaults(func=cmd_status)

@@ -795,7 +795,7 @@ class TestStripUnmanagedPluginTables:
 # ---- Bug C: RUSLAN_HOME tempdir leak into ~/.codex/config.toml ----
 
 
-class TestHermesHomeLeakGuard:
+class TestRuslanHomeLeakGuard:
     """Regression tests for issue #26250 Bug C.
 
     Previously ``_build_ruslan_tools_mcp_entry()`` read ``RUSLAN_HOME``

@@ -44,7 +44,7 @@ group_sessions_per_user: false
 安装所需的 Python 包：
 
 ```bash
-pip install "ruslan-agent[dingtalk]"
+cd ~/.ruslan/ruslan-agent && uv pip install -e ".[dingtalk]"
 ```
 
 或单独安装：

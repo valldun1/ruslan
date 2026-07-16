@@ -1,7 +1,7 @@
 # nix/tui.nix — Ruslan TUI (Ink/React) compiled with tsc and bundled
-{ pkgs, hermesNpmLib, ... }:
+{ pkgs, ruslanNpmLib, ... }:
 let
-  npm = hermesNpmLib.mkNpmPassthru { folder = "ui-tui"; attr = "tui"; pname = "ruslan-tui"; };
+  npm = ruslanNpmLib.mkNpmPassthru { dirs = [ "ui-tui" ]; };
 
   packageJson = builtins.fromJSON (builtins.readFile (npm.src + "/ui-tui/package.json"));
   version = packageJson.version;

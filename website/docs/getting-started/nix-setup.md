@@ -6,7 +6,13 @@ description: "Install and deploy Ruslan Agent with Nix — from quick `nix run` 
 
 # Nix & NixOS Setup
 
-Ruslan Agent ships a Nix flake with three levels of integration:
+:::warning Tier 2 platform
+Nix and NixOS are [Tier 2 platforms](./platform-support.md#tier-2). The flake and NixOS module documented here are maintained on a best-effort basis only. Commits to `main` may break these packages at any point in time.
+
+For a supported setup, use one of the standard [installation](./installation.md) paths - either Docker or an FHS environment.
+:::
+
+Ruslan Agent ships a Nix flake & a NixOS module.
 
 | Level | Who it's for | What you get |
 |-------|-------------|--------------|
@@ -34,42 +40,39 @@ The `curl | bash` installer manages Python, Node, and dependencies itself. The N
 No clone needed. Nix fetches, builds, and runs everything:
 
 ```bash
-# Run directly (builds on first use, cached after)
-nix run github:valldun1/ruslan-agent -- setup
-nix run github:valldun1/ruslan-agent -- chat
+# Run the desktop app
+nix run github:NousResearch/ruslan-agent#desktop
 
 # Or install persistently
-nix profile install github:valldun1/ruslan-agent
+nix profile install github:NousResearch/ruslan-agent#desktop
+
+# run the tui
+nix run github:NousResearch/ruslan-agent -- setup
+nix run github:NousResearch/ruslan-agent -- --tui
+
+# or install it in your profile
+nix profile install github:NousResearch/ruslan-agent
 ruslan setup
-ruslan chat
+ruslan --tui
 ```
 
 After `nix profile install`, `ruslan`, `ruslan-agent`, and `ruslan-acp` are on your PATH. From here, the workflow is identical to the [standard installation](./installation.md) — `ruslan setup` walks you through provider selection, `ruslan gateway install` sets up a launchd (macOS) or systemd user service, and config lives in `~/.ruslan/`.
 
 :::warning Messaging platforms (Discord, Telegram, Slack)
-The default package doesn't include messaging platform libraries — they were moved to on-demand installation, which can't work in Nix's read-only environment. If you plan to connect the agent to Discord, Telegram, or Slack, install the `messaging` variant:
+The default package includes ALL libraries ruslan-agent might need. if you want a smaller variant, check the other flake outputs. 
 
-```bash
-nix profile install github:valldun1/ruslan-agent#messaging
-```
+The `default` package adds ~700 MB to the closure. If you only need messaging platforms, `#messaging` adds just ~33 MB.
 
-For all optional extras (voice, all providers, all platforms):
-
-```bash
-nix profile install github:valldun1/ruslan-agent#full
-```
-
-The `full` variant adds ~700 MB to the closure. If you only need messaging platforms, `#messaging` adds just ~33 MB.
 :::
 
 <details>
-<summary><strong>Building from a local clone</strong></summary>
+<summary><strong>Running from a local clone</strong></summary>
 
 ```bash
-git clone https://github.com/valldun1/ruslan.git
+git clone https://github.com/NousResearch/ruslan-agent.git
 cd ruslan-agent
-nix build
-./result/bin/ruslan setup
+nix develop
+ruslan setup
 ```
 
 </details>
@@ -91,7 +94,7 @@ This module requires NixOS. For non-NixOS systems (macOS, other Linux distros), 
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    ruslan-agent.url = "github:valldun1/ruslan-agent";
+    ruslan-agent.url = "github:NousResearch/ruslan-agent";
   };
 
   outputs = { nixpkgs, ruslan-agent, ... }: {
@@ -730,7 +733,7 @@ External flakes can override the package directly:
 
 ```nix
 {
-  inputs.ruslan-agent.url = "github:valldun1/ruslan-agent";
+  inputs.ruslan-agent.url = "github:NousResearch/ruslan-agent";
   outputs = { ruslan-agent, nixpkgs, ... }: {
     nixpkgs.overlays = [ ruslan-agent.overlays.default ];
     # Then:

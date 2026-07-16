@@ -25,8 +25,11 @@ _MAX_TEXT_CHARS = 2000
 
 
 def _store_path() -> str:
-    home = os.environ.get("RUSLAN_HOME") or os.path.expanduser("~/.ruslan")
-    return os.path.join(home, "state", "rich_sent_index.json")
+    # Resolve via get_ruslan_home() so the active profile override is honored.
+    from ruslan_constants import get_ruslan_home
+
+    home = get_ruslan_home()
+    return os.path.join(str(home), "state", "rich_sent_index.json")
 
 
 def _key(chat_id, message_id) -> str:

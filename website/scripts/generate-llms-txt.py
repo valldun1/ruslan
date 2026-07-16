@@ -9,8 +9,8 @@ Outputs:
                                     comments separating files.
 
 Both publish at:
-  https://ruslan.team/docs/llms.txt
-  https://ruslan.team/docs/llms-full.txt
+  https://ruslan-agent.nousresearch.com/docs/llms.txt
+  https://ruslan-agent.nousresearch.com/docs/llms-full.txt
 
 The `/docs/` prefix is not a mistake — Docusaurus serves `website/static/`
 at the `docs/` base path. Clients and IDE plugins that probe the classic
@@ -31,7 +31,7 @@ WEBSITE = SCRIPT_DIR.parent
 DOCS = WEBSITE / "docs"
 STATIC = WEBSITE / "static"
 
-SITE_BASE = "https://ruslan.team/docs"
+SITE_BASE = "https://ruslan-agent.nousresearch.com/docs"
 
 # Curated sections for llms.txt — mirrors the product story, not the filesystem.
 # Each entry: (docs-relative path without .md, display title, optional short desc).
@@ -200,7 +200,7 @@ def emit_llms_index() -> str:
     lines.append("# Ruslan Agent")
     lines.append("")
     lines.append(
-        "> The self-improving AI agent built by Valldun. A terminal-native "
+        "> The self-improving AI agent built by Nous Research. A terminal-native "
         "autonomous coding and task agent with persistent memory, agent-created skills, "
         "and a messaging gateway that lives on 21+ messaging platforms — 19 native to "
         "the gateway plus IRC and Microsoft Teams via plugins (Telegram, Discord, Slack, "
@@ -210,12 +210,12 @@ def emit_llms_index() -> str:
     )
     lines.append("")
     lines.append(
-        "Install: `curl -fsSL https://raw.githubusercontent.com/valldun1/"
+        "Install: `curl -fsSL https://raw.githubusercontent.com/NousResearch/"
         "ruslan-agent/main/scripts/install.sh | bash`  "
         "(Linux, macOS, WSL2, Termux)"
     )
     lines.append("")
-    lines.append("Repo: https://github.com/valldun1/ruslan")
+    lines.append("Repo: https://github.com/NousResearch/ruslan-agent")
     lines.append("")
 
     for section, items in SECTIONS:
@@ -248,8 +248,8 @@ def emit_llms_full() -> str:
             "Started, Using Ruslan, Features, Messaging, Integrations, Guides, "
             "Developer Guide, Reference, then everything else.\n"
         ),
-        "Canonical site: https://ruslan.team/docs\n",
-        "Short index: https://ruslan.team/docs/llms.txt\n",
+        "Canonical site: https://ruslan-agent.nousresearch.com/docs\n",
+        "Short index: https://ruslan-agent.nousresearch.com/docs/llms.txt\n",
         "\n---\n\n",
     ]
 

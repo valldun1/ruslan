@@ -1,6 +1,6 @@
 # Optional Skills
 
-Official skills maintained by Valldun that are **not activated by default**.
+Official skills maintained by Nous Research that are **not activated by default**.
 
 These skills ship with the ruslan-agent repository but are not copied to
 `~/.ruslan/skills/` during setup. They are discoverable via the Skills Hub:

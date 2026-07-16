@@ -50,7 +50,7 @@ def _run_apply_profile_override(
     return os.environ.get("RUSLAN_HOME")
 
 
-class TestApplyProfileOverrideHermesHomeGuard:
+class TestApplyProfileOverrideRuslanHomeGuard:
     """Regression guard for issue #22502.
 
     Verifies that RUSLAN_HOME pointing to the ruslan root does NOT suppress

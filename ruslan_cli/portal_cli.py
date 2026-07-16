@@ -28,7 +28,7 @@ from ruslan_cli.config import load_config
 
 DEFAULT_PORTAL_URL = "https://portal.nousresearch.com"
 SUBSCRIPTION_URL = "https://portal.nousresearch.com/manage-subscription"
-DOCS_URL = "https://ruslan.team/docs/user-guide/features/tool-gateway"
+DOCS_URL = "https://ruslan-agent.nousresearch.com/docs/user-guide/features/tool-gateway"
 
 
 def _cmd_status(args) -> int:
@@ -58,7 +58,7 @@ def _cmd_status(args) -> int:
     else:
         print(f"  Auth:    {color('not logged in', Colors.YELLOW)}")
         print(f"  Sign up: {SUBSCRIPTION_URL}")
-        print(f"  Login:   ruslan portal")
+        print("  Login:   ruslan portal")
 
     # Provider selection (independent of auth)
     model_cfg = config.get("model") if isinstance(config.get("model"), dict) else {}
@@ -126,7 +126,7 @@ def _cmd_tools(args) -> int:
     try:
         features = get_nous_subscription_features(config)
     except Exception:
-        print("Не удалось определить состояние шлюза инструментов.", file=sys.stderr)
+        print("Could not resolve Tool Gateway state.", file=sys.stderr)
         return 1
 
     # Static catalog — the partners Tool Gateway routes to today.
@@ -183,7 +183,7 @@ def _cmd_login(args) -> int:
         _run_portal_one_shot(config)
     except (KeyboardInterrupt, EOFError):
         print()
-        print("Настройка портала отменена.")
+        print("Portal setup cancelled.")
         return 1
     return 0
 

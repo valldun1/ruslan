@@ -4,7 +4,7 @@ No React, no JavaScript dependency. Listed providers come from the
 registry; clicking a provider sends a GET to
 ``/auth/login?provider=<name>``.
 
-Visual styling mirrors the Valldun design system (the
+Visual styling mirrors the Nous Research design system (the
 ``@nous-research/ui`` package the React dashboard uses): the same
 ``Collapse`` / ``Rules Compressed`` typeface, amber-on-dark colour
 tokens (``#170d02`` / ``#ffac02`` / ``#fff``), uppercase + wide-tracking
@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import html
 
-from ruslan_cli.dashboard_auth import list_providers
+from ruslan_cli.dashboard_auth import list_session_providers
 
 # Inline minimal CSS. The dashboard's full skin lives in the React
 # bundle, which we deliberately do NOT load here — the login page must
@@ -465,7 +465,7 @@ def render_login_html(*, next_path: str = "") -> str:
     validating ``next_path`` against the same-origin rules before we
     emit it; we still HTML-escape it as defence in depth.
     """
-    providers = list_providers()
+    providers = list_session_providers()
     if not providers:
         return _EMPTY_HTML
 

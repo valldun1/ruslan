@@ -6,7 +6,7 @@ Usage (via cron with --no-agent):
     ruslan cron create ruslan-issues \\
       --schedule "*/5 * * * *" --no-agent \\
       --script "$RUSLAN_HOME/skills/devops/watchers/scripts/watch_github.py" \\
-      --script-args "--name ruslan-issues --repo valldun1/ruslan --scope issues"
+      --script-args "--name ruslan-issues --repo NousResearch/ruslan-agent --scope issues"
 
 Set GITHUB_TOKEN (or GH_TOKEN) in the Ruslan .env file
 (``${RUSLAN_HOME:-~/.ruslan}/.env``) to avoid the 60 req/hr

@@ -16,7 +16,10 @@ const activeGateway = vi.fn<() => { request: typeof request } | null>(() => ({ r
 
 vi.mock('@/ruslan', () => ({
   renameSession: (...args: unknown[]) => renameSession(...(args as [])),
-  HermesGateway: class {}
+  // profile.ts calls this at import (its $activeGatewayProfile subscribe fires
+  // immediately), pulled in transitively via session-states.
+  setApiRequestProfile: () => {},
+  RuslanGateway: class {}
 }))
 
 vi.mock('@/store/gateway', () => ({

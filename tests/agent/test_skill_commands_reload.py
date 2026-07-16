@@ -39,10 +39,9 @@ def _write_skill(skills_dir: Path, name: str, description: str = "") -> Path:
 def ruslan_home(monkeypatch):
     """Isolate RUSLAN_HOME for ``reload_skills`` tests.
 
-    Rather than popping cache-bearing modules from ``sys.modules`` (which
-    races against pytest-xdist's parallel workers), we monkeypatch the
-    module-level ``RUSLAN_HOME`` / ``SKILLS_DIR`` constants in place so the
-    isolation is local to this fixture's scope.
+    Rather than popping cache-bearing modules from ``sys.modules``,
+    we monkeypatch the module-level ``RUSLAN_HOME`` / ``SKILLS_DIR``
+    constants in place so the isolation is local to this fixture's scope.
     """
     td = tempfile.mkdtemp(prefix="ruslan-reload-skills-")
     monkeypatch.setenv("RUSLAN_HOME", td)

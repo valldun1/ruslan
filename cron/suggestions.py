@@ -36,13 +36,16 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ruslan_constants import get_default_ruslan_root
+from ruslan_constants import get_ruslan_home
 from ruslan_time import now as _ruslan_now
 from utils import atomic_replace
 
 logger = logging.getLogger(__name__)
 
-CRON_DIR = get_default_ruslan_root().resolve() / "cron"
+# Per-profile by design (issue #4707): suggestions live alongside the active
+# profile's cron store. Anchor on get_ruslan_home() (profile home), not the
+# shared default root. See cron/jobs.py for the full rationale.
+CRON_DIR = get_ruslan_home().resolve() / "cron"
 SUGGESTIONS_FILE = CRON_DIR / "suggestions.json"
 
 # In-process lock protecting load->modify->save cycles (the background review

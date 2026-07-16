@@ -48,21 +48,21 @@ Pick the row that matches your goal:
 
 ## 1. Install Ruslan Agent
 ### With the Ruslan Desktop installer on macOS or Windows (recommended)
-To easily install the command-line and desktop applications, [download the Ruslan Desktop installer](https://ruslan.team/) from our website and run it.
+To easily install the command-line and desktop applications, [download the Ruslan Desktop installer](https://ruslan-agent.nousresearch.com/) from our website and run it.
 
 ### Without Ruslan Desktop:
 For a command-line only install without Ruslan Desktop, run:
 
 #### Linux / macOS / WSL2 / Android (Termux)
 ```bash
-curl -fsSL https://ruslan.team/install.sh | bash
+curl -fsSL https://ruslan-agent.nousresearch.com/install.sh | bash
 ```
 
 #### Windows (native)
 
 Run in powershell:
 ```powershell
-iex (irm https://ruslan.team/install.ps1) 
+iex (irm https://ruslan-agent.nousresearch.com/install.ps1) 
 ```
 
 :::tip Android / Termux
@@ -113,6 +113,7 @@ Good defaults:
 | **OpenAI Codex** | ChatGPT OAuth, uses Codex models | Device code auth via `ruslan model` |
 | **Anthropic** | Claude models directly — Max plan + extra usage credits (OAuth), or API key for pay-per-token | `ruslan model` → OAuth login (requires Max + extra credits), or an Anthropic API key |
 | **OpenRouter** | Multi-provider routing across many models | Enter your API key |
+| **Fireworks AI** | Direct OpenAI-compatible model API | Set `FIREWORKS_API_KEY` |
 | **Z.AI** | GLM / Zhipu-hosted models | Set `GLM_API_KEY` / `ZAI_API_KEY` (also accepts `Z_AI_API_KEY`) |
 | **Kimi / Moonshot** | Moonshot-hosted coding and chat models | Set `KIMI_API_KEY` (or the Kimi-Coding-specific `KIMI_CODING_API_KEY`) |
 | **Kimi / Moonshot China** | China-region Moonshot endpoint | Set `KIMI_CN_API_KEY` |

@@ -12,8 +12,8 @@ import {
 import { $approvalRequest, setApprovalRequest } from './prompts'
 import { $activeSessionId, setActiveSessionId } from './session'
 
-const desktopWindow = window as unknown as { hermesDesktop?: Window['hermesDesktop'] }
-const initialHermesDesktop = desktopWindow.hermesDesktop
+const desktopWindow = window as unknown as { ruslanDesktop?: Window['ruslanDesktop'] }
+const initialRuslanDesktop = desktopWindow.ruslanDesktop
 
 const notify = vi.fn().mockResolvedValue(true)
 
@@ -34,7 +34,7 @@ function freshSession(): string {
 
 beforeEach(() => {
   notify.mockClear()
-  desktopWindow.hermesDesktop = { notify } as unknown as Window['hermesDesktop']
+  desktopWindow.ruslanDesktop = { notify } as unknown as Window['ruslanDesktop']
   setNativeNotifyEnabled(true)
 
   for (const kind of NATIVE_NOTIFICATION_KINDS) {
@@ -46,10 +46,10 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  if (initialHermesDesktop) {
-    desktopWindow.hermesDesktop = initialHermesDesktop
+  if (initialRuslanDesktop) {
+    desktopWindow.ruslanDesktop = initialRuslanDesktop
   } else {
-    delete desktopWindow.hermesDesktop
+    delete desktopWindow.ruslanDesktop
   }
 })
 
@@ -94,6 +94,19 @@ describe('dispatchNativeNotification focus gating', () => {
     setWindowState({ focused: true, hidden: false })
     setActiveSessionId('on-screen')
     dispatchNativeNotification({ kind: 'approval', sessionId: 'on-screen', title: 'approve' })
+    expect(notify).not.toHaveBeenCalled()
+  })
+
+  it('fires a global completion notification while away with no active session (pet gen)', () => {
+    setActiveSessionId(null)
+    dispatchNativeNotification({ global: true, kind: 'backgroundDone', title: 'Your pet hatched' })
+    expect(notify).toHaveBeenCalledTimes(1)
+  })
+
+  it('suppresses a global notification when the window is focused', () => {
+    setWindowState({ focused: true, hidden: false })
+    setActiveSessionId(null)
+    dispatchNativeNotification({ global: true, kind: 'backgroundDone', title: 'Your pet hatched' })
     expect(notify).not.toHaveBeenCalled()
   })
 })

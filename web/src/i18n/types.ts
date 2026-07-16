@@ -124,6 +124,7 @@ export interface Translations {
     agent: string;
     connected: string;
     connectedPlatforms: string;
+    disabled?: string;
     disconnected: string;
     error: string;
     failed: string;
@@ -138,6 +139,8 @@ export interface Translations {
     activeSessions: string;
     recentSessions: string;
     restartGateway: string;
+    restartGatewayConfirmMessage?: string;
+    restartGatewayConfirmTitle?: string;
     restartingGateway: string;
     running: string;
     runningRemote: string;
@@ -145,8 +148,11 @@ export interface Translations {
     starting: string;
     startedInBackground: string;
     stopped: string;
-    updateHermes: string;
-    updatingHermes: string;
+    updateRuslan: string;
+    updateRuslanConfirmMessage?: string;
+    updateRuslanConfirmNow?: string;
+    updateRuslanConfirmTitle?: string;
+    updatingRuslan: string;
     waitingForOutput: string;
   };
 
@@ -500,6 +506,14 @@ export interface Translations {
     showLess: string;
     showMore: string;
     showValue: string;
+    customTitle: string;
+    customHint: string;
+    customConfigured: string;
+    addCustomKey: string;
+    customKeyName: string;
+    customKeyNamePlaceholder: string;
+    add: string;
+    invalidKeyName: string;
   };
 
   // ── OAuth ──
@@ -516,6 +530,8 @@ export interface Translations {
     disconnect: string;
     managedExternally: string;
     copied: string;
+    copyCode: string;
+    copyFailed: string;
     cli: string;
     copyCliCommand: string;
     connect: string;

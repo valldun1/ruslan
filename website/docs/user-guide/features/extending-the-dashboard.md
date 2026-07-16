@@ -431,14 +431,14 @@ If you prefer JSX, use any bundler (esbuild, Vite, rollup) with React as an exte
     ├── dist/
     │   ├── index.js         # required — pre-built JS bundle (IIFE)
     │   └── style.css        # optional — custom CSS
-    └── plugin_api.py        # bundled plugins only — backend API routes (FastAPI)
+    └── plugin_api.py        # optional — backend API routes (FastAPI)
 ```
 
 A single plugin directory can carry three orthogonal extensions:
 
 - `plugin.yaml` + `__init__.py` — CLI/gateway plugin ([see plugins page](./plugins)).
 - `dashboard/manifest.json` + `dashboard/dist/index.js` — dashboard UI plugin.
-- `dashboard/plugin_api.py` — bundled plugins only; backend API routes.
+- `dashboard/plugin_api.py` — dashboard backend routes.
 
 None of them are required; include only the layers you need.
 
@@ -697,7 +697,7 @@ Key points:
 - Multiple plugins can claim the same page-scoped slot. They render stacked in registration order.
 - Zero footprint when no plugin registers: the built-in page renders exactly as before.
 
-A reference plugin (`example-dashboard` in [`ruslan-example-plugins`](https://github.com/valldun1/ruslan/tree/main/example-dashboard)) ships a live demo that injects a banner into `sessions:top` — install it to see the pattern end-to-end.
+A reference plugin (`example-dashboard` in [`ruslan-example-plugins`](https://github.com/NousResearch/ruslan-example-plugins/tree/main/example-dashboard)) ships a live demo that injects a banner into `sessions:top` — install it to see the pattern end-to-end.
 
 ### Slot-only plugins (`tab.hidden`)
 
@@ -743,10 +743,7 @@ Routes are mounted under `/api/plugins/<name>/`, so the above becomes:
 - `GET  /api/plugins/my-plugin/data`
 - `POST /api/plugins/my-plugin/action`
 
-Security notes:
-
-- Bundled plugin API routes bypass session-token authentication. The dashboard server binds to localhost by default, which mitigates the risks of this bypass.
-- User-installed and project dashboard plugins may still extend the UI with static JS/CSS, but their Python `api` files are not auto-imported by the dashboard server. Backend routes are reserved for bundled plugins.
+Plugin API routes bypass session-token authentication since the dashboard server binds to localhost by default. **Don't expose the dashboard on a public interface with `--host 0.0.0.0` if you run untrusted plugins** — their routes become reachable too.
 
 #### Accessing Ruslan internals
 
@@ -807,13 +804,10 @@ The dashboard scans three directories for `dashboard/manifest.json`:
 
 | Priority | Directory | Source label |
 |----------|-----------|--------------|
-| 1 (wins on conflict) | `<repo>/plugins/memory/<name>/dashboard/` | `bundled` |
-| 1 (wins on conflict) | `<repo>/plugins/<name>/dashboard/` | `bundled` |
-| 2 | `~/.ruslan/plugins/<name>/dashboard/` | `user` |
+| 1 (wins on conflict) | `~/.ruslan/plugins/<name>/dashboard/` | `user` |
+| 2 | `<repo>/plugins/memory/<name>/dashboard/` | `bundled` |
+| 2 | `<repo>/plugins/<name>/dashboard/` | `bundled` |
 | 3 | `./.ruslan/plugins/<name>/dashboard/` | `project` — only when `RUSLAN_ENABLE_PROJECT_PLUGINS` is set |
-
-Bundled dashboard plugins win name conflicts because only bundled plugins may
-register backend routes. Give user and project dashboard plugins unique names.
 
 Discovery results are cached per dashboard process. After adding a new plugin, either:
 
@@ -840,7 +834,7 @@ If a plugin's script fails to load (404, syntax error, exception during IIFE), t
 
 ## Combined theme + plugin demo
 
-The [`strike-freedom-cockpit`](https://github.com/valldun1/ruslan/tree/main/strike-freedom-cockpit) plugin (companion repo `ruslan-example-plugins`) is a complete reskin demo. It pairs a theme YAML with a slot-only plugin to produce a cockpit-style HUD without forking the dashboard.
+The [`strike-freedom-cockpit`](https://github.com/NousResearch/ruslan-example-plugins/tree/main/strike-freedom-cockpit) plugin (companion repo `ruslan-example-plugins`) is a complete reskin demo. It pairs a theme YAML with a slot-only plugin to produce a cockpit-style HUD without forking the dashboard.
 
 **What it demonstrates:**
 
@@ -854,7 +848,7 @@ The [`strike-freedom-cockpit`](https://github.com/valldun1/ruslan/tree/main/stri
 **Install:**
 
 ```bash
-git clone https://github.com/valldun1/ruslan.git
+git clone https://github.com/NousResearch/ruslan-example-plugins.git
 
 # Theme
 cp ruslan-example-plugins/strike-freedom-cockpit/theme/strike-freedom.yaml \
@@ -914,11 +908,10 @@ Check that the file is in `~/.ruslan/dashboard-themes/` and ends in `.yaml` or `
 The `sidebar` slot only renders when the active theme has `layoutVariant: cockpit`. Other slots always render. If you're registering into a slot with no hits, add `console.log` inside `registerSlot` to confirm the plugin bundle ran at all.
 
 **Plugin backend routes return 404.**
-1. Confirm the plugin is bundled with Ruslan. User-installed and project dashboard plugins can extend the UI, but their Python backend routes are not auto-imported.
-2. Confirm the manifest has `"api": "plugin_api.py"` pointing to an existing file inside `dashboard/`.
-3. Restart `ruslan dashboard` — plugin API routes are mounted once at startup, **not** on rescan.
-4. Check that `plugin_api.py` exports a module-level `router = APIRouter()`. Other export names are not picked up.
-5. Tail `~/.ruslan/logs/errors.log` for `Failed to load plugin <name> API routes` — import errors are logged there.
+1. Confirm the manifest has `"api": "plugin_api.py"` pointing to an existing file inside `dashboard/`.
+2. Restart `ruslan dashboard` — plugin API routes are mounted once at startup, **not** on rescan.
+3. Check that `plugin_api.py` exports a module-level `router = APIRouter()`. Other export names are not picked up.
+4. Tail `~/.ruslan/logs/errors.log` for `Failed to load plugin <name> API routes` — import errors are logged there.
 
 **Theme change drops my color overrides.**
 `colorOverrides` are scoped to the active theme and cleared on theme switch — that's by design. If you want overrides that persist, put them in your theme's YAML, not in the live switcher.

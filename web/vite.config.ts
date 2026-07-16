@@ -15,7 +15,7 @@ const BACKEND = process.env.RUSLAN_DASHBOARD_URL ?? "http://127.0.0.1:9119";
  * load, scrapes the `window.__RUSLAN_SESSION_TOKEN__` assignment, and
  * re-injects it into the dev HTML. No-op in production builds.
  */
-function hermesDevToken(): Plugin {
+function ruslanDevToken(): Plugin {
   const TOKEN_RE = /window\.__RUSLAN_SESSION_TOKEN__\s*=\s*"([^"]+)"/;
   const EMBEDDED_RE =
     /window\.__RUSLAN_DASHBOARD_EMBEDDED_CHAT__\s*=\s*(true|false)/;
@@ -58,10 +58,11 @@ function hermesDevToken(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), hermesDevToken()],
+  plugins: [react(), tailwindcss(), ruslanDevToken()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      "@ruslan/shared": path.resolve(__dirname, "../apps/shared/src"),
     },
     // When @nous-research/ui is symlinked via `file:../../design-language`,
     // Node's module resolution would pick up shared deps from

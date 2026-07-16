@@ -238,26 +238,26 @@ def run_whatsapp_cloud_setup() -> int:
     from ruslan_cli.config import get_env_value, save_env_value
 
     print()
-    print("🛡️ Настройка WhatsApp Business Cloud API")
+    print("⚕ WhatsApp Business Cloud API Setup")
     print("=" * 50)
     print()
-    print("Этот мастер настраивает Ruslan для общения с WhatsApp через официальный")
-    print("Cloud API от Meta. Это производственный путь:")
+    print("This wizard configures Ruslan to talk to WhatsApp via Meta's")
+    print("official Cloud API. It's the production-grade path:")
     print()
-    print("• Нет QR-кодов, нет подпроцесса моста Node.js")
-    print("• Стабильное соединение — без риска блокировки аккаунта")
-    print("• Требуется бизнес-аккаунт (не личный WhatsApp)")
-    print("• Требуется публичный URL вебхука (Cloudflare Tunnel, ngrok")
-    print("или собственный обратный прокси с TLS)")
+    print("  • No QR codes, no Node.js bridge subprocess")
+    print("  • Stable connection — no account-ban risk")
+    print("  • Business account required (not personal WhatsApp)")
+    print("  • Public webhook URL required (Cloudflare Tunnel, ngrok,")
+    print("    or your own reverse proxy with TLS)")
     print()
-    print("Если у вас ещё нет приложения Meta, выполните эти шаги")
-    print("СНАЧАЛА, затем вернитесь и снова запустите этот мастер:")
+    print("If you don't have a Meta app set up yet, follow these steps")
+    print("FIRST, then come back and re-run this wizard:")
     print()
-    print("1. https://developers.facebook.com/apps → Создать приложение")
-    print("→ «Связь с клиентами через WhatsApp»")
-    print("2. Панель приложения → WhatsApp → Настройка API")
-    print("3. Нажмите «Сгенерировать токен доступа» (временный токен на 24 часа подойдёт для")
-    print("начала; позже переключитесь на постоянный токен системного пользователя)")
+    print("  1. https://developers.facebook.com/apps → Create App")
+    print("     → 'Connect with customers through WhatsApp'")
+    print("  2. App Dashboard → WhatsApp → API Setup")
+    print("  3. Click 'Generate access token' (temp 24h token is fine to")
+    print("     start; switch to a System User permanent token later)")
     print()
     try:
         proceed = input("Press Enter to continue, or Ctrl+C to abort... ").strip()
@@ -267,7 +267,7 @@ def run_whatsapp_cloud_setup() -> int:
 
     print()
     print("─" * 50)
-    print("ШАГ 1 — ID номера телефона")
+    print("STEP 1 — Phone Number ID")
     print("─" * 50)
     current_phone_id = get_env_value("WHATSAPP_CLOUD_PHONE_NUMBER_ID") or None
     phone_id = _prompt_validated(
@@ -296,7 +296,7 @@ def run_whatsapp_cloud_setup() -> int:
     print()
 
     print("─" * 50)
-    print("ШАГ 2 — Токен доступа")
+    print("STEP 2 — Access Token")
     print("─" * 50)
     current_token = get_env_value("WHATSAPP_CLOUD_ACCESS_TOKEN") or None
     current_display = (current_token[:15] + "...") if current_token else None
@@ -337,7 +337,7 @@ def run_whatsapp_cloud_setup() -> int:
     print()
 
     print("─" * 50)
-    print("ШАГ 3 — Секрет приложения (требуется для проверки подписи вебхука)")
+    print("STEP 3 — App Secret (required for webhook signature verification)")
     print("─" * 50)
     current_secret = get_env_value("WHATSAPP_CLOUD_APP_SECRET") or None
     current_secret_display = (current_secret[:8] + "...") if current_secret else None
@@ -535,7 +535,7 @@ def run_whatsapp_cloud_setup() -> int:
     print("        Requires Meta's business verification process —")
     print("        Business Manager → Security Center → Start Verification.")
     print()
-    print("  Docs: https://ruslan.team/docs/user-guide/")
+    print("  Docs: https://ruslan-agent.nousresearch.com/docs/user-guide/")
     print("        messaging/whatsapp-cloud")
     print()
     return 0

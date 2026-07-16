@@ -1,12 +1,19 @@
+import type {
+  PetOverlayBounds,
+  PetOverlayControl,
+  PetOverlayOpenRequest,
+  PetOverlayStatePayload
+} from './store/pet-overlay'
+
 export {}
 
 declare global {
   interface Window {
-    hermesDesktop: {
+    ruslanDesktop: {
       // Resolve a backend connection. Omit `profile` (or pass the primary) for
       // the window's backend; pass a named profile to lazily spawn/reuse that
       // profile's backend from the pool.
-      getConnection: (profile?: string | null) => Promise<HermesConnection>
+      getConnection: (profile?: string | null) => Promise<RuslanConnection>
       // Reconnect-after-wake recovery: liveness-probe the cached PRIMARY backend
       // and drop it if a remote one has gone unreachable, so the next
       // getConnection() rebuilds a reachable descriptor instead of the renderer
@@ -26,6 +33,20 @@ declare global {
       openSessionWindow: (sessionId: string, opts?: { watch?: boolean }) => Promise<{ ok: boolean; error?: string }>
       // Open (or focus) a compact secondary window on the new-session draft.
       openNewSessionWindow: () => Promise<{ ok: boolean; error?: string }>
+      // The pop-out pet overlay: a transparent always-on-top window hosting only
+      // the mascot. The main renderer drives it (open/close/drag + state push);
+      // the overlay sends control messages back (pop-in, composer submit).
+      petOverlay: {
+        open: (request: PetOverlayOpenRequest) => Promise<{ ok: boolean; bounds?: PetOverlayBounds }>
+        close: () => Promise<{ ok: boolean }>
+        setBounds: (bounds: PetOverlayBounds) => void
+        setIgnoreMouse: (ignore: boolean) => void
+        setFocusable: (focusable: boolean) => void
+        pushState: (payload: PetOverlayStatePayload) => void
+        control: (payload: PetOverlayControl) => void
+        onState: (callback: (payload: PetOverlayStatePayload) => void) => () => void
+        onControl: (callback: (payload: PetOverlayControl) => void) => () => void
+      }
       getBootProgress: () => Promise<DesktopBootProgress>
       getConnectionConfig: (profile?: null | string) => Promise<DesktopConnectionConfig>
       saveConnectionConfig: (payload: DesktopConnectionConfigInput) => Promise<DesktopConnectionConfig>
@@ -34,6 +55,15 @@ declare global {
       probeConnectionConfig: (remoteUrl: string) => Promise<DesktopConnectionProbeResult>
       oauthLoginConnectionConfig: (remoteUrl: string) => Promise<DesktopOauthLoginResult>
       oauthLogoutConnectionConfig: (remoteUrl?: string) => Promise<DesktopOauthLogoutResult>
+      // Ruslan Cloud: one portal login powers discovery + silent per-agent
+      // sign-in (cloud-auto-discovery Phase 3).
+      cloud: {
+        status: () => Promise<DesktopCloudStatus>
+        login: () => Promise<DesktopCloudStatus & { ok: boolean }>
+        logout: () => Promise<DesktopCloudStatus & { ok: boolean }>
+        discover: (org?: string) => Promise<DesktopCloudDiscoverResult>
+        agentSignIn: (dashboardUrl: string) => Promise<DesktopCloudAgentSignInResult>
+      }
       profile: {
         get: () => Promise<DesktopActiveProfile>
         // Persists the desktop's profile choice and relaunches the local
@@ -41,25 +71,26 @@ declare global {
         // clear the preference.
         set: (name: string | null) => Promise<DesktopActiveProfile>
       }
-      api: <T>(request: HermesApiRequest) => Promise<T>
-      notify: (payload: HermesNotification) => Promise<boolean>
+      api: <T>(request: RuslanApiRequest) => Promise<T>
+      notify: (payload: RuslanNotification) => Promise<boolean>
       requestMicrophoneAccess: () => Promise<boolean>
       readFileDataUrl: (filePath: string) => Promise<string>
-      readFileText: (filePath: string) => Promise<HermesReadFileTextResult>
-      selectPaths: (options?: HermesSelectPathsOptions) => Promise<string[]>
+      readFileText: (filePath: string) => Promise<RuslanReadFileTextResult>
+      selectPaths: (options?: RuslanSelectPathsOptions) => Promise<string[]>
       writeClipboard: (text: string) => Promise<boolean>
       saveImageFromUrl: (url: string) => Promise<boolean>
       saveImageBuffer: (data: ArrayBuffer | Uint8Array, ext: string) => Promise<string>
       saveClipboardImage: () => Promise<string>
       getPathForFile: (file: File) => string
-      normalizePreviewTarget: (target: string, baseDir?: string) => Promise<HermesPreviewTarget | null>
-      watchPreviewFile: (url: string) => Promise<HermesPreviewWatch>
+      normalizePreviewTarget: (target: string, baseDir?: string) => Promise<RuslanPreviewTarget | null>
+      watchPreviewFile: (url: string) => Promise<RuslanPreviewWatch>
       stopPreviewFileWatch: (id: string) => Promise<boolean>
-      setTitleBarTheme?: (payload: HermesTitleBarTheme) => void
+      setTitleBarTheme?: (payload: RuslanTitleBarTheme) => void
       setNativeTheme?: (mode: 'dark' | 'light' | 'system') => void
       setTranslucency?: (payload: { intensity: number }) => void
       setPreviewShortcutActive?: (active: boolean) => void
       openExternal: (url: string) => Promise<void>
+      openPreviewInBrowser?: (url: string) => Promise<void>
       fetchLinkTitle: (url: string) => Promise<string>
       sanitizeWorkspaceCwd: (cwd?: null | string) => Promise<{ cwd: string; sanitized: boolean }>
       settings: {
@@ -67,20 +98,86 @@ declare global {
         pickDefaultProjectDir: () => Promise<{ canceled: boolean; dir: null | string }>
         setDefaultProjectDir: (dir: null | string) => Promise<{ dir: null | string }>
       }
+      zoom?: {
+        get: () => Promise<{ level: number; percent: number }>
+        setPercent: (percent: number) => void
+        onChanged: (callback: (payload: { level: number; percent: number }) => void) => () => void
+      }
       revealLogs: () => Promise<{ ok: boolean; path: string; error?: string }>
       getRecentLogs: () => Promise<{ path: string; lines: string[] }>
-      readDir: (path: string) => Promise<HermesReadDirResult>
+      readDir: (path: string) => Promise<RuslanReadDirResult>
       gitRoot?: (path: string) => Promise<string | null>
-      // Resolve git-worktree identity for a batch of session cwds, reading git's
-      // on-disk metadata locally. Returns null per cwd that isn't inside a
-      // checkout (or can't be read — e.g. a remote backend's path).
-      worktrees?: (cwds: string[]) => Promise<Record<string, HermesWorktreeInfo | null>>
+      // Reveal a path in the OS file manager (Finder / Explorer).
+      revealPath?: (path: string) => Promise<boolean>
+      // Open a DIRECTORY (created if missing) in the OS file manager.
+      openDir?: (path: string) => Promise<{ ok: boolean; error?: string }>
+      // Rename a file/folder in place (new base name, same parent dir).
+      renamePath?: (path: string, newName: string) => Promise<{ path: string }>
+      // Write a small UTF-8 text file (hardened path, parent must exist).
+      writeTextFile?: (path: string, content: string) => Promise<{ path: string }>
+      // Move a file/folder to the OS trash (recoverable).
+      trashPath?: (path: string) => Promise<boolean>
+      // Git-driven worktree management for the "Start work" flow.
+      git?: {
+        worktreeList: (repoPath: string) => Promise<RuslanGitWorktree[]>
+        worktreeAdd: (
+          repoPath: string,
+          options?: { name?: string; branch?: string; base?: string; existingBranch?: string }
+        ) => Promise<{ path: string; branch: string; repoRoot: string }>
+        worktreeRemove: (
+          repoPath: string,
+          worktreePath: string,
+          options?: { force?: boolean }
+        ) => Promise<{ removed: string }>
+        branchSwitch: (repoPath: string, branch: string) => Promise<{ branch: string }>
+        // Local branches for the "convert a branch into a worktree" picker.
+        branchList: (repoPath: string) => Promise<RuslanGitBranch[]>
+        // Local + remote-tracking branches for the "base branch" picker in the
+        // new-worktree dialog. The remote default (origin/HEAD) is flagged so
+        // the UI can preselect it.
+        baseBranchList: (repoPath: string) => Promise<RuslanGitBaseBranch[]>
+        // Compact working-tree status for the composer coding rail. Null on a
+        // non-repo / remote backend (where the Electron probe can't run).
+        repoStatus: (repoPath: string) => Promise<RuslanRepoStatus | null>
+        // Working-tree-vs-HEAD unified diff for one file (the preview's diff
+        // view). Empty string when the file is unchanged or not in a repo.
+        fileDiff: (repoPath: string, filePath: string) => Promise<string>
+        // Codex-style review pane: changed files per scope, per-file diff, and
+        // stage / unstage / revert.
+        review: {
+          list: (repoPath: string, scope: RuslanReviewScope, baseRef?: null | string) => Promise<RuslanReviewList>
+          diff: (
+            repoPath: string,
+            filePath: string,
+            scope: RuslanReviewScope,
+            baseRef?: null | string,
+            staged?: boolean
+          ) => Promise<string>
+          stage: (repoPath: string, filePath?: null | string) => Promise<{ ok: boolean }>
+          unstage: (repoPath: string, filePath?: null | string) => Promise<{ ok: boolean }>
+          revert: (repoPath: string, filePath?: null | string) => Promise<{ ok: boolean }>
+          revParse: (repoPath: string, ref?: null | string) => Promise<null | string>
+          commit: (repoPath: string, message: string, push: boolean) => Promise<{ ok: boolean }>
+          // Diff (staged-or-all) + recent commit subjects for drafting a
+          // commit message. Reads only; empty strings off-repo.
+          commitContext: (repoPath: string) => Promise<{ diff: string; recent: string }>
+          push: (repoPath: string) => Promise<{ ok: boolean }>
+          shipInfo: (repoPath: string) => Promise<RuslanReviewShipInfo>
+          createPr: (repoPath: string) => Promise<{ url: string }>
+        }
+        // Repo-first discovery: scan bounded roots for git repos (depth-capped).
+        scanRepos: (roots: string[], options?: { maxDepth?: number }) => Promise<{ root: string; label: string }[]>
+      }
       terminal: {
+        /** Best-effort current working directory of the live PTY child (POSIX
+         *  only; null on Windows or when unavailable). Used to reopen a tab
+         *  where the user last `cd`'d. */
+        cwd: (id: string) => Promise<string | null>
         dispose: (id: string) => Promise<boolean>
         onData: (id: string, callback: (payload: string) => void) => () => void
-        onExit: (id: string, callback: (payload: HermesTerminalExit) => void) => () => void
+        onExit: (id: string, callback: (payload: RuslanTerminalExit) => void) => () => void
         resize: (id: string, size: { cols: number; rows: number }) => Promise<boolean>
-        start: (options?: { cols?: number; cwd?: string; rows?: number }) => Promise<HermesTerminalSession>
+        start: (options?: { cols?: number; cwd?: string; rows?: number }) => Promise<RuslanTerminalSession>
         write: (id: string, data: string) => Promise<boolean>
       }
       onClosePreviewRequested?: (callback: () => void) => () => void
@@ -89,11 +186,14 @@ declare global {
         callback: (payload: { kind: string; name: string; params: Record<string, string> }) => void
       ) => () => void
       signalDeepLinkReady?: () => Promise<{ ok: boolean }>
-      onWindowStateChanged?: (callback: (payload: HermesWindowState) => void) => () => void
+      onWindowStateChanged?: (callback: (payload: RuslanWindowState) => void) => () => void
       onFocusSession?: (callback: (sessionId: string) => void) => () => void
       onNotificationAction?: (callback: (payload: { actionId: string; sessionId?: string }) => void) => () => void
-      onPreviewFileChanged: (callback: (payload: HermesPreviewFileChanged) => void) => () => void
+      onPreviewFileChanged: (callback: (payload: RuslanPreviewFileChanged) => void) => () => void
       onBackendExit: (callback: (payload: BackendExit) => void) => () => void
+      // Soft gateway-mode apply: primary backend was torn down without a window
+      // reload. Wipe session lists (skeletons) and re-dial.
+      onConnectionApplied?: (callback: () => void) => () => void
       onPowerResume?: (callback: () => void) => () => void
       onBootProgress: (callback: (payload: DesktopBootProgress) => void) => () => void
       getBootstrapState: () => Promise<DesktopBootstrapState>
@@ -148,13 +248,13 @@ export interface DesktopMarketplaceThemeResult {
   themes: DesktopMarketplaceThemeFile[]
 }
 
-export interface HermesTerminalSession {
+export interface RuslanTerminalSession {
   cwd: string
   id: string
   shell: string
 }
 
-export interface HermesTerminalExit {
+export interface RuslanTerminalExit {
   code: number | null
   signal: string | null
 }
@@ -164,7 +264,7 @@ export interface DesktopVersionInfo {
   electronVersion: string
   nodeVersion: string
   platform: string
-  hermesRoot: string
+  ruslanRoot: string
 }
 
 export type DesktopUninstallMode = 'full' | 'gui' | 'lite'
@@ -200,6 +300,7 @@ export interface DesktopUpdateCommit {
 
 export interface DesktopUpdateStatus {
   supported: boolean
+  updateAvailable?: boolean
   branch?: string
   currentBranch?: string
   reason?: string
@@ -228,7 +329,7 @@ export interface DesktopUpdateApplyResult {
    *  `ruslan update` themselves. `command` is the exact line to run. */
   manual?: boolean
   command?: string
-  hermesRoot?: string
+  ruslanRoot?: string
   /** True when the backend was updated but the GUI couldn't be relaunched in
    *  place (AppImage / dev run): the new version loads on next launch. */
   backendUpdated?: boolean
@@ -277,9 +378,12 @@ export interface DesktopUpdateProgress {
   at: number
 }
 
-export interface HermesConnection {
+export interface RuslanConnection {
   baseUrl: string
   isFullscreen: boolean
+  // The live, RESOLVED connection mode. Only ever 'local' or 'remote' — a
+  // 'cloud' saved-config entry resolves to a 'remote' connection under the hood
+  // (cloud-auto-discovery Q3/Q6), so this never carries 'cloud'.
   mode?: 'local' | 'remote'
   authMode?: 'oauth' | 'token'
   nativeOverlayWidth: number
@@ -293,12 +397,12 @@ export interface HermesConnection {
   windowButtonPosition: { x: number; y: number } | null
 }
 
-export interface HermesTitleBarTheme {
+export interface RuslanTitleBarTheme {
   background: string
   foreground: string
 }
 
-export interface HermesWindowState {
+export interface RuslanWindowState {
   isFullscreen: boolean
   nativeOverlayWidth: number
   windowButtonPosition: { x: number; y: number } | null
@@ -312,7 +416,12 @@ export interface DesktopActiveProfile {
 
 export interface DesktopConnectionConfig {
   envOverride: boolean
-  mode: 'local' | 'remote'
+  // The saved connection mode. 'cloud' is a Ruslan Cloud connection: it carries
+  // a remote-shaped block (remoteUrl = the selected agent's dashboardUrl,
+  // remoteAuthMode 'oauth') but is remembered as cloud so settings reopens into
+  // the cloud picker. Resolution treats cloud exactly as remote
+  // (cloud-auto-discovery Q3/Q6).
+  mode: 'local' | 'remote' | 'cloud'
   // The profile this config describes, or null for the global/default
   // connection. Per-profile entries let a profile point at its own backend.
   profile: null | string
@@ -321,16 +430,23 @@ export interface DesktopConnectionConfig {
   remoteTokenPreview: string | null
   remoteTokenSet: boolean
   remoteUrl: string
+  // For a 'cloud' connection: the persisted Ruslan Cloud org (slug or id) the
+  // connected instance was discovered under, so Settings → Gateway can reopen
+  // into that org. Empty string for remote/local.
+  cloudOrg: string
 }
 
 export interface DesktopConnectionConfigInput {
-  mode: 'local' | 'remote'
+  mode: 'local' | 'remote' | 'cloud'
   // When set, the save/apply/test targets this profile's per-profile remote
   // override instead of the global connection.
   profile?: null | string
   remoteAuthMode?: 'oauth' | 'token'
   remoteToken?: string
   remoteUrl?: string
+  // For a 'cloud' connection: the selected Ruslan Cloud org (slug or id) to
+  // persist so Settings can reopen into it. Ignored for remote/local modes.
+  cloudOrg?: string
 }
 
 export interface DesktopConnectionTestResult {
@@ -369,6 +485,55 @@ export interface DesktopOauthLogoutResult {
   connected: boolean
 }
 
+// --- Ruslan Cloud (cloud-auto-discovery Phase 3) ---
+
+export interface DesktopCloudStatus {
+  // The portal base URL the desktop talks to (default or env-overridden).
+  portalBaseUrl: string
+  // Whether the OAuth partition holds a live Nous portal (Privy) session — the
+  // portal authenticates via Privy, so this reflects the privy-token cookie, NOT
+  // the ruslan gateway session cookies. See cookiesHavePrivySession.
+  signedIn: boolean
+}
+
+// A discovered Ruslan Cloud agent — the trimmed DTO from NAS GET /api/agents.
+export interface DesktopCloudAgent {
+  id: string
+  name: string
+  status: string
+  // null until the agent has a provisioned dashboard (show "provisioning…").
+  dashboardUrl: string | null
+  // "active" | "degraded" | "down" | "unknown".
+  dashboardGatewayState: string
+}
+
+// An org the signed-in user belongs to — for the org picker shown when a
+// multi-org user's discovery call needs disambiguation (NAS 409).
+export interface DesktopCloudOrg {
+  id: string
+  slug: string | null
+  name: string
+  isPersonal: boolean
+  // "OWNER" | "MEMBER".
+  role: string
+}
+
+// Discovery result: either the agent list, OR a request to pick an org first
+// (multi-org user, no org chosen yet). The renderer shows a picker on the
+// latter and re-calls discover(org). On the agents branch, `org` echoes the
+// authoritatively-resolved org the list was scoped to (from NAS), so the
+// desktop persists it without relying on transient picker state.
+export type DesktopCloudDiscoverResult =
+  | { agents: DesktopCloudAgent[]; org?: DesktopCloudOrg | null; needsOrgSelection?: false }
+  | { needsOrgSelection: true; orgs: DesktopCloudOrg[] }
+
+export interface DesktopCloudAgentSignInResult {
+  // The agent gateway base URL the silent sign-in targeted.
+  baseUrl: string
+  // Whether the agent's gateway session cookie landed (silent cascade done).
+  connected: boolean
+}
+
 export interface DesktopBootProgress {
   error: string | null
   fakeMode: boolean
@@ -380,7 +545,7 @@ export interface DesktopBootProgress {
 }
 
 // First-launch install ("bootstrap") event types -- emitted by
-// electron/bootstrap-runner.cjs and observed by the renderer install overlay.
+// electron/bootstrap-runner.ts and observed by the renderer install overlay.
 // Mirrors the event shapes emitted by runBootstrap()'s onEvent callback.
 
 export interface DesktopBootstrapStageDescriptor {
@@ -439,10 +604,14 @@ export type DesktopBootstrapEvent =
       docsUrl: string
     }
 
-export interface HermesApiRequest {
+export interface RuslanApiRequest {
   path: string
   method?: string
   body?: unknown
+  // Single-file multipart upload (FastAPI UploadFile endpoints). Mutually
+  // exclusive with `body`; bytes transfer over IPC as a structured-clone
+  // ArrayBuffer. Token-mode backends only.
+  upload?: { filename: string; contentType?: string; bytes: ArrayBuffer }
   timeoutMs?: number
   // Route this REST call to a specific profile's backend. Omit for the primary
   // (window) backend. Read-only cross-profile data is served by the primary, so
@@ -450,7 +619,7 @@ export interface HermesApiRequest {
   profile?: string | null
 }
 
-export interface HermesNotification {
+export interface RuslanNotification {
   title?: string
   body?: string
   silent?: boolean
@@ -459,7 +628,7 @@ export interface HermesNotification {
   actions?: { id: string; text: string }[]
 }
 
-export interface HermesPreviewTarget {
+export interface RuslanPreviewTarget {
   binary?: boolean
   byteSize?: number
   kind: 'file' | 'url'
@@ -474,7 +643,7 @@ export interface HermesPreviewTarget {
   url: string
 }
 
-export interface HermesReadFileTextResult {
+export interface RuslanReadFileTextResult {
   binary?: boolean
   byteSize?: number
   language?: string
@@ -484,41 +653,129 @@ export interface HermesReadFileTextResult {
   truncated?: boolean
 }
 
-export interface HermesPreviewWatch {
+export interface RuslanPreviewWatch {
   id: string
   path: string
 }
 
-export interface HermesWorktreeInfo {
-  // Main repo root — the shared grouping key for a checkout and all its linked
-  // worktrees.
-  repoRoot: string
-  // This cwd's own worktree root.
-  worktreeRoot: string
-  // True when this is the repo's primary checkout (.git is a directory).
-  isMainWorktree: boolean
-  // Current branch (or short detached-HEAD sha), null when unreadable.
+// A real git worktree as reported by `git worktree list` (source of truth for
+// the "Start work" flow), as opposed to the session-cwd-derived grouping above.
+export interface RuslanGitWorktree {
+  path: string
   branch: null | string
+  isMain: boolean
+  detached: boolean
+  locked: boolean
 }
 
-export interface HermesReadDirEntry {
+// A local branch as offered by the "convert a branch into a worktree" picker.
+// `checkedOut` means selecting opens that checkout; `isDefault` means selecting
+// switches the main checkout instead of creating `.worktrees/main`.
+export interface RuslanGitBranch {
+  name: string
+  checkedOut: boolean
+  isDefault: boolean
+  worktreePath: null | string
+}
+
+// A branch the new worktree can be based on: local heads + remote-tracking
+// refs. `isRemote` distinguishes `origin/main` from a local `main` (the UI
+// may show a remote glyph); `isDefault` flags origin/HEAD so the dialog can
+// preselect it.
+export interface RuslanGitBaseBranch {
+  name: string
+  isRemote: boolean
+  isDefault: boolean
+}
+
+// A single changed path from `git status --porcelain=v2`, classified by state
+// so the coding rail / switcher can group + open the right diff.
+export interface RuslanRepoStatusFile {
+  path: string
+  staged: boolean
+  unstaged: boolean
+  untracked: boolean
+  conflicted: boolean
+}
+
+// Compact working-tree status for the composer coding rail (parsed from
+// `git status --porcelain=v2 --branch`).
+export interface RuslanRepoStatus {
+  branch: null | string
+  // The repo's trunk ("main" / "master" / …), so the UI can offer "branch off
+  // the default" from anywhere. Null when no trunk is detected.
+  defaultBranch: null | string
+  detached: boolean
+  ahead: number
+  behind: number
+  staged: number
+  unstaged: number
+  untracked: number
+  conflicted: number
+  // Total distinct changed paths (tracked modified + conflicts + untracked).
+  changed: number
+  // +/- line counts of tracked changes vs HEAD (staged + unstaged). Untracked
+  // files aren't in the diff, so they don't contribute lines.
+  added: number
+  removed: number
+  // Capped changed-file list (REPO_STATUS_FILE_CAP) for the diff/open actions.
+  files: RuslanRepoStatusFile[]
+}
+
+// Diff scope for the review pane, mirroring Codex: uncommitted working-tree
+// changes, all changes vs the branch base, or everything since the current
+// turn began.
+export type RuslanReviewScope = 'branch' | 'lastTurn' | 'uncommitted'
+
+// One changed file in the review pane (status letter, +/- lines, staged flag).
+export interface RuslanReviewFile {
+  path: string
+  added: number
+  removed: number
+  // M(odified) A(dded) D(eleted) R(enamed) C(opied) U(nmerged) ?(untracked)
+  status: string
+  staged: boolean
+}
+
+export interface RuslanReviewList {
+  files: RuslanReviewFile[]
+  // The resolved base ref the scope diffed against (branch merge-base / turn
+  // baseline), or null for the uncommitted scope.
+  base: null | string
+}
+
+// The branch's PR (if any) as reported by `gh pr view`.
+export interface RuslanReviewPr {
+  url: string
+  state: string
+  number: number
+}
+
+// gh availability/auth + the current branch's PR — drives the review pane's PR
+// button (disabled when gh isn't ready, "Open PR" vs "Create PR" otherwise).
+export interface RuslanReviewShipInfo {
+  ghReady: boolean
+  pr: RuslanReviewPr | null
+}
+
+export interface RuslanReadDirEntry {
   name: string
   path: string
   isDirectory: boolean
 }
 
-export interface HermesReadDirResult {
-  entries: HermesReadDirEntry[]
+export interface RuslanReadDirResult {
+  entries: RuslanReadDirEntry[]
   error?: string
 }
 
-export interface HermesPreviewFileChanged {
+export interface RuslanPreviewFileChanged {
   id: string
   path: string
   url: string
 }
 
-export interface HermesSelectPathsOptions {
+export interface RuslanSelectPathsOptions {
   title?: string
   defaultPath?: string
   directories?: boolean

@@ -1,6 +1,7 @@
+import { PassThrough } from 'stream'
+
 import { renderSync } from '@ruslan/ink'
 import React from 'react'
-import { PassThrough } from 'stream'
 import { describe, expect, it } from 'vitest'
 
 import { MessageLine } from '../components/messageLine.js'

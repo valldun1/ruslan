@@ -53,7 +53,7 @@ This page is the top-level map of Ruslan Agent internals. Use it to orient yours
 ```text
 ruslan-agent/
 ├── run_agent.py              # AIAgent — core conversation loop (large file)
-├── cli.py                    # HermesCLI — interactive terminal UI (large file)
+├── cli.py                    # RuslanCLI — interactive terminal UI (large file)
 ├── model_tools.py            # Tool discovery, schema collection, dispatch
 ├── toolsets.py               # Tool groupings and platform presets
 ├── ruslan_state.py           # SQLite session/state database with FTS5
@@ -138,7 +138,7 @@ ruslan-agent/
 ### CLI Session
 
 ```text
-User input → HermesCLI.process_input()
+User input → RuslanCLI.process_input()
   → AIAgent.run_conversation()
     → prompt_builder.build_system_prompt()
     → runtime_provider.resolve_runtime_provider()
@@ -231,7 +231,7 @@ Long-running process with 20 platform adapters, unified session routing, user au
 
 Three discovery sources: `~/.ruslan/plugins/` (user), `.ruslan/plugins/` (project), and pip entry points. Plugins register tools, hooks, and CLI commands through a context API. Two specialized plugin types exist: memory providers (`plugins/memory/`) and context engines (`plugins/context_engine/`). Both are single-select — only one of each can be active at a time, configured via `ruslan plugins` or `config.yaml`.
 
-→ [Plugin Guide](/guides/build-a-ruslan-plugin), [Memory Provider Plugin](./memory-provider-plugin.md)
+→ [Plugin Guide](/developer-guide/plugins), [Memory Provider Plugin](./memory-provider-plugin.md)
 
 ### Cron
 

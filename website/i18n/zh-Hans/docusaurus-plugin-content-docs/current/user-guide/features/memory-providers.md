@@ -366,7 +366,7 @@ echo "HINDSIGHT_API_KEY=your-key" >> ~/.ruslan/.env
 | `retain_assistant_prefix` | `Assistant` | 自动保留的对话记录中助手轮次前的标签 |
 | `recall_tags` | — | 召回时用于过滤的标签 |
 
-完整配置参考参见[插件 README](https://github.com/valldun1/ruslan/blob/main/plugins/memory/hindsight/README.md)。
+完整配置参考参见[插件 README](https://github.com/NousResearch/ruslan-agent/blob/main/plugins/memory/hindsight/README.md)。
 
 ---
 
@@ -467,7 +467,7 @@ ruslan config set memory.provider byterover
 | | |
 |---|---|
 | **适合场景** | 带用户 profile 和会话级图谱构建的语义召回 |
-| **依赖** | `pip install supermemory` + [API key](https://supermemory.ai) |
+| **依赖** | `pip install supermemory` + [API key](http://app.supermemory.ai/integrations?connect=ruslan) |
 | **数据存储** | Supermemory Cloud |
 | **费用** | Supermemory 定价 |
 

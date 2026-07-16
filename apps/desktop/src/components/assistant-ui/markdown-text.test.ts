@@ -174,13 +174,13 @@ describe('preprocessMarkdown', () => {
   })
 
   it('does not swallow trailing emphasis asterisks into an autolinked url', () => {
-    const input = '**PR opened: https://github.com/valldun1/ruslan/pull/12345**'
+    const input = '**PR opened: https://github.com/NousResearch/ruslan-agent/pull/12345**'
 
     const output = preprocessMarkdown(input)
 
     // The URL is autolinked WITHOUT the trailing `**` glued into the href,
     // and the bold emphasis run stays intact so it renders as bold + a link.
-    expect(output).toContain('<https://github.com/valldun1/ruslan/pull/12345>')
+    expect(output).toContain('<https://github.com/NousResearch/ruslan-agent/pull/12345>')
     expect(output).not.toContain('pull/12345**>')
     expect(output).not.toContain('12345*')
   })
@@ -209,5 +209,30 @@ describe('preprocessMarkdown', () => {
     const input = `\`\`\`js\n${body}\n\`\`\``
 
     expect(() => preprocessMarkdown(input)).not.toThrow()
+  })
+
+  it('keeps $$<digit>$$ display math intact instead of escaping it as currency', () => {
+    const output = preprocessMarkdown('$$5x = 10$$')
+
+    expect(output).toContain('$$5x = 10$$')
+    expect(output).not.toContain('\\$')
+  })
+
+  it('rewrites double-backslash bracket math to dollar delimiters', () => {
+    const output = preprocessMarkdown('\\\\(x^2\\\\)')
+
+    expect(output).toContain('$x^2$')
+  })
+
+  it('rewrites [/math] and [/inline] tag pairs to dollar delimiters', () => {
+    expect(preprocessMarkdown('[/math]a+b[/math]')).toContain('$$a+b$$')
+    expect(preprocessMarkdown('[/inline]x[/inline]')).toContain('$x$')
+  })
+
+  it('escapes currency dollars in prose so they are not parsed as math', () => {
+    const output = preprocessMarkdown('$5 and $10')
+
+    expect(output).toContain('\\$5')
+    expect(output).toContain('\\$10')
   })
 })
